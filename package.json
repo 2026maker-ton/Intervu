@@ -1,0 +1,19 @@
+{
+  "name": "intervu",
+  "version": "0.1.0",
+  "description": "Intervu — 한국어 AI 모의면접 MVP (Mock-first, Gemini provider-gated)",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test tests/run.mjs",
+    "verify:design": "node tools/verify-design.mjs",
+    "cost": "node tools/cost-model.mjs --sessions=1000",
+    "cost:gemini": "node tools/cost-model-gemini.mjs --sessions=1000",
+    "smoke:gemini": "node tools/gemini-smoke.mjs",
+    "e2e:gemini": "node tools/gemini-e2e.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

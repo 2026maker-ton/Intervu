@@ -1,0 +1,11 @@
+{
+  "as_of": "2026-10-23",
+  "currency": "USD",
+  "measured": false,
+  "scenario": {"wall_minutes":15,"user_audio_seconds_per_turn":[48,48,48,48,48,48,48,48,48,48],"ai_audio_minutes":4,"llm_input_tokens":45000,"llm_output_tokens":5000,"tts_characters":2200},
+  "prices": {"stt_per_hour":0.04,"stt_min_seconds_per_request":10,"llm_input_per_million":0.10,"llm_output_per_million":0.50,"tts_per_million_characters":4,"tts_monthly_free_characters":4000000,"streaming_stt_promo_per_minute":0.0048,"streaming_stt_regular_per_minute":0.0077,"streaming_tts_per_million_characters":30},
+  "operations": {"overhead_fraction":0.25,"fixed_monthly_low":39,"fixed_monthly_high":80,"session_hard_cap":0.08,"monthly_api_budget":30},
+  "sources": ["https://console.groq.com/docs/speech-to-text","https://developers.openai.com/api/docs/models/gpt-6-luna","https://cloud.google.com/text-to-speech/pricing","https://deepgram.com/pricing","https://render.com/pricing","https://supabase.com/pricing"],
+  "excluded": ["tax","foreign exchange","payment fees","human review","customer support","cache writes/reads","additional egress","native realtime history","unmeasured load-dependent infrastructure scaling"],
+  "notes": "No free credits or cache savings applied by default. The 25% reserve is an assumption for setup/retries/variation, not observed overhead. Fixed low includes Render web+worker 7+7 (reconfirm checkout) and Supabase Pro 25."
+}

@@ -1,0 +1,8 @@
+{
+  "session_id": "synthetic-session-1",
+  "synthetic": true,
+  "turns": [
+    {"turn_id":"t1","revision":1,"speaker":"user","text":"제가 일정을 조정했어요. 역할별 마감 시간을 합의했고, 이후 마감 누락 없이 제출했어요.","elicited_dimensions":["evidence_specificity","relevance"]},
+    {"turn_id":"t2","revision":1,"speaker":"user","text":"제가 대안을 비교했어요. 비용과 시간을 표로 정리해서 팀이 선택할 근거를 제시했어요.","elicited_dimensions":["evidence_specificity","reasoning"]}
+  ]
+}

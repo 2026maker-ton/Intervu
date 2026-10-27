@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "session_id": "synthetic-session-1",
+  "rubric_version": "behavioral-ko-v1",
+  "model_version": "mock-model-v1",
+  "dimensions": [
+    {
+      "id": "evidence_specificity",
+      "status": "scored",
+      "level": 3,
+      "observation": "두 답변에서 본인이 한 행동을 구체적으로 설명했습니다. 경험의 실제 여부는 검증하지 않았습니다.",
+      "abstention_reason": null,
+      "evidence": [
+        {"turn_id":"t1","revision":1,"start_cp":0,"end_cp":12,"quote":"제가 일정을 조정했어요","anchor_id":"evidence_specificity:3","answer_level":3},
+        {"turn_id":"t2","revision":1,"start_cp":0,"end_cp":12,"quote":"제가 대안을 비교했어요","anchor_id":"evidence_specificity:3","answer_level":3}
+      ]
+    },
+    {
+      "id": "reflection",
+      "status": "insufficient_evidence",
+      "level": null,
+      "observation": "성찰을 확인할 기회가 충분하지 않았습니다.",
+      "abstention_reason": "유효한 성찰 답변이 두 개 미만입니다.",
+      "evidence": []
+    }
+  ],
+  "next_actions": [{"dimension_id":"evidence_specificity","action":"선택한 행동이 어떤 결과로 이어졌는지 실제 관찰을 덧붙이세요.","practice_question":"다른 협업 경험에서 본인의 행동과 관찰한 결과를 설명해 주세요."}]
+}

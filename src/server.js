@@ -11,15 +11,23 @@ import { createLedger, estimateTokens } from './domain/ledger.js';
 import { detectPii, maskPii, buildBlindContext, extractClaims, verifyClaimSpan } from './domain/pii.js';
 import { normalizeSource, validateSourceUrl, freshnessOf } from './domain/sources.js';
 import { buildInstitutionProfile, linkAnswersToInstitution, normalizeOrgType, providerConstraintForOrg } from './domain/institution.js';
-import { normalizeRole, followupForRole, ROLES } from './domain/roles.js';
+import { normalizeRole, followupForRole, ROLES, ROLE_IDS } from './domain/roles.js';
 import { canSessionTransition } from './domain/state.js';
 import { selectQuestions, FOLLOWUPS, followupReasonFor } from './domain/questions.js';
 import { buildMockEvaluation } from './domain/mock-eval.js';
 import { validateEvaluation, checkFeedbackSafety } from './domain/evaluation.js';
 import { createMockAdapter, createGeminiAdapter, selectProvider } from './providers/adapters.js';
+import { INTERVIEW_TYPES, DURATIONS, PERSONAS, INPUT_MODES, normalizeInterviewType, validateCombination, questionCountForDuration } from './domain/interview-types.js';
+import { rubricForInterviewType, getRubric } from './domain/rubrics.js';
+import { buildTypedEvaluation } from './domain/mock-eval-typed.js';
+import { validateEvaluationGeneric } from './domain/evaluation-generic.js';
+import { createDiscussionState, nextAiUtterance, moderatorLine, recordDiscussionTurn, DISCUSSION_TOPICS } from './domain/discussion.js';
+import { PT_TASKS, SITUATION_SCENARIOS, TECHNICAL_QUESTIONS, PANEL_PRESETS } from './domain/scenarios.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const staticDir = path.join(root, 'public');
+// 레거시 mode 값: 하위 호환을 위해 interview_type으로 매핑한다.
+const LEGACY_TYPE_ALIASES = ['structured', 'discussion_beta', 'pt_beta', 'presentation'];
 
 export function createApp(overrides = {}) {
   const env = { ...loadDotEnv(root), ...process.env, ...(overrides.env || {}) };
@@ -45,6 +53,19 @@ export function createApp(overrides = {}) {
     if (!p) return 0;
     if (p.perMinute) return ((usage.billedSeconds || 0) / 60) * p.perMinute;
     return ((usage.input || 0) * p.input + (usage.output || 0) * p.output) / 1e6;
+  };
+  // 유형·단계별 평가 차원 매핑: 보고서의 근거 차원은 발화 시점의 단계로 고정한다.
+  const discussionTurnDims = (phase, userTurnNo) => {
+    if (userTurnNo <= 1) return ['claim_understanding', 'evidence_use'];
+    if (userTurnNo === 2) return ['rebuttal', 'claim_understanding', 'evidence_use'];
+    if (userTurnNo === 3) return ['rebuttal', 'collaboration', 'evidence_use'];
+    return ['collaboration', 'claim_understanding', 'evidence_use'];
+  };
+  const situationalTurnDims = (idx, followupCount) => {
+    if (idx === 0) return ['role_understanding', 'responsiveness', 'reasoning'];
+    if (idx === 1) return ['responsiveness', 'reasoning', 'role_understanding'];
+    if (idx <= followupCount) return ['role_understanding', 'reasoning', 'reflection'];
+    return ['reflection', 'responsiveness', 'reasoning'];
   };
   const json = (res, status, body) => {
     const data = JSON.stringify(body);
@@ -227,15 +248,40 @@ export function createApp(overrides = {}) {
       if (new Date(p.expires_at).getTime() < Date.now()) return err('conflict', '만료된 프로필입니다.', 409);
       institution = store.getInstitution(p.id)?.profile || null;
     }
-    const mode = body.mode === 'discussion_beta' || body.mode === 'pt_beta' ? body.mode : 'structured';
-    if (mode !== 'structured') return err('not_implemented', '해당 모드는 닫힌 베타이며 기본 비활성입니다.', 422);
+    // 면접 유형 + 설정 조합 검증 (유형과 블라인드/성향/역할/입력/시간은 독립 축)
+    const rawType = body.interview_type ?? body.mode;
+    const interview_type = normalizeInterviewType(rawType || 'general');
+    if (rawType && !INTERVIEW_TYPES[String(rawType).toLowerCase()] && !LEGACY_TYPE_ALIASES.includes(String(rawType).toLowerCase())) {
+      return err('validation_error', `알 수 없는 면접 유형입니다: ${String(rawType).slice(0, 40)}`, 422);
+    }
+    const rawDuration = body.duration_minutes;
+    if (rawDuration !== undefined && !DURATIONS.includes(Number(rawDuration))) {
+      return err('validation_error', '면접 시간은 5·10·15분 중에서 선택해야 합니다.', 422);
+    }
+    const duration_minutes = rawDuration === undefined ? 15 : Number(rawDuration);
+    // duration_seconds가 명시되면 우선 (PT 준비/발표 타이머·재연습 90초 등)
+    const duration_seconds = Number.isFinite(body.duration_seconds) && body.duration_seconds > 0
+      ? Math.round(body.duration_seconds)
+      : duration_minutes * 60;
+    const panel_roles_in = Array.isArray(body.panel_roles) ? body.panel_roles.filter((r) => ROLES[r]) : null;
+    const combo = validateCombination({
+      interview_type, blind: body.blind ?? false, persona: body.persona || 'standard',
+      interviewer_role: body.interviewer_role, panel_roles: panel_roles_in,
+      input_mode: body.input_mode || 'text', duration_minutes, org_type: institution?.org_type,
+    });
+    if (!combo.ok) return err('validation_error', `지원하지 않는 설정 조합입니다: ${combo.errors.join(', ')}`, 422);
+    // 레거시 mode 매핑 유지 (항상 interview_type으로 정규화)
+    const mode = interview_type;
+    void body.mode;
     // 사용자당 활성 세션 1개
     const active = store.listSessions(owner).find((s) => ['active', 'paused', 'completing'].includes(s.state));
     if (active) return err('conflict', '이미 진행 중인 세션이 있습니다.', 409, { details: { session_id: active.id } });
     if (!['supportive', 'standard', 'challenging'].includes(body.persona || 'standard')) return err('validation_error', '성향 값이 올바르지 않습니다.', 422);
-    const orgOf = institution?.org_type || version ? store.getProfile(owner, version?.profile_id)?.org_type : null;
-    const role = normalizeRole(body.interviewer_role, orgOf || 'general');
-    if (body.interviewer_role && !ROLES[body.interviewer_role]) return err('validation_error', '면접관 역할 값이 올바르지 않습니다.', 422);
+    const orgOf = institution?.org_type || (version ? store.getProfile(owner, version?.profile_id)?.org_type : null);
+    // 기술 면접은 면접관 역할을 명시하지 않으면 기술·전공 면접관이 기본이다.
+    const requestedRole = body.interviewer_role || (interview_type === 'technical' ? 'expert' : null);
+    const role = normalizeRole(requestedRole, orgOf || 'general');
+    if (requestedRole && !ROLES[requestedRole]) return err('validation_error', '면접관 역할 값이 올바르지 않습니다.', 422);
     if (institution?.org_type === 'highschool' && provider.name === 'gemini') {
       return err('not_implemented', '고등학교 입학면접 연습은 Mock 검증 범위이며 Gemini 실호출을 사용하지 않습니다.', 422);
     }
@@ -246,29 +292,110 @@ export function createApp(overrides = {}) {
       }
     } catch (e) {
       return err('quota_exceeded', '예산 한도를 초과했습니다.', 429, { retryable: true, details: { reason: e.message } });
-    }    const { picked, coverage } = selectQuestions((body.seed || Date.now()) >>> 0, 5);
-    // 기관 맞춤 질문이 있으면 앞에 배치(확인된 것만). 없음 → 일반 팩 그대로.
-    let questions = picked.map((q) => ({ ...q }));
+    }    const qCount = questionCountForDuration(duration_minutes);
+    let questions = [];
+    let coverage = null;
     let question_basis = 'general-template-v1';
-    if (institution && !institution.fallback_to_general && Array.isArray(institution.recommended_questions) && institution.recommended_questions.length) {
-      const instQs = institution.recommended_questions.slice(0, 2).map((q) => ({
-        id: q.id || `inst-${q.primary}`, text: q.text, primary: q.primary, secondary: q.secondary || [],
-        followup: q.text.includes('?') ? q.text : undefined,
-        followup_dimensions: [q.primary],
-        _institution_basis: q.basis, _rationale: q.rationale,
-      }));
-      questions = [...instQs, ...questions].slice(0, 5);
-      question_basis = institution.badge || '기관 맞춤 검토 가능';
+    let rubric_version = rubricForInterviewType(interview_type);
+    let extra = {};
+    const seedNum = (body.seed || Date.now()) >>> 0;
+
+    if (interview_type === 'technical') {
+      // 직무·기술: 기술 팩 + 기관 맞춤 앞배치
+      const tqs = [...TECHNICAL_QUESTIONS].slice(0, qCount).map((q) => ({ ...q }));
+      questions = tqs;
+      question_basis = 'technical-ko-v1';
+      coverage = { technical: qCount };
+      if (institution && !institution.fallback_to_general && Array.isArray(institution.recommended_questions) && institution.recommended_questions.length) {
+        const instQs = institution.recommended_questions.slice(0, 1).map((q) => ({
+          id: q.id || `inst-${q.primary}`, text: q.text, primary: q.primary, secondary: q.secondary || [],
+          followup: undefined, followup_dimensions: [q.primary],
+          _institution_basis: q.basis, _rationale: q.rationale,
+        }));
+        questions = [...instQs, ...questions].slice(0, qCount);
+        question_basis = institution.badge || '기관 맞춤 검토 가능';
+      }
+    } else if (interview_type === 'discussion') {
+      // 토론: 사회자 + AI 2명 + 사용자. 질문 대신 토론 주제로 시작.
+      const pickedTopic = DISCUSSION_TOPICS.find((t) => t.id === body.topic_id) || DISCUSSION_TOPICS[seedNum % DISCUSSION_TOPICS.length];
+      const disc = createDiscussionState(seedNum, pickedTopic.id);
+      extra = {
+        discussion: disc,
+        topic_id: pickedTopic.id, topic_title: pickedTopic.title, topic_brief: pickedTopic.brief,
+        task_type: 'discussion', participant_layout: 'group',
+      };
+      // 토론의 사용자 발언 기회(최소 4회)를 질문 슬롯으로 환산 — 보고서 elicited 매핑용 더미 질문
+      questions = [
+        { id: 'disc-open', text: `입론: “${pickedTopic.title}”에 대한 당신의 입장을 말해 주세요.`, primary: 'claim_understanding', secondary: ['evidence_use'] },
+        { id: 'disc-exch', text: '반론: AI 참가자의 주장 중 하나를 짚고 근거와 함께 반박해 보세요.', primary: 'rebuttal', secondary: ['claim_understanding'] },
+        { id: 'disc-agree', text: '합의: 양보할 점과 지킬 점을 각각 한 가지씩 말해 보세요.', primary: 'collaboration', secondary: ['evidence_use'] },
+      ];
+      question_basis = 'discussion-topic-v1 · AI 2명 + 사회자';
+      coverage = { discussion: 3 };
+    } else if (interview_type === 'pt') {
+      // PT: 과제 제시 → 준비(서버 타이머) → 발표 → Q&A
+      const task = PT_TASKS.find((t) => t.id === body.pt_task_id) || PT_TASKS[seedNum % PT_TASKS.length];
+      extra = {
+        pt_task_id: task.id, pt_task_title: task.title, pt_brief: task.brief,
+        pt_phase: 'brief', pt_prepare_seconds: task.prepare_seconds, pt_present_seconds: task.present_seconds,
+        pt_qa: task.qa_bank.slice(0, task.qa_count), pt_qa_index: 0,
+        task_type: 'presentation',
+      };
+      questions = [
+        { id: 'pt-present', text: `발표: “${task.title}” 기획안을 3분 안에 발표해 보세요.`, primary: 'structure', secondary: ['evidence_use', 'execution_plan'] },
+        { id: 'pt-qa', text: '질의응답: 면접관의 질문에 답해 보세요.', primary: 'qa_response', secondary: ['evidence_use'] },
+      ];
+      question_basis = `pt-task-v1 · ${task.title}`;
+      coverage = { presentation: 2 };
+      rubric_version = 'presentation-ko-v1';
+    } else if (interview_type === 'situational') {
+      // 상황·역할극: 시나리오 오프닝 + 후속 전개
+      const sc = SITUATION_SCENARIOS.find((x) => x.id === body.scenario_id) || SITUATION_SCENARIOS[seedNum % SITUATION_SCENARIOS.length];
+      extra = {
+        scenario_id: sc.id, scenario_title: sc.title, scenario_followups: sc.followups,
+        task_type: 'situational',
+      };
+      questions = [{ id: `sit-${sc.id}`, text: sc.opening, primary: 'role_understanding', secondary: ['responsiveness', 'reasoning'] }];
+      question_basis = `situation-scenario-v1 · ${sc.title}`;
+      coverage = { situational: 1 };
+      rubric_version = 'situational-ko-v1';
+    } else if (interview_type === 'panel') {
+      // 패널: 역할 2~3명이 돌아가며 질문
+      const roles = panel_roles_in && panel_roles_in.length >= 2 ? panel_roles_in.slice(0, 3)
+        : (institution?.org_type === 'university' || institution?.org_type === 'highschool') ? PANEL_PRESETS.school : PANEL_PRESETS.default;
+      const { picked } = selectQuestions(seedNum, qCount);
+      questions = picked.map((q, i) => ({ ...q, _panel_role: roles[i % roles.length] }));
+      extra = { panel_roles: roles, participant_layout: 'panel', task_type: 'behavioral' };
+      question_basis = `panel-v1 · ${roles.map((r) => ROLES[r]?.label || r).join(' / ')}`;
+      coverage = { panel: qCount };
+    } else {
+      // general: 기존 1:1 흐름 + 시간별 문항 수
+      const { picked, coverage: cov } = selectQuestions(seedNum, qCount);
+      questions = picked.map((q) => ({ ...q }));
+      coverage = cov;
+      if (institution && !institution.fallback_to_general && Array.isArray(institution.recommended_questions) && institution.recommended_questions.length) {
+        const instQs = institution.recommended_questions.slice(0, 2).map((q) => ({
+          id: q.id || `inst-${q.primary}`, text: q.text, primary: q.primary, secondary: q.secondary || [],
+          followup: q.text.includes('?') ? q.text : undefined,
+          followup_dimensions: [q.primary],
+          _institution_basis: q.basis, _rationale: q.rationale,
+        }));
+        questions = [...instQs, ...questions].slice(0, qCount);
+        question_basis = institution.badge || '기관 맞춤 검토 가능';
+      }
     }
     const s = store.createSession(owner, {
-      ...body, mode,
+      ...body, mode, interview_type,
+      duration_minutes, duration_seconds,
       interviewer_role: role,
       questions,
-      policy_snapshot: { provider: provider.name, model: config.gemini.textModel, rubric: 'behavioral-ko-v1', pack: 'general-entry-ko@0.1.0-draft', budget_cap: config.budgets.sessionHardCap, interviewer_role: role, persona: body.persona || 'standard', question_basis, institution_approved: !!institution },
+      ...extra,
+      highschool_mock: institution?.org_type === 'highschool' ? true : !!body._forceMock,
+      policy_snapshot: { provider: provider.name, model: config.gemini.textModel, rubric: rubric_version, pack: 'general-entry-ko@0.1.0-draft', budget_cap: config.budgets.sessionHardCap, interviewer_role: role, persona: body.persona || 'standard', question_basis, institution_approved: !!institution },
     });
     store.updateSession(s, { coverage, question_basis });
     store.pushEvent(s.id, 'session.snapshot', { state: 'ready', questions: s.questions.length, interviewer_role: role, question_basis });
-    return { status: 201, body: { id: s.id, state: s.state, version: s.version, limits: { duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: provider.name, coverage, interviewer_role: role, role_label: ROLES[role].label, question_basis } };
+    return { status: 201, body: { id: s.id, state: s.state, version: s.version, interview_type, task_type: s.task_type, participant_layout: s.participant_layout, limits: { duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: provider.name, coverage, interviewer_role: role, role_label: ROLES[role].label, panel_roles: s.panel_roles || null, topic: s.topic_title ? { id: s.topic_id, title: s.topic_title, brief: s.topic_brief } : null, pt_task: s.pt_task_id ? { id: s.pt_task_id, title: s.pt_task_title, brief: s.pt_brief, prepare_seconds: s.pt_prepare_seconds, present_seconds: s.pt_present_seconds } : null, scenario: s.scenario_id ? { id: s.scenario_id, title: s.scenario_title } : null, rubric_version, question_basis } };
   }
 
   function getSession(owner, id) {
@@ -277,16 +404,43 @@ export function createApp(overrides = {}) {
     return { status: 200, body: publicSession(s) };
   }
   function publicSession(s) {
-    return {
+    const base = {
       id: s.id, state: s.state, version: s.version, mode: s.mode, task_type: s.task_type,
+      interview_type: s.interview_type || s.mode || 'general',
+      participant_layout: s.participant_layout || 'one_to_one',
       persona: s.persona, blind: s.blind, interviewer_role: s.interviewer_role || 'practitioner',
       role_label: (ROLES[s.interviewer_role] || ROLES.practitioner).label,
       question_basis: s.question_basis || 'general-template-v1',
+      rubric_version: s.policy_snapshot?.rubric || rubricForInterviewType(s.interview_type || s.mode || 'general'),
       duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, input_mode: s.input_mode,
       active_elapsed_ms: s.active_elapsed_ms + (s.state === 'active' && s.started_at ? Math.max(0, Date.now() - Date.parse(s.started_at)) : 0), questions: s.questions.map((q) => ({ id: q.id, text: q.text, primary: q.primary, secondary: q.secondary })), q_index: s.q_index,
       current_question: s.questions[s.q_index] || null, followups_used: s.followups_used, llm_calls: s.llm_calls,
       coverage: s.coverage || null, degraded_reason: s.degraded_reason, last_seq: (store.events.get(s.id) || []).filter((e) => e.durable).length,
     };
+    if (s.interview_type === 'discussion') {
+      base.topic = s.topic_id ? { id: s.topic_id, title: s.topic_title, brief: s.topic_brief } : null;
+      base.discussion = s.discussion ? {
+        phase: s.discussion.phase, next_speaker: s.discussion.next_speaker,
+        user_turns: s.discussion.user_turns, user_opportunities: s.discussion.user_opportunities,
+        total_turns: s.discussion.total_turns, agreed_points: s.discussion.agreed_points || [],
+      } : null;
+    }
+    if (s.interview_type === 'pt') {
+      base.pt_task = s.pt_task_id ? { id: s.pt_task_id, title: s.pt_task_title, brief: s.pt_brief, prepare_seconds: s.pt_prepare_seconds, present_seconds: s.pt_present_seconds } : null;
+      base.pt_phase = s.pt_phase || 'brief';
+      base.pt_qa_index = s.pt_qa_index || 0;
+      base.pt_qa_total = (s.pt_qa || []).length;
+    }
+    if (s.interview_type === 'situational') {
+      base.scenario = s.scenario_id ? { id: s.scenario_id, title: s.scenario_title } : null;
+      base.scenario_index = s.scenario_index || 0;
+      base.scenario_followup_total = (s.scenario_followups || []).length;
+    }
+    if (s.interview_type === 'panel') {
+      base.panel_roles = (s.panel_roles || []).map((r) => ({ id: r, label: (ROLES[r] || {}).label || r }));
+      base.current_panel_role = s.questions[s.q_index]?._panel_role || s.panel_roles?.[0] || null;
+    }
+    return base;
   }
 
   async function runCommand(owner, sessionId, body, requestId) {
@@ -317,7 +471,52 @@ export function createApp(overrides = {}) {
       if (!canSessionTransition(s.state, 'active')) return err('conflict', '전이 불가', 409);
       store.updateSession(s, { state: 'active', started_at: now() });
       store.pushEvent(s.id, 'session.snapshot', { state: 'active' });
-      return accept({ command_id: commandId, state: 'active', version: s.version, question: s.questions[s.q_index], question_total: s.questions.length, last_seq: (store.events.get(s.id) || []).length });
+      // 유형별 시작 멘트: 토론은 사회자 오프닝 + A 입론, PT는 과제 브리핑
+      const it = s.interview_type || s.mode || 'general';
+      let openings = [];
+      if (it === 'discussion' && s.discussion) {
+        const open = moderatorLine(s.discussion, 'open');
+        recordDiscussionTurn(s.discussion, { speaker_id: 'moderator', claim_id: 'c-open', text: open });
+        const aiA = nextAiUtterance(s.discussion, 'ai-a', '');
+        recordDiscussionTurn(s.discussion, { speaker_id: aiA.speaker_id, claim_id: aiA.claim_id, text: aiA.text });
+        store.pushEvent(s.id, 'assistant.message', { utterance: open, speaker_id: 'moderator', discussion_phase: s.discussion.phase });
+        store.pushEvent(s.id, 'assistant.message', { utterance: aiA.text, speaker_id: aiA.speaker_id, speaker_name: aiA.speaker_name, claim_id: aiA.claim_id, discussion_phase: s.discussion.phase });
+        openings = [{ speaker_id: 'moderator', utterance: open }, { speaker_id: aiA.speaker_id, speaker_name: aiA.speaker_name, utterance: aiA.text, claim_id: aiA.claim_id }];
+        store.updateSession(s, {});
+      } else if (it === 'pt') {
+        store.updateSession(s, { pt_phase: 'brief' });
+        store.pushEvent(s.id, 'assistant.message', { utterance: s.pt_brief, speaker_id: 'moderator', pt_phase: 'brief' });
+      } else if (it === 'situational') {
+        store.updateSession(s, { scenario_index: 0 });
+        store.pushEvent(s.id, 'assistant.message', { utterance: s.questions[0]?.text || '', speaker_id: 'interviewer', scenario_id: s.scenario_id });
+      } else if (it === 'panel' && Array.isArray(s.panel_roles) && s.panel_roles.length) {
+        store.pushEvent(s.id, 'assistant.message', { utterance: `패널 면접을 시작합니다. ${s.panel_roles.map((r) => ROLES[r]?.label || r).join(' · ')} 면접관이 돌아가며 질문합니다.`, speaker_id: 'moderator' });
+      }
+      const base0 = { command_id: commandId, state: 'active', version: s.version, question: s.questions[s.q_index], question_total: s.questions.length, last_seq: (store.events.get(s.id) || []).length };
+      if (openings.length) base0.openings = openings;
+      if (it === 'discussion') base0.discussion = publicSession(s).discussion;
+      if (it === 'pt') { base0.pt_phase = s.pt_phase; base0.pt_task = publicSession(s).pt_task; }
+      if (it === 'situational') base0.scenario = publicSession(s).scenario;
+      if (it === 'panel') base0.panel_roles = publicSession(s).panel_roles;
+      return accept(base0);
+    }
+    if (type === 'pt.prepare') {
+      if (s.interview_type !== 'pt') return err('validation_error', 'PT 세션에서만 사용할 수 있습니다.', 422);
+      if (s.state !== 'active') return err('conflict', '진행 중인 세션에서만 단계를 바꿀 수 있습니다.', 409);
+      const to = String(payload.phase || '');
+      if (!['brief', 'prepare', 'present', 'qa'].includes(to)) return err('validation_error', '단계 값이 올바르지 않습니다.', 422);
+      // 건너뛰기 금지: brief → prepare → present → qa 순서만 허용
+      const order = ['brief', 'prepare', 'present', 'qa'];
+      const from = order.indexOf(s.pt_phase || 'brief');
+      const target = order.indexOf(to);
+      if (target < from || target > from + 1) return err('conflict', 'PT 단계는 순서대로만 진행할 수 있습니다.', 409, { details: { current: s.pt_phase, requested: to } });
+      store.updateSession(s, { pt_phase: to });
+      let utterance = null;
+      if (to === 'prepare') utterance = `준비 시간 ${Math.round((s.pt_prepare_seconds || 180) / 60)}분입니다. 과제를 읽고 발표 구조를 정리하세요. 준비가 끝나면 “발표 시작”을 누르세요.`;
+      if (to === 'present') utterance = `발표 시간 ${Math.round((s.pt_present_seconds || 180) / 60)}분입니다. 결론 → 근거 → 실행계획 순서로 발표해 보세요.`;
+      if (to === 'qa') utterance = s.pt_qa?.[0] || '질의응답을 시작합니다.';
+      if (utterance) store.pushEvent(s.id, 'assistant.message', { utterance, speaker_id: 'interviewer', pt_phase: to });
+      return accept({ command_id: commandId, state: s.state, version: s.version, pt_phase: to, pt_qa_index: s.pt_qa_index || 0, utterance });
     }
     if (type === 'session.pause') {
       if (s.state !== 'active') return err('conflict', '진행 중인 세션만 일시정지할 수 있습니다.', 409);
@@ -336,11 +535,128 @@ export function createApp(overrides = {}) {
       // 서버 시계 기준 시간 상한(클라이언트 타이머 조작과 무관)
       const elapsedMs = s.active_elapsed_ms + (s.started_at ? Math.max(0, Date.now() - Date.parse(s.started_at)) : 0);
       if (elapsedMs >= s.duration_seconds * 1000) return finishSession(owner, s, accept, commandId);
-      const text = String(payload.text || '').trim();
+      let text = String(payload.text || '').trim();
       if (!text) return err('validation_error', '답변이 비어 있습니다.', 422);
       if ([...text].length > config.limits.maxAnswerChars) return err('validation_error', '답변은 4,000자 이하여야 합니다.', 422);
+      // 블라인드 모드: 저장·평가에 쓰이는 텍스트에서 학교·성별·출신 단서를 마스킹한다.
+      // (완전 익명화 보장은 아니며, 원문은 저장하지 않는다.)
+      if (s.blind) text = buildBlindContext(text);
       const answered = store.sessionTurns(s.id).filter((t) => t.speaker_id === 'user').length;
       if (answered >= config.limits.maxUserTurns) return finishSession(owner, s, accept, commandId);
+      const it = s.interview_type || s.mode || 'general';
+      // 토론 턴: 사용자 발언 → 상태 기록 → 다음 화자 1명 발언을 함께 반환.
+      // 4번째 사용자 발언이 끝나면 사회자가 정리하고 자동 종료한다(발언 기회 4회 보장).
+      if (it === 'discussion') {
+        const q = s.questions[Math.min(s.q_index, s.questions.length - 1)];
+        const phaseBefore = s.discussion?.phase || 'opening';
+        const dims = discussionTurnDims(phaseBefore, (s.discussion?.user_turns || 0) + 1);
+        const turn = store.createTurn(s.id, { speaker_id: 'user', question_id: q.id, competency: q.primary, followup: false, elicited_dims: dims });
+        const rev = store.addRevision(turn.id, text, 'user', detectPii(text).map((x) => x.type));
+        recordDiscussionTurn(s.discussion, { speaker_id: 'user', claim_id: `c-u-${s.discussion.total_turns + 1}`, text });
+        store.pushEvent(s.id, 'assistant.message', { utterance: text, speaker_id: 'user', discussion_phase: s.discussion.phase });
+        const utterances = [];
+        // 다음 발언: 사용자 → (AI 1명) → 사용자. 사회자는 단계 안내만 한다.
+        if (s.discussion.next_speaker === 'user') {
+          const line = moderatorLine(s.discussion, s.discussion.phase === 'agreement' ? 'agreement' : 'to_user');
+          utterances.push({ speaker_id: 'moderator', utterance: line });
+          store.pushEvent(s.id, 'assistant.message', { utterance: line, speaker_id: 'moderator', discussion_phase: s.discussion.phase });
+          store.updateSession(s, {});
+          return accept({ command_id: commandId, state: s.state, version: s.version, action: 'await_user', utterance: line, utterances, turn_id: turn.id, revision: rev.revision, discussion: publicSession(s).discussion, followups_used: s.followups_used, llm_calls: s.llm_calls });
+        }
+        if (s.discussion.next_speaker === 'moderator') {
+          const closing = moderatorLine(s.discussion, 'closing');
+          utterances.push({ speaker_id: 'moderator', utterance: closing });
+          store.pushEvent(s.id, 'assistant.message', { utterance: closing, speaker_id: 'moderator', discussion_phase: 'closing' });
+          s.q_index = s.questions.length - 1;
+          store.updateSession(s, {});
+          // 종료 응답은 사회자 마무리 멘트와 토론 상태를 함께 돌려준다(기록도 같은 본문).
+          let captured = null;
+          const fin = await finishSession(owner, s, (resp) => {
+            captured = {
+              ...resp, action: 'discussion_complete', utterance: closing, utterances,
+              turn_id: turn.id, revision: rev.revision, discussion: publicSession(s).discussion,
+            };
+            accept(captured);
+          }, commandId);
+          if (fin.error) return fin;
+          return { status: fin.status, body: captured || fin.body };
+        }
+        const ai = nextAiUtterance(s.discussion, s.discussion.next_speaker, text);
+        recordDiscussionTurn(s.discussion, { speaker_id: ai.speaker_id, claim_id: ai.claim_id, text: ai.text });
+        store.pushEvent(s.id, 'assistant.message', { utterance: ai.text, speaker_id: ai.speaker_id, speaker_name: ai.speaker_name, claim_id: ai.claim_id, responds_to: ai.responds_to, discussion_phase: s.discussion.phase });
+        utterances.push({ speaker_id: ai.speaker_id, speaker_name: ai.speaker_name, utterance: ai.text, claim_id: ai.claim_id });
+        // AI 발언 뒤에는 항상 사용자 차례 → 사회자 안내를 덧붙인다
+        if (s.discussion.next_speaker === 'user') {
+          const line = moderatorLine(s.discussion, s.discussion.phase === 'agreement' ? 'agreement' : 'to_user');
+          utterances.push({ speaker_id: 'moderator', utterance: line });
+          store.pushEvent(s.id, 'assistant.message', { utterance: line, speaker_id: 'moderator', discussion_phase: s.discussion.phase });
+        }
+        // 질문 슬롯을 사용자 발언 수에 맞춰 전진 (보고서 elicited 보조 매핑)
+        s.q_index = Math.min(s.discussion.user_turns, s.questions.length - 1);
+        store.updateSession(s, {});
+        return accept({ command_id: commandId, state: s.state, version: s.version, action: 'ai_speaks', utterance: ai.text, utterances, turn_id: turn.id, revision: rev.revision, discussion: publicSession(s).discussion, followups_used: s.followups_used, llm_calls: s.llm_calls });
+      }
+      // PT 턴: 발표 단계와 Q&A 단계의 답변만 평가 대상으로 기록한다.
+      if (it === 'pt') {
+        let phase = s.pt_phase || 'brief';
+        // 준비 단계에서 바로 발표를 시작해도 막히지 않게 첫 발표 발언으로 기록한다.
+        if (phase === 'brief' || phase === 'prepare') {
+          store.updateSession(s, { pt_phase: 'present' });
+          phase = 'present';
+        }
+        const inQa = phase === 'qa';
+        const qid = inQa ? 'pt-qa' : 'pt-present';
+        const q = s.questions.find((x) => x.id === qid) || s.questions[0];
+        const dims = inQa ? ['qa_response', 'evidence_use'] : ['structure', 'evidence_use', 'execution_plan'];
+        const turn = store.createTurn(s.id, { speaker_id: 'user', question_id: q.id, competency: q.primary, followup: inQa, elicited_dims: dims });
+        const rev = store.addRevision(turn.id, text, 'user', detectPii(text).map((x) => x.type));
+        store.pushEvent(s.id, 'assistant.message', { utterance: text, speaker_id: 'user', pt_phase: phase });
+        let utterance = '';
+        if (!inQa) {
+          const presentCount = store.sessionTurns(s.id).filter((t) => t.speaker_id === 'user' && t.question_id === 'pt-present').length;
+          if (presentCount >= 2) {
+            store.updateSession(s, { pt_phase: 'qa', pt_qa_index: 0 });
+            utterance = s.pt_qa[0] || '질의응답을 시작합니다. 질문에 답해 주세요.';
+          } else {
+            utterance = '발표를 이어가거나, 준비가 끝났으면 “발표 완료”라고 입력해 주세요. 발표가 끝나면 Q&A가 이어집니다.';
+          }
+        } else {
+          const idx = (s.pt_qa_index || 0) + 1;
+          if (idx >= s.pt_qa.length) {
+            store.updateSession(s, { pt_qa_index: idx });
+            return finishSession(owner, s, accept, commandId);
+          }
+          store.updateSession(s, { pt_qa_index: idx });
+          utterance = s.pt_qa[idx];
+        }
+        store.pushEvent(s.id, 'assistant.message', { utterance, speaker_id: 'interviewer', pt_phase: s.pt_phase });
+        store.updateSession(s, {});
+        return accept({ command_id: commandId, state: s.state, version: s.version, action: 'ask_followup', utterance, turn_id: turn.id, revision: rev.revision, pt_phase: s.pt_phase, pt_qa_index: s.pt_qa_index, followups_used: s.followups_used, llm_calls: s.llm_calls });
+      }
+      // 상황·역할극: 시나리오 오프닝 → 후속 2개 → 성찰 질문 → 종료 (모두 검수된 고정 문장)
+      if (it === 'situational') {
+        const idx = s.scenario_index || 0; // 0=오프닝 답변, 1..n=후속, n+1=성찰
+        const followups = s.scenario_followups || [];
+        const inFollowup = idx >= 1;
+        const q = s.questions[0];
+        const dims = situationalTurnDims(idx, followups.length);
+        const turn = store.createTurn(s.id, { speaker_id: 'user', question_id: q.id, competency: dims[0], followup: inFollowup, elicited_dims: dims });
+        const rev = store.addRevision(turn.id, text, 'user', detectPii(text).map((x) => x.type));
+        store.pushEvent(s.id, 'assistant.message', { utterance: text, speaker_id: 'user', scenario_id: s.scenario_id });
+        const nextIdx = idx + 1;
+        store.updateSession(s, { scenario_index: nextIdx });
+        if (nextIdx <= followups.length) {
+          const utterance = followups[nextIdx - 1];
+          store.pushEvent(s.id, 'assistant.message', { utterance, speaker_id: 'interviewer', scenario_id: s.scenario_id });
+          return accept({ command_id: commandId, state: s.state, version: s.version, action: 'ask_followup', utterance, turn_id: turn.id, revision: rev.revision, scenario_index: nextIdx, followups_used: s.followups_used, llm_calls: s.llm_calls });
+        }
+        if (nextIdx === followups.length + 1) {
+          const utterance = '마지막으로, 이 상황에서 본인이 택한 대응을 다음에 다시 한다면 무엇을 바꾸겠습니까? 그렇게 판단한 기준도 함께 말해 주세요.';
+          store.pushEvent(s.id, 'assistant.message', { utterance, speaker_id: 'interviewer', scenario_id: s.scenario_id });
+          return accept({ command_id: commandId, state: s.state, version: s.version, action: 'ask_followup', utterance, turn_id: turn.id, revision: rev.revision, scenario_index: nextIdx, followups_used: s.followups_used, llm_calls: s.llm_calls });
+        }
+        return finishSession(owner, s, accept, commandId);
+      }
       const q = s.questions[s.q_index];
       if (!q) return err('conflict', '남은 질문이 없습니다.', 409);
       const followupTurn = !!q._followedUp && s.followups_used > 0;
@@ -354,6 +670,8 @@ export function createApp(overrides = {}) {
       let utterance = q.text;
       let action = 'next_question';
       let followupReason = null;
+      // 패널: 현재 질문 담당 역할의 꼬리질문 전략을 사용 (평가는 동일 루브릭)
+      const panelRole = (s.interview_type === 'panel') ? (q._panel_role || (s.panel_roles || [])[s.q_index % (s.panel_roles || ['practitioner']).length] || s.interviewer_role) : s.interviewer_role;
       const needFollowup = s.followups_used < config.limits.maxFollowupsTotal && !q._followedUp;
       if (needFollowup) {
         followupReason = followupReasonFor(text);
@@ -363,12 +681,12 @@ export function createApp(overrides = {}) {
         ledger.reserve(`session:${s.id}`, 0.005);
         // highschool 세션은 Mock 강제(미성년자 보호)
         const useProvider = s.highschool_mock ? mock : provider;
-        const result = await useProvider.next({ persona: s.persona, role: s.interviewer_role, followupReason, questionText: q.followup || q.text, recentAnswer: text });
+        const result = await useProvider.next({ persona: s.persona, role: panelRole, followupReason, questionText: q.followup || q.text, recentAnswer: text });
         ledger.settle(`session:${s.id}`, 0.005, priceOf(result.model, result.usage));
         utterance = result.utterance;
         // 역할 전략: 서버가 최종 문장을 역할 맞춤 후속으로 교체(평가 기준은 불변)
         if (action === 'ask_followup' && followupReason) {
-          const tailored = followupForRole(s.interviewer_role, followupReason, null);
+          const tailored = followupForRole(panelRole, followupReason, null);
           if (tailored) utterance = tailored;
         }
       } catch (e) {
@@ -386,10 +704,12 @@ export function createApp(overrides = {}) {
         store.pushEvent(s.id, 'budget.warning', { reason: 'provider_fallback' });
       }
       s.llm_calls += 1;
+      const panel_prefix = (s.interview_type === 'panel' && panelRole) ? `[${(ROLES[panelRole] || {}).label || panelRole}] ` : '';
       if (action === 'ask_followup') {
         s.followups_used += 1;
         q._followedUp = true;
-        store.pushEvent(s.id, 'assistant.message', { utterance, action: 'ask_followup', target_competency: q.primary, followup_reason: followupReason });
+        utterance = panel_prefix + utterance;
+        store.pushEvent(s.id, 'assistant.message', { utterance, action: 'ask_followup', target_competency: q.primary, followup_reason: followupReason, speaker_role: panelRole });
       } else {
         s.followups_used = 0;
         s.q_index += 1;
@@ -398,18 +718,36 @@ export function createApp(overrides = {}) {
         }
         // 다음 질문은 검수된 팩 문장을 사용(모델이 평가·사실을 만들지 않음)
         utterance = s.questions[s.q_index].text;
-        store.pushEvent(s.id, 'assistant.message', { utterance, action: 'next_question', target_competency: s.questions[s.q_index].primary });
+        if (s.interview_type === 'panel') {
+          const nr = s.questions[s.q_index]._panel_role || (s.panel_roles || [])[s.q_index % (s.panel_roles || ['practitioner']).length];
+          utterance = `[${(ROLES[nr] || {}).label || nr}] ${utterance}`;
+          store.pushEvent(s.id, 'assistant.message', { utterance, action: 'next_question', target_competency: s.questions[s.q_index].primary, speaker_role: nr });
+        } else {
+          store.pushEvent(s.id, 'assistant.message', { utterance, action: 'next_question', target_competency: s.questions[s.q_index].primary });
+        }
       }
       store.updateSession(s, {});
-      return accept({ command_id: commandId, state: s.state, version: s.version, action, utterance, turn_id: turn.id, revision: rev.revision, current_question: s.questions[s.q_index] || null, followups_used: s.followups_used, llm_calls: s.llm_calls });
+      const resp = { command_id: commandId, state: s.state, version: s.version, action, utterance, turn_id: turn.id, revision: rev.revision, current_question: s.questions[s.q_index] || null, followups_used: s.followups_used, llm_calls: s.llm_calls };
+      if (s.interview_type === 'panel') resp.speaker_role = panelRole;
+      return accept(resp);
     }
     if (type === 'session.finish') return finishSession(owner, s, accept, commandId);
     return err('validation_error', '알 수 없는 명령입니다.', 422);
   }
 
   function finishSession(owner, s, accept, commandId) {
+    return finishSessionAsync(owner, s, accept, commandId);
+  }
+
+  async function finishSessionAsync(owner, s, accept, commandId) {
     if (s.state === 'completed') return err('conflict', '이미 완료된 세션입니다.', 409);
     if (!canSessionTransition(s.state, 'completing')) return err('conflict', '종료할 수 없는 상태입니다.', 409);
+    // 토론 세션은 사용자 발언 기회 미달 시 협업 차원을 보류하고 안내를 보고서에 포함한다
+    const it0 = s.interview_type || s.mode || 'general';
+    if (it0 === 'discussion' && s.discussion && s.discussion.user_turns < 4) {
+      store.pushEvent(s.id, 'session.snapshot', { note: 'discussion_user_turns_below_4' });
+    }
+    void it0;
     store.updateSession(s, { state: 'completing' });
     const turns = store.sessionTurns(s.id).filter((t) => t.speaker_id === 'user');
     const turnsWithText = [];
@@ -418,18 +756,30 @@ export function createApp(overrides = {}) {
       const rev = revs[revs.length - 1];
       if (!rev) continue;
       const q = s.questions.find((x) => x.id === t.question_id);
-      const elicited = t.followup
-        ? [...(q?.followup_dimensions || [q?.primary || 'reflection'])]
-        : q ? [q.primary, ...(q.secondary || [])] : [];
+      // 발화 시점의 단계별 차원(토론·PT·역할극)을 우선 사용한다.
+      let elicited;
+      if (Array.isArray(t.elicited_dims) && t.elicited_dims.length) elicited = [...t.elicited_dims];
+      else if (t.followup) elicited = [...(q?.followup_dimensions || [q?.primary || 'reflection'])];
+      else elicited = q ? [q.primary, ...(q.secondary || [])] : [];
       turnsWithText.push({ turn_id: t.id, revision: rev.revision, text: rev.normalized_text, elicited });
     }
     // 평가 예산 예약(평가 슬롯 보존)
     let report = null;
     try {
       ledger.reserve(`session:${s.id}`, config.budgets.evalReserve);
-      const generated = buildMockEvaluation({ sessionId: s.id, turnsWithText });
-      const v = validateEvaluation(generated, turnsWithText.map((t) => ({ turn_id: t.turn_id, revision: t.revision, speaker: 'user', text: t.text, elicited_dimensions: t.elicited })));
-      if (!v.ok) throw new Error(v.errors.join('; '));
+      const it = s.interview_type || s.mode || 'general';
+      const rubric_version = s.policy_snapshot?.rubric || rubricForInterviewType(it);
+      const isLegacy = rubric_version === 'behavioral-ko-v1' && (it === 'general' || it === 'panel' || it === 'structured');
+      let generated;
+      if (isLegacy) {
+        generated = buildMockEvaluation({ sessionId: s.id, turnsWithText });
+        const v = validateEvaluation(generated, turnsWithText.map((t) => ({ turn_id: t.turn_id, revision: t.revision, speaker: 'user', text: t.text, elicited_dimensions: t.elicited })));
+        if (!v.ok) throw new Error(v.errors.join('; '));
+      } else {
+        generated = buildTypedEvaluation({ rubricVersion: rubric_version, turnsWithText });
+        const v = validateEvaluationGeneric(generated, turnsWithText.map((t) => ({ turn_id: t.turn_id, revision: t.revision, speaker: 'user', text: t.text, elicited_dimensions: t.elicited })), getRubric(rubric_version));
+        if (!v.ok) throw new Error(v.errors.join('; '));
+      }
       // 기관 연결: 공개 요구사항과 답변의 근거 연결 (평가 점수와 별도 레이어)
       let institution_link = { mode: 'general', note: '공고 연결 없이 일반 역량 기준으로만 분석합니다.', links: [], uncovered: [] };
       let institution_profile = null;
@@ -467,7 +817,8 @@ export function createApp(overrides = {}) {
         institution_link,
         badge: 'AI 생성 코칭 · 실제 합격 예측 아님',
         model_version: provider.name === 'gemini' ? config.gemini.textModel : 'mock-model-v1',
-        rubric_version: 'behavioral-ko-v1',
+        interview_type: it,
+        rubric_version,
         transcript_turn_count: turnsWithText.length,
       };
       store.evaluations.set(s.id, report);
@@ -659,28 +1010,50 @@ export function createApp(overrides = {}) {
   function createPractice(owner, body) {
     const eid = body.evaluation_id;
     if (!eid) return err('validation_error', 'evaluation_id가 필요합니다.', 422);
+    // 원 평가의 루브릭 차원을 그대로 사용한다(유형별 차원 포함).
+    let rubricVersion = 'behavioral-ko-v1';
+    let allowed = ['relevance', 'evidence_specificity', 'reasoning', 'reflection'];
+    for (const [sid, r] of store.evaluations) {
+      if (r.evaluation_id !== eid || !store.getSession(owner, sid)) continue;
+      rubricVersion = r.rubric_version || rubricVersion;
+      allowed = getRubric(rubricVersion).dimensions;
+      break;
+    }
     const comp = body.competency_id;
-    if (!['relevance', 'evidence_specificity', 'reasoning', 'reflection'].includes(comp)) return err('validation_error', '역량 값이 올바르지 않습니다.', 422);
+    if (!allowed.includes(comp)) return err('validation_error', '역량 값이 올바르지 않습니다.', 422);
     const q = selectQuestions((Date.now() ^ 0x9e3779b9) >>> 0, 3).picked[0];
     const s = store.createSession(owner, {
-      mode: 'structured', duration_minutes: 3, input_mode: 'text', persona: 'standard',
+      mode: 'structured', interview_type: 'general', duration_minutes: 3, input_mode: 'text', persona: 'standard',
       questions: [{
         ...q, id: `${q.id}-practice-${comp}`, text: practiceText(comp), primary: comp, secondary: [],
         followup: '방금 답변에서 본인이 직접 한 행동을 한 가지 더 구체적으로 설명해 주세요.',
         followup_dimensions: [comp],
       }],
       duration_seconds: 90,
-      policy_snapshot: { rubric: 'behavioral-ko-v1', practice_of: eid },
+      // 재연습도 원 평가와 같은 루브릭으로 채점해 전후 비교가 성립하게 한다.
+      policy_snapshot: { rubric: rubricVersion, practice_of: eid },
     });
     store.updateSession(s, { state: 'ready' });
-    return { status: 201, body: { id: s.id, state: s.state, version: s.version, limits: { duration_seconds: s.duration_seconds }, note: '원래 평가를 수정하지 않는 새 연습입니다.' } };
+    return { status: 201, body: { id: s.id, state: s.state, version: s.version, limits: { duration_seconds: s.duration_seconds }, rubric_version: rubricVersion, competency_id: comp, note: '원래 평가를 수정하지 않는 새 연습입니다.' } };
   }
   const practiceText = (c) => ({
     relevance: '최근에 가장 중요한 일을 고른 기준과 다른 일을 미룬 이유를 설명해 주세요.',
     evidence_specificity: '본인이 직접 한 행동과 그 결과가 드러나는 경험을 설명해 주세요.',
     reasoning: '두 대안 중 하나를 고른 이유와 버린 대안의 단점을 비교해 설명해 주세요.',
     reflection: '아쉬웠던 경험에서 다음에 바꿀 행동 한 가지를 설명해 주세요.',
-  }[c]);
+    // 유형별 차원의 재연습 질문 (같은 차원, 다른 질문)
+    concept_clarity: '최근 다룬 개념 하나를 전제 조건과 함께 설명해 주세요.',
+    applicability: '같은 방법을 조건이 다른 곳에 적용할 때 바꿀 점을 말해 주세요.',
+    claim_understanding: '상대 입장에서 가장 강한 근거를 요약한 뒤 내 입장을 말해 주세요.',
+    evidence_use: '자료의 어떤 수치·조건에 근거하는지 짚어 주장을 보강해 보세요.',
+    rebuttal: '방금 나온 주장에 대한 반박을 근거와 함께 말해 보세요.',
+    collaboration: '양측이 합의할 수 있는 한 가지 안과 실행 조건을 말해 보세요.',
+    structure: '같은 내용을 결론부터 1분으로 다시 구성해 보세요.',
+    execution_plan: '실행 단계와 확인할 지표를 한 가지씩 덧붙여 보세요.',
+    qa_response: '예상 반론 하나에 대한 답변을 준비해 보세요.',
+    role_understanding: '비슷한 상황에서 지킬 원칙을 먼저 말해 보세요.',
+    responsiveness: '화난 고객의 말을 확인하는 한 문장과 다음 조치를 말해 보세요.',
+  }[c] || '같은 역량의 다른 경험을 설명해 주세요.');
 
   function deleteSession(owner, id) {
     const s = store.getSession(owner, id);
@@ -717,6 +1090,19 @@ export function createApp(overrides = {}) {
 
     try {
       if (p === '/api/v1/health') return json(res, 200, { ok: true, provider: providerInfo(), time: now() });
+      if (p === '/api/v1/interview-types' && method === 'GET') {
+        return json(res, 200, {
+          types: Object.values(INTERVIEW_TYPES),
+          durations: DURATIONS,
+          personas: PERSONAS,
+          input_modes: INPUT_MODES,
+          roles: ROLE_IDS.map((id) => ({ id, label: ROLES[id].label, focus: ROLES[id].focus })),
+          panel_presets: PANEL_PRESETS,
+          topics: DISCUSSION_TOPICS.map((t) => ({ id: t.id, title: t.title })),
+          pt_tasks: PT_TASKS.map((t) => ({ id: t.id, title: t.title })),
+          scenarios: SITUATION_SCENARIOS.map((s) => ({ id: s.id, title: s.title })),
+        });
+      }
       if (p === '/api/v1/metrics' && method === 'GET') {
         const st = gemini?.stats || null;
         return json(res, 200, {
@@ -786,7 +1172,7 @@ export function createApp(overrides = {}) {
         return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body);
       }
       if (method === 'GET' && p === '/api/v1/sessions') {
-        return json(res, 200, { sessions: store.listSessions(owner).filter((s) => !['deleted', 'deleting'].includes(s.state)).map((s) => ({ id: s.id, state: s.state, mode: s.mode, persona: s.persona, created_at: s.created_at, completed_at: s.completed_at || null, question_count: s.questions.length })) });
+        return json(res, 200, { sessions: store.listSessions(owner).filter((s) => !['deleted', 'deleting'].includes(s.state)).map((s) => ({ id: s.id, state: s.state, mode: s.mode, interview_type: s.interview_type || s.mode || 'general', persona: s.persona, blind: !!s.blind, created_at: s.created_at, completed_at: s.completed_at || null, question_count: s.questions.length })) });
       }
       if ((m = /^\/api\/v1\/sessions\/([^/]+)$/.exec(p))) {
         if (method === 'GET') { const r = getSession(owner, m[1]); return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body); }

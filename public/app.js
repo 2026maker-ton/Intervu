@@ -64,6 +64,21 @@ const DIM_LABEL = {
   evidence_specificity: '경험·근거 구체성',
   reasoning: '논리·판단',
   reflection: '성찰·전이',
+  concept_clarity: '개념 설명 명확성',
+  applicability: '적용·실행 계획',
+  claim_understanding: '주장 이해',
+  evidence_use: '근거 활용',
+  rebuttal: '반박',
+  collaboration: '협의 과정',
+  structure: '구성',
+  execution_plan: '실행 계획',
+  qa_response: '질의응답',
+  role_understanding: '역할 이해',
+  responsiveness: '상황 대응',
+};
+const dimLabel = (id) => DIM_LABEL[id] || id;
+const TYPE_LABEL = {
+  general: '일반·인성', technical: '직무·기술', discussion: '토론', pt: 'PT', situational: '상황·역할극', panel: '패널',
 };
 
 async function loadProvider() {
@@ -197,28 +212,198 @@ $('#approveBtn').addEventListener('click', async () => {
 const blindCheckbox = document.querySelector('#sessionForm input[name="blind"]');
 blindCheckbox?.addEventListener('change', () => { $('#blindNote').hidden = !blindCheckbox.checked; });
 
+// 면접 유형 카탈로그(서버가 단일 출처) + 유형별 보조 설정
+const TYPE_FALLBACK = [
+  { id: 'general', label: '일반·인성 면접', desc: '자기소개·지원동기·경험·협업·꼬리질문' },
+  { id: 'technical', label: '직무·기술 면접', desc: '직무별 질문·개념 설명·문제해결 과정 검토' },
+  { id: 'discussion', label: '토론면접', desc: '사용자 1명 + AI 2명 + 사회자, 입론·반론·합의' },
+  { id: 'pt', label: 'PT 면접', desc: '과제 제시 → 준비 → 발표 → 질의응답' },
+  { id: 'situational', label: '상황·역할극 면접', desc: '고객 응대·갈등 해결·돌발 상황 시뮬레이션' },
+  { id: 'panel', label: '패널 면접', desc: 'HR·실무자·관리자 등 여러 AI 면접관의 질문' },
+];
+const catalog = { types: TYPE_FALLBACK, roles: [], panel_presets: {}, topics: [], pt_tasks: [], scenarios: [] };
+let selectedType = 'general';
+
+function renderTypeGrid() {
+  const grid = $('#typeGrid');
+  grid.innerHTML = catalog.types.map((t) => `
+    <button type="button" class="type-card" role="radio" aria-checked="${t.id === selectedType}" data-type="${esc(t.id)}">
+      <strong>${esc(t.label)}</strong><span>${esc(t.desc)}</span>
+    </button>`).join('');
+  grid.querySelectorAll('.type-card').forEach((b) => b.addEventListener('click', () => selectType(b.dataset.type)));
+}
+
+function selectType(id) {
+  selectedType = id;
+  $('#typeGrid').querySelectorAll('.type-card').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.type === id)));
+  const isPanel = id === 'panel';
+  $('#panelRoleRow').hidden = !isPanel;
+  const variantLabel = $('#variantRow');
+  const variantSelect = $('#variantSelect');
+  let opts = [];
+  if (id === 'discussion') opts = (catalog.topics || []).map((t) => ({ id: t.id, label: t.title }));
+  if (id === 'pt') opts = (catalog.pt_tasks || []).map((t) => ({ id: t.id, label: t.title }));
+  if (id === 'situational') opts = (catalog.scenarios || []).map((t) => ({ id: t.id, label: t.title }));
+  variantLabel.hidden = opts.length === 0;
+  variantLabel.firstChild.textContent = id === 'discussion' ? '토론 주제' : id === 'pt' ? 'PT 과제' : '상황 시나리오';
+  variantSelect.innerHTML = opts.map((o) => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join('');
+  // 역할 기본값: 기술=기술 면접관, 패널=프리셋에 맡김, 그 외 자동
+  const roleSel = $('#sessionForm select[name="interviewer_role"]');
+  if (id === 'technical') roleSel.value = 'expert';
+  else if (id === 'panel' || roleSel.value === 'expert') roleSel.value = '';
+  // 토론은 AI 2명 + 사회자 구조라 역할 선택을 사회자 역할로 안내
+  roleSel.disabled = false;
+}
+
+function renderPanelRoles(roles) {
+  const group = $('#panelRoleGroup');
+  group.innerHTML = roles.map((r) => `<label><input type="checkbox" name="panel_role" value="${esc(r.id)}" /> ${esc(r.label)}</label>`).join('');
+}
+
+$('#panelPreset')?.addEventListener('change', (e) => {
+  const preset = catalog.panel_presets?.[e.target.value] || ['hr', 'practitioner', 'executive'];
+  $('#panelRoleGroup').querySelectorAll('input').forEach((i) => { i.checked = preset.includes(i.value); });
+});
+
+async function loadCatalog() {
+  try {
+    const data = await api('/interview-types');
+    Object.assign(catalog, data);
+    renderTypeGrid();
+    renderPanelRoles(data.roles || []);
+    const preset = catalog.panel_presets?.default || ['hr', 'practitioner', 'executive'];
+    $('#panelRoleGroup').querySelectorAll('input').forEach((i) => { i.checked = preset.includes(i.value); });
+    selectType(selectedType);
+  } catch {
+    renderTypeGrid();
+    selectType(selectedType);
+  }
+}
+loadCatalog();
+
+// ---- 음성 입력: 브라우저 SpeechRecognition → 텍스트 확인 후 전송 (원음 서버 전송 없음) ----
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognizer = null;
+function setMicStatus(text, cls = '') {
+  const el = $('#micStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.className = cls;
+}
+if (!SpeechRec) {
+  setMicStatus('이 브라우저는 음성 인식을 지원하지 않습니다. 텍스트로 답해 주세요.', 'warn');
+  $('#inputModeSelect').value = 'text';
+  const voiceOpt = $('#inputModeSelect').querySelector('option[value="voice"]');
+  if (voiceOpt) { voiceOpt.disabled = true; voiceOpt.textContent = '음성 (이 브라우저 미지원)'; }
+} else {
+  setMicStatus('음성 인식을 사용할 수 있습니다. (Chrome/Edge 권장)', 'ok');
+}
+
+$('#micTestBtn')?.addEventListener('click', async () => {
+  if (!SpeechRec) return setMicStatus('음성 인식을 지원하지 않는 브라우저입니다.', 'warn');
+  const btn = $('#micTestBtn');
+  btn.disabled = true;
+  setMicStatus('마이크 권한을 확인하는 중…');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((t) => t.stop());
+    const test = new SpeechRec();
+    test.lang = 'ko-KR';
+    test.interimResults = false;
+    test.maxAlternatives = 1;
+    let heard = '';
+    test.onresult = (ev) => { heard = ev.results[0][0].transcript; };
+    test.onerror = (ev) => setMicStatus(`테스트 실패: ${ev.error}. 브라우저 마이크 설정을 확인하세요.`, 'warn');
+    test.onend = () => setMicStatus(heard ? `인식됨: “${heard.slice(0, 60)}” — 음성 답변을 사용할 수 있습니다.` : '소리가 인식되지 않았습니다. 마이크 위치를 확인하세요.', heard ? 'ok' : 'warn');
+    test.start();
+    setTimeout(() => { try { test.stop(); } catch { /* noop */ } }, 3200);
+  } catch {
+    setMicStatus('마이크 권한이 거부되었습니다. 텍스트로 답해 주세요.', 'warn');
+  } finally {
+    setTimeout(() => { btn.disabled = false; }, 3600);
+  }
+});
+
+function stopRecognizer() {
+  if (!recognizer) return;
+  try { recognizer.stop(); } catch { /* noop */ }
+  recognizer = null;
+  const b = $('#voiceBtn');
+  if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = '🎙 말로 답하기'; }
+  const s = $('#voiceStatus');
+  if (s) s.textContent = '인식된 텍스트를 확인·수정한 뒤 “답변 완료”를 누르세요.';
+}
+
+$('#voiceBtn')?.addEventListener('click', () => {
+  if (!SpeechRec) return toast('이 브라우저는 음성 인식을 지원하지 않습니다.', true);
+  if (recognizer) return stopRecognizer();
+  const answer = $('#answerText');
+  const base = answer.value.trim();
+  recognizer = new SpeechRec();
+  recognizer.lang = 'ko-KR';
+  recognizer.continuous = true;
+  recognizer.interimResults = true;
+  let finalText = base ? `${base} ` : '';
+  recognizer.onresult = (ev) => {
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i += 1) {
+      const chunk = ev.results[i][0].transcript;
+      if (ev.results[i].isFinal) finalText += `${chunk} `;
+      else interim += chunk;
+    }
+    answer.value = `${finalText}${interim}`.trim();
+    $('#charCount').textContent = [...answer.value].length;
+  };
+  recognizer.onerror = (ev) => {
+    const msg = ev.error === 'not-allowed' ? '마이크 권한이 거부되었습니다.' : `음성 인식 오류: ${ev.error}`;
+    toast(msg, true);
+    stopRecognizer();
+  };
+  recognizer.onend = () => { if (recognizer) stopRecognizer(); };
+  recognizer.start();
+  const b = $('#voiceBtn');
+  b.setAttribute('aria-pressed', 'true');
+  b.textContent = '■ 인식 중지';
+  $('#voiceStatus').textContent = '듣는 중입니다. 말이 끝나면 “인식 중지”를 누르세요.';
+});
+
+const inputModeSelect = $('#inputModeSelect');
+inputModeSelect?.addEventListener('change', () => {
+  $('#voiceRow').hidden = inputModeSelect.value !== 'voice';
+});
+
 $('#sessionForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
   const btn = e.target.querySelector('button[type=submit]');
   btn.disabled = true; btn.textContent = '준비 중…';
   try {
-    const s = await api('/sessions', {
-      method: 'POST',
-      idempotent: true,
-      body: {
-        profile_version_id: state.versionId || undefined,
-        mode: 'structured',
-        task_type: 'behavioral',
-        persona: fd.get('persona') || 'standard',
-        interviewer_role: fd.get('interviewer_role') || 'practitioner',
-        blind: fd.get('blind') === 'on',
-        duration_minutes: Number(fd.get('duration_minutes')),
-        input_mode: 'text',
-        consent_version: 'mvp-2026-10',
-      },
-    });
+    const inputMode = fd.get('input_mode') || 'text';
+    const body = {
+      profile_version_id: state.versionId || undefined,
+      interview_type: selectedType,
+      persona: fd.get('persona') || 'standard',
+      interviewer_role: fd.get('interviewer_role') || undefined,
+      blind: fd.get('blind') === 'on',
+      duration_minutes: Number(fd.get('duration_minutes')),
+      input_mode: inputMode,
+      consent_version: 'mvp-2026-10',
+    };
+    if (selectedType === 'panel') {
+      const roles = [...$('#panelRoleGroup').querySelectorAll('input:checked')].map((i) => i.value);
+      if (roles.length < 2) throw new Error('패널은 면접관을 2명 이상 선택해 주세요.');
+      body.panel_roles = roles;
+    }
+    const variant = fd.get('variant');
+    if (variant) {
+      if (selectedType === 'discussion') body.topic_id = variant;
+      if (selectedType === 'pt') body.pt_task_id = variant;
+      if (selectedType === 'situational') body.scenario_id = variant;
+    }
+    const s = await api('/sessions', { method: 'POST', idempotent: true, body });
     state.session = s;
+    state.type = s.interview_type;
+    state.discussLog = [];
     // 일회성 접속 티켓 발급(명세 §10: 실제 WSS 미연동, REST 진행)
     try {
       await api(`/sessions/${s.id}/connect`, { method: 'POST', body: {}, idempotent: true });
@@ -234,21 +419,132 @@ $('#sessionForm').addEventListener('submit', async (e) => {
     $('#roomIdle').hidden = true;
     $('#sessionCard').hidden = false;
     const personaLabel = fd.get('persona') === 'challenging' ? '논리 검증형' : fd.get('persona') === 'supportive' ? '친절형' : '일반형';
-    $('#sessionMeta').textContent = `${s.limits.duration_minutes}분 · ${personaLabel} · 블라인드 ${fd.get('blind') === 'on' ? 'ON' : 'OFF'}`;
+    const typeLabel = catalog.types.find((t) => t.id === s.interview_type)?.label || s.interview_type;
+    $('#sessionMeta').textContent = `${typeLabel} · ${s.limits.duration_minutes}분 · ${personaLabel} · 블라인드 ${s.blind ? 'ON' : 'OFF'}`;
     $('#roomState').textContent = 'LIVE'; $('#roomState').classList.add('on');
     questionCount = 0;
-    questionTotal = started.question_total || 5;
-    setQuestion(started.question);
+    questionTotal = started.question_total || s.limits.question_count || 4;
+    $('#voiceRow').hidden = inputMode !== 'voice';
+    setupRoomForType(s, started);
     startTimer(s.limits.duration_seconds || s.limits.duration_minutes * 60);
     $('#sessionCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
     $('#answerText').focus();
-    speak(started.question?.text || '');
+    const openingText = started.question?.text || started.pt_task?.brief || '';
+    if (s.interview_type === 'discussion') speak(s.topic?.brief || openingText);
+    else speak(openingText);
   } catch (err) {
     toast(err.message, true);
   } finally {
     btn.disabled = false; btn.textContent = '면접 시작';
   }
 });
+
+// 유형별 방 화면: 맥락 카드·단계 표시·다중 발화 로그를 준비한다.
+function setupRoomForType(s, started) {
+  const ctx = $('#roomContext');
+  const bar = $('#phaseBar');
+  const log = $('#discussionLog');
+  ctx.hidden = true; bar.hidden = true; log.hidden = true;
+  log.innerHTML = ''; state.discussLog = [];
+  if (s.interview_type === 'discussion' && s.topic) {
+    ctx.hidden = false;
+    ctx.innerHTML = `<span class="ctx-label">토론 주제 · 연습용 가정</span><strong>${esc(s.topic.title)}</strong><br />${esc(s.topic.brief)}`;
+    bar.hidden = false;
+    renderPhaseBar('discussion', started.discussion?.phase || 'opening');
+    log.hidden = false;
+    (started.openings || []).forEach((o) => appendTurn(o.speaker_id, o.speaker_name || (o.speaker_id === 'moderator' ? '사회자' : o.speaker_id), o.utterance));
+    $('#questionText').textContent = started.question?.text || '토론을 시작합니다.';
+  } else if (s.interview_type === 'pt' && s.pt_task) {
+    ctx.hidden = false;
+    ctx.innerHTML = `<span class="ctx-label">PT 과제 · 연습용 가정</span><strong>${esc(s.pt_task.title)}</strong><br />${esc(s.pt_task.brief)}`;
+    bar.hidden = false;
+    renderPhaseBar('pt', started.pt_phase || 'brief');
+    $('#questionText').textContent = '과제를 확인한 뒤 “준비 시작”을 누르세요.';
+    showPtActions(true);
+    $('#answerText').closest('.room')?.setAttribute('data-pt', '1');
+    state.ptPhase = started.pt_phase || 'brief';
+  } else if (s.interview_type === 'situational' && s.scenario) {
+    ctx.hidden = false;
+    ctx.innerHTML = `<span class="ctx-label">상황 시나리오</span><strong>${esc(s.scenario.title)}</strong><br />역할극 형식입니다. 상대의 말에 반응하며 대응을 말해 보세요.`;
+    showPtActions(false);
+    setQuestion(started.question);
+  } else if (s.interview_type === 'panel' && s.panel_roles?.length) {
+    ctx.hidden = false;
+    ctx.innerHTML = `<span class="ctx-label">패널 구성</span>${s.panel_roles.map((r) => esc(r.label)).join(' · ')}<br />질문마다 담당 면접관이 바뀝니다.`;
+    showPtActions(false);
+    setQuestion(started.question);
+  } else {
+    showPtActions(false);
+    setQuestion(started.question);
+  }
+  if (s.interview_type !== 'pt') showPtActions(false);
+  updateRoomSide();
+}
+
+function showPtActions(on) {
+  let box = $('#ptActions');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'ptActions';
+    box.className = 'pt-actions';
+    $('#answerText').insertAdjacentElement('beforebegin', box);
+  }
+  box.hidden = !on;
+  if (!on) { box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <button class="ghost small" type="button" data-phase="prepare">1. 준비 시작 (3분)</button>
+    <button class="ghost small" type="button" data-phase="present">2. 발표 시작 (3분)</button>
+    <button class="ghost small" type="button" data-phase="qa">3. Q&A로 이동</button>`;
+  box.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => advancePt(b.dataset.phase)));
+}
+
+async function advancePt(phase) {
+  if (!state.session) return;
+  try {
+    const r = await api(`/sessions/${state.session.id}/commands`, {
+      method: 'POST', idempotent: true,
+      body: { command_id: uuid(), expected_version: state.session.version, type: 'pt.prepare', payload: { phase } },
+    });
+    state.session.version = r.version;
+    state.ptPhase = r.pt_phase;
+    renderPhaseBar('pt', r.pt_phase);
+    if (r.utterance) {
+      $('#aiReply').innerHTML = `<p class="label">면접관</p><p>${esc(r.utterance)}</p>`;
+      $('#aiReply').hidden = false;
+      speak(r.utterance);
+    }
+    if (phase === 'prepare') startTimer(180);
+    if (phase === 'present') { startTimer(180); $('#questionText').textContent = '발표를 시작하세요. 결론 → 근거 → 실행계획 순서로 입력하면 됩니다.'; }
+    if (phase === 'qa') { $('#questionText').textContent = r.utterance || '질의응답을 시작합니다.'; startTimer(Math.max(60, state.endAt ? Math.round((state.endAt - Date.now()) / 1000) : 300)); }
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+const PHASES = {
+  discussion: [['reading', '자료 읽기'], ['opening', '입론'], ['exchange', '반론·교환'], ['agreement', '합의'], ['closing', '마무리']],
+  pt: [['brief', '과제 확인'], ['prepare', '준비'], ['present', '발표'], ['qa', 'Q&A']],
+};
+function renderPhaseBar(kind, current) {
+  const bar = $('#phaseBar');
+  const list = PHASES[kind] || [];
+  const idx = list.findIndex(([id]) => id === current);
+  bar.innerHTML = list.map(([id, label], i) => `<span class="phase-chip ${id === current ? 'on' : i < idx ? 'done' : ''}">${esc(label)}</span>`).join('');
+}
+
+function appendTurn(speakerId, speakerName, text) {
+  const log = $('#discussionLog');
+  if (!log || !text) return;
+  const cls = speakerId === 'user' ? 'user' : speakerId === 'moderator' ? 'moderator' : 'ai';
+  const who = speakerId === 'user' ? '나' : speakerName || (speakerId === 'moderator' ? '사회자' : 'AI 참가자');
+  const div = document.createElement('div');
+  div.className = `turn ${cls}`;
+  div.innerHTML = `<span class="who">${esc(who)}</span>${esc(text)}`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  state.discussLog = [...(state.discussLog || []), { speakerId, speakerName: who, text }];
+  if (state.discussLog.length > 24) state.discussLog = state.discussLog.slice(-24);
+}
 
 let questionCount = 0;
 let questionTotal = 5;
@@ -332,6 +628,7 @@ function speak(text) {
 }
 
 $('#answerBtn').addEventListener('click', async () => {
+  if (recognizer) stopRecognizer();
   const text = answerEl.value.trim();
   if (!text) return toast('답변을 입력하세요.', true);
   const btn = $('#answerBtn');
@@ -343,8 +640,37 @@ $('#answerBtn').addEventListener('click', async () => {
     });
     state.session.version = r.version;
     answerEl.value = ''; $('#charCount').textContent = '0';
-    if (r.state === 'completed') return loadReport();
-    if (r.action === 'ask_followup') {
+    if (state.type === 'discussion') {
+      appendTurn('user', '나', text);
+      (r.utterances || []).forEach((u) => appendTurn(u.speaker_id, u.speaker_name || (u.speaker_id === 'moderator' ? '사회자' : undefined), u.utterance));
+      if (r.discussion?.phase) renderPhaseBar('discussion', r.discussion.phase);
+      questionCount = r.discussion?.user_turns || questionCount + 1;
+      updateProgress(); updateRoomSide();
+      if (r.action === 'discussion_complete' || r.state === 'completed') { toast('토론이 끝났습니다. 보고서를 생성합니다.'); return loadReport(); }
+      if (r.utterance) { $('#aiReply').innerHTML = `<p class="label">사회자</p><p>${esc(r.utterance)}</p>`; $('#aiReply').hidden = false; speak(r.utterance); }
+    } else if (state.type === 'pt') {
+      if (r.pt_phase && r.pt_phase !== state.ptPhase) { state.ptPhase = r.pt_phase; renderPhaseBar('pt', r.pt_phase); }
+      if (r.state === 'completed') { toast('PT 면접이 끝났습니다.'); return loadReport(); }
+      if (r.utterance) {
+        $('#aiReply').innerHTML = `<p class="label">${r.pt_phase === 'qa' ? '면접관 · Q&A' : '면접관'}</p><p>${esc(r.utterance)}</p>`;
+        $('#aiReply').hidden = false;
+        if (r.pt_phase === 'qa') $('#questionText').textContent = r.utterance;
+        speak(r.utterance);
+      }
+      questionCount += 1; updateProgress();
+    } else if (state.type === 'situational') {
+      if (r.state === 'completed') { toast('상황 면접이 끝났습니다.'); return loadReport(); }
+      if (r.utterance) {
+        $('#aiReply').innerHTML = `<p class="label">면접관 · 역할극</p><p>${esc(r.utterance)}</p>`;
+        $('#aiReply').hidden = false;
+        speak(r.utterance);
+      }
+      $('#questionText').textContent = r.utterance || $('#questionText').textContent;
+      questionCount = (r.scenario_index || questionCount + 1);
+      updateProgress(); updateRoomSide();
+    } else if (r.state === 'completed') {
+      return loadReport();
+    } else if (r.action === 'ask_followup') {
       $('#aiReply').innerHTML = `<p class="label">AI 면접관 · 추가 확인</p><p>${esc(r.utterance)}</p>`;
       $('#aiReply').hidden = false;
       speak(r.utterance);
@@ -402,19 +728,27 @@ async function loadReport() {
 }
 
 function renderReport(r) {
-  const roleLine = r.role_label ? ` · 면접관 ${esc(r.role_label)}` : '';
-  $('#reportBadge').textContent = `${r.badge} · ${r.provider} · ${r.rubric_version}${r.role_label ? ` · 면접관 ${r.role_label}` : ''}`;
+  const typeLabel = TYPE_LABEL[r.interview_type] || r.interview_type || '일반·인성';
+  $('#reportBadge').textContent = `${r.badge} · ${r.provider} · ${typeLabel} · ${r.rubric_version}${r.role_label ? ` · 면접관 ${r.role_label}` : ''}`;
   const inst = r.institution ? `
     <div class="inst-head"><strong>${esc(r.institution.org_label || '')} ${esc(r.institution.target_name || '')} · ${esc(r.institution.role || '')}</strong><span class="tag ${r.institution.fallback_to_general ? '' : 'official'}">${esc(r.institution.badge || '')}</span></div>
     <div class="inst-link">${renderInstitutionLink(r.institution_link)}</div>
     <p class="fine">${esc(r.institution.disclaimer || '기관의 비공개 채점기준을 아는 것처럼 표현하지 않습니다.')}</p>` : '';
-  void roleLine;
+  const rubricNote = r.interview_type === 'discussion'
+    ? '토론은 주장 이해·근거·반박·협의 과정을 봅니다. 발언 기회가 부족한 차원은 공개하지 않습니다.'
+    : r.interview_type === 'pt'
+      ? 'PT는 구성·근거·실행계획·질의응답을 봅니다. 준비 단계의 메모는 평가하지 않습니다.'
+      : r.interview_type === 'situational'
+        ? '상황 면접은 역할·제약 이해, 상황 대응, 판단, 성찰을 봅니다.'
+        : r.interview_type === 'technical'
+          ? '기술 면접은 개념 설명·근거·판단·적용 계획을 봅니다. 정답 암기 여부는 평가하지 않습니다.'
+          : '일반·패널 면접은 질문 적합성·근거·판단·성찰을 봅니다.';
   const dims = r.dimensions.map((d) => {
     const scored = d.status === 'scored';
     const ev = d.evidence.map((e) => `<li><q>${esc(e.quote)}</q> <span class="lv">· 답변 수준 ${e.answer_level}</span></li>`).join('');
     return `<div class="dim">
       <div class="dim-head">
-        <h3>${DIM_LABEL[d.id]}</h3>
+        <h3>${dimLabel(d.id)}</h3>
         <span class="level ${scored ? '' : 'abstain'}">${scored ? `${d.level} / 4` : '판단 보류'}</span>
       </div>
       <p>${esc(d.observation)}</p>
@@ -423,12 +757,12 @@ function renderReport(r) {
   }).join('');
   const actions = (r.next_actions || []).map((a) => `
     <div class="action-card">
-      <h3>다음 답변에서 할 행동</h3>
+      <h3>다음 답변에서 할 행동 · ${esc(dimLabel(a.dimension_id))}</h3>
       <p>${esc(a.action)}</p>
       <p class="fine">재연습 질문: ${esc(a.practice_question)}</p>
       <button class="ghost practice-btn" data-dim="${esc(a.dimension_id)}">90초 재연습 시작</button>
     </div>`).join('');
-  $('#reportBody').innerHTML = `${inst}${dims}${actions || '<p class="hint">개선 행동을 제안할 만큼 관찰된 차원이 없습니다.</p>'}
+  $('#reportBody').innerHTML = `${inst}<p class="hint">${esc(rubricNote)}</p>${dims}${actions || '<p class="hint">개선 행동을 제안할 만큼 관찰된 차원이 없습니다.</p>'}
     <div class="actions">
       <button class="ghost" id="copyBtn">텍스트로 복사</button>
       <button class="ghost" id="exportBtn">JSON 내보내기</button>
@@ -438,8 +772,8 @@ function renderReport(r) {
     <p class="fine">AI 생성 코칭입니다. 실제 합격 가능성이나 사람의 성격을 평가하지 않습니다. 이의가 있으면 <a href="#" id="appealLink" style="color:var(--green-deep);font-weight:700">이의 제기</a> · <a href="#" id="appealStatusLink" style="color:var(--green-deep)">처리 상태 확인</a>.</p>`;
 
   $('#copyBtn').addEventListener('click', async () => {
-    const text = r.dimensions.map((d) => `${DIM_LABEL[d.id]}: ${d.status === 'scored' ? d.level + '/4' : '보류'} — ${d.observation}`).join('\n');
-    try { await navigator.clipboard.writeText(`Intervu 코칭 보고서\n${text}\n\n※ AI 생성 코칭, 합격 예측 아님`); toast('복사했습니다.'); } catch { toast('복사에 실패했습니다.', true); }
+    const text = r.dimensions.map((d) => `${dimLabel(d.id)}: ${d.status === 'scored' ? d.level + '/4' : '보류'} — ${d.observation}`).join('\n');
+    try { await navigator.clipboard.writeText(`Intervu 코칭 보고서 (${TYPE_LABEL[r.interview_type] || '일반'})\n${text}\n\n※ AI 생성 코칭, 합격 예측 아님`); toast('복사했습니다.'); } catch { toast('복사에 실패했습니다.', true); }
   });
   $('#exportBtn').addEventListener('click', async () => {
     try {
@@ -527,11 +861,17 @@ function renderInstitutionLink(link) {
 function resetAll() {
   clearInterval(state.timer);
   try { speechSynthesis?.cancel(); } catch { /* noop */ }
+  if (recognizer) stopRecognizer();
   state.profile = null; state.versionId = null; state.session = null; state.paused = false; questionCount = 0; questionTotal = 5;
+  state.type = 'general'; state.ptPhase = null; state.discussLog = [];
   $('#extractCard').hidden = true; $('#setupCard').hidden = true;
   $('#sessionCard').hidden = true; $('#roomIdle').hidden = false;
   $('#roomState').textContent = '대기 중'; $('#roomState').classList.remove('on');
   $('#reportCard').hidden = true;
+  $('#roomContext').hidden = true; $('#phaseBar').hidden = true;
+  $('#discussionLog').hidden = true; $('#discussionLog').innerHTML = '';
+  $('#aiReply').hidden = true; $('#voiceRow').hidden = true;
+  showPtActions(false);
   $('#profileForm').reset();
   setStep('profile', '대기'); setStep('extract', '대기'); setStep('setup', '대기');
   showView('home');
@@ -540,6 +880,10 @@ function resetAll() {
 $('#newSessionBtn').addEventListener('click', resetAll);
 
 // ---- 3. history ----
+function historyLabel(s) {
+  const t = s.interview_type || s.mode || 'general';
+  return `${TYPE_LABEL[t] || t} 면접 연습`;
+}
 async function loadHistory() {
   const el = $('#historyBody');
   el.innerHTML = '<p class="hint">불러오는 중…</p>';
@@ -549,8 +893,8 @@ async function loadHistory() {
     el.innerHTML = sessions.map((s) => `
       <div class="list-item">
         <div>
-          <strong>${esc(s.mode === 'structured' ? '1:1 면접 연습' : s.mode)}</strong>
-          <div class="meta">${new Date(s.created_at).toLocaleString('ko-KR')} · ${s.question_count}문항 · ${esc(s.persona)} · ${esc(s.state)}</div>
+          <strong>${esc(historyLabel(s))}</strong>
+          <div class="meta">${new Date(s.created_at).toLocaleString('ko-KR')} · ${s.question_count}문항 · ${esc(s.persona)} · ${esc(s.state)}${s.blind ? ' · 블라인드' : ''}</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <span class="state ${esc(s.state)}">${esc(s.state)}</span>

@@ -88,10 +88,19 @@ export function createStore() {
       const id = randomUUID();
       const s = {
         id, owner_id: owner, profile_version_id: data.profile_version_id || null,
-        mode: data.mode || 'structured', task_type: data.task_type || 'behavioral',
-        participant_layout: 'one_to_one', blind: !!data.blind, persona: data.persona || 'standard',
+        mode: data.mode || 'general', interview_type: data.interview_type || data.mode || 'general',
+        task_type: data.task_type || 'behavioral',
+        participant_layout: data.participant_layout || 'one_to_one', blind: !!data.blind, persona: data.persona || 'standard',
         interviewer_role: data.interviewer_role || 'practitioner',
         question_basis: data.question_basis || 'general-template-v1',
+        panel_roles: data.panel_roles || null,
+        topic_id: data.topic_id || null, topic_title: data.topic_title || null, topic_brief: data.topic_brief || null,
+        discussion: data.discussion || null,
+        pt_task_id: data.pt_task_id || null, pt_task_title: data.pt_task_title || null, pt_brief: data.pt_brief || null,
+        pt_phase: data.pt_phase || null, pt_prepare_seconds: data.pt_prepare_seconds || null,
+        pt_present_seconds: data.pt_present_seconds || null, pt_qa: data.pt_qa || null, pt_qa_index: data.pt_qa_index || 0,
+        scenario_id: data.scenario_id || null, scenario_title: data.scenario_title || null,
+        scenario_followups: data.scenario_followups || null, scenario_index: data.scenario_index || 0,
         highschool_mock: !!data.highschool_mock,
         duration_minutes: Number.isFinite(data.duration_minutes) && data.duration_minutes > 0 ? data.duration_minutes : 15,
         duration_seconds: Number.isFinite(data.duration_seconds) && data.duration_seconds > 0 ? data.duration_seconds : (Number.isFinite(data.duration_minutes) && data.duration_minutes > 0 ? data.duration_minutes * 60 : 900),
@@ -121,7 +130,7 @@ export function createStore() {
     createTurn(sessionId, data) {
       const id = randomUUID();
       const ordinal = [...turns.values()].filter((t) => t.session_id === sessionId).length + 1;
-      const t = { id, session_id: sessionId, ordinal, speaker_id: data.speaker_id || 'user', question_id: data.question_id || null, competency: data.competency || null, followup: !!data.followup, status: 'queued', epoch: 1, spoken_ms: 0, created_at: now() };
+      const t = { id, session_id: sessionId, ordinal, speaker_id: data.speaker_id || 'user', question_id: data.question_id || null, competency: data.competency || null, followup: !!data.followup, elicited_dims: Array.isArray(data.elicited_dims) ? data.elicited_dims : null, status: 'queued', epoch: 1, spoken_ms: 0, created_at: now() };
       turns.set(id, t);
       return t;
     },

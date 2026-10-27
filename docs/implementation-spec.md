@@ -5,9 +5,9 @@
 ## 1. 구현 경계와 기본값
 
 - 대상: 한국어로 신입 면접을 준비하는 만 19세 이상 개인. 초기 공개 범위는 일반기업·공공기관 1:1 인성/상황/기초 직무 면접과 블라인드 설정이다.
-- 모드: `structured`, `discussion_beta`, `pt_beta`. 후자의 두 모드는 기능 플래그 기본 OFF. 다대다·대학입시는 후속 범위다.
+- 모드: `interview_type` 6종(`general`/`technical`/`discussion`/`pt`/`situational`/`panel`) + 독립 축(블라인드·persona·role·input·duration). 레거시 `mode: discussion_beta/pt_beta/structured`는 `interview_type`으로 정규화되고, 미지원 `interview_type`은 422다. UI 카탈로그는 `GET /api/v1/interview-types`가 단일 출처다. 음성은 브라우저 SpeechRecognition → 텍스트 전송(원음 미전송)이며 미지원 브라우저는 텍스트로 폴백한다.
 - 성향: `supportive`, `standard`, `challenging`. 성향은 질문 표현·추가 확인 강도만 변경한다. 평가 기준·점수 보정값은 동일하다.
-- 세션: 기본 15분, 사용자가 10분 또는 15분 선택. 15분 모드의 시간 배분은 안내 1분, 본질문 5개와 최대 꼬리질문 3개 12분, 종료 2분. 질문 수보다 시간 상한 우선. 실제 발화량은 비용 모델의 별도 가정이다.
+- 세션: 5/10/15분 선택(3/4/5문항). 15분 모드의 시간 배분은 안내 1분, 본질문 5개와 최대 꼬리질문 3개 12분, 종료 2분. 토론은 사용자 발언 기회 최소 4회(`action: discussion_complete`로 종료), PT는 `pt.prepare`(brief→prepare→present→qa) 단계 명령으로 진행한다. 질문 수보다 시간 상한 우선. 실제 발화량은 비용 모델의 별도 가정이다.
 - 인터뷰 중 정답 예시를 보여주지 않는다. 종료 후 증거→개선 행동→같은 역량 재연습 순서로 보여준다.
 - 카메라·얼굴·감정·성격 추정, 합격률, 타 지원자 백분위, 실면접 중 답변 대행은 범위 밖이다.
 - 공고 입력은 텍스트 붙여넣기부터 구현한다. 파일·URL 자동 수집은 공개 MVP에 포함하지 않는다. URL 필드는 출처 표시용이며 서버가 임의 URL을 요청하지 않는다.
@@ -269,4 +269,4 @@ tests/e2e/                microphone-mocked browser journeys
 - **이벤트**: durable 이벤트만 `seq` 증가. `seq=null`은 재생 대상 아님.
 - **연결**: `POST /sessions/:id/connect`로 30초 일회성 티켓 발급. MVP는 실제 WSS 미연동이며 `GET /sessions/:id/ws?ticket=` 확인 후 REST 명령으로 진행.
 - **내보내기/삭제**: `POST /exports` → 10분 유효 `GET /exports/:id`(JSON). 세션 삭제는 즉시 `deleting→deleted`, 전사 마스킹·보고서 삭제·이벤트 비움. `DELETE /account`는 계정 전체 tombstone 후 파기. 백업 만료일 고지.
-- **테스트**: `npm test` 31개 통합 테스트(인증·멱등·소유권·상태전이·근거검증·90초 재연습·서버 시간상한·예산·공급자 게이트·프로필 속도제한·일회성 티켓·내보내기·계정삭제·이의제기·기관 6종). 브라우저 E2E로 승인→면접→보고서→재연습→삭제 흐름 확인. 기관 E2E(`node tools/e2e-institution.mjs`) 14개 별도 통과.
+- **테스트**: `npm test` 43개 통합 테스트(인증·멱등·소유권·상태전이·근거검증·90초 재연습·서버 시간상한·예산·공급자 게이트·프로필 속도제한·일회성 티켓·내보내기·계정삭제·이의제기·기관 6종·면접유형 6종·축 검증). 브라우저 E2E로 승인→면접→보고서→재연습→삭제 흐름 확인. 기관 E2E(`node tools/e2e-institution.mjs`) 14개 별도 통과. 전체 유형 start→turn→report 프로브(`probe-types`) 통과.

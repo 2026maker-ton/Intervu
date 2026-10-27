@@ -9,6 +9,9 @@ import { loadDotEnv } from './env.js';
 import { createStore } from './store.js';
 import { createLedger, estimateTokens } from './domain/ledger.js';
 import { detectPii, maskPii, buildBlindContext, extractClaims, verifyClaimSpan } from './domain/pii.js';
+import { normalizeSource, validateSourceUrl, freshnessOf } from './domain/sources.js';
+import { buildInstitutionProfile, linkAnswersToInstitution, normalizeOrgType, providerConstraintForOrg } from './domain/institution.js';
+import { normalizeRole, followupForRole, ROLES } from './domain/roles.js';
 import { canSessionTransition } from './domain/state.js';
 import { selectQuestions, FOLLOWUPS, followupReasonFor } from './domain/questions.js';
 import { buildMockEvaluation } from './domain/mock-eval.js';
@@ -87,15 +90,40 @@ export function createApp(overrides = {}) {
     const source = String(body.source_text || '');
     if (source.length > 20000) return err('validation_error', '공고 본문은 20,000자 이하여야 합니다.', 422, { requestId });
     if (!body.target_name && !body.role && !source) return err('validation_error', '기관/직무/공고 중 하나는 필요합니다.', 422, { requestId });
+    // 기관 구분: company·public·university·highschool (기존 general 호환)
+    const orgType = normalizeOrgType(body.org_type);
+    const mc = providerConstraintForOrg(orgType);
+    if (mc.forceMock) {
+      // 미성년자 이용 가능 기능: 외부 호출 없이 Mock으로만 처리
+      body._forceMock = true;
+    }
     const pii = detectPii(source + (body.experiences || []).join(' '));
-    const { profile, version_id } = store.createProfile(owner, body);
+    const { profile, version_id } = store.createProfile(owner, { ...body, org_type: orgType });
+    // 사용자 제공 기관 URL(출처 메타): SSRF 방어 검증 후 기록만 한다 (fetch 없음)
+    const providedSources = [];
+    const rawSources = Array.isArray(body.sources) ? body.sources.slice(0, 10) : (body.source_url ? [{ url: body.source_url, title: '지원 공고 URL' }] : []);
+    for (const rs of rawSources) {
+      try {
+        const ns = normalizeSource(rs, {});
+        ns.id = randomUUID();
+        store.addSource(profile.id, { ...ns, owner_id: owner });
+        providedSources.push(ns);
+      } catch (e) {
+        return err('validation_error', e.message || '사용할 수 없는 출처 URL입니다.', 422, { requestId, details: e.details || null });
+      }
+    }
+    const pubNotice = body.source_text && providedSources.length === 0
+      ? null
+      : (providedSources.length ? null : null);
     const masked = maskPii(source);
     const blind = buildBlindContext(masked);
     let extracted;
     try {
-      if (provider.name === 'gemini') {
+      // 미성년자 가능 기관(highschool)은 항상 Mock 추출(외부 전송 금지)
+      const useProvider = provider.name === 'gemini' && !body._forceMock ? provider : mock;
+      if (useProvider.name === 'gemini') {
         ledger.reserve(`profile:${profile.id}`, 0.01);
-        const caught = await provider.extract({ sourceText: masked, blindContext: blind });
+        const caught = await useProvider.extract({ sourceText: masked, blindContext: blind });
         ledger.settle(`profile:${profile.id}`, 0.01, priceOf(caught.model, caught.usage));
         extracted = caught;
       } else {
@@ -128,7 +156,14 @@ export function createApp(overrides = {}) {
     const rejected = (extracted.claims || []).length - claims.length;
     if (rejected > 0) extracted.rejected_spans = rejected;
     store.setExtracted(version_id, { ...extracted, claims, masked_text: masked, blind_context: blind });
-    return { status: 201, body: { id: profile.id, version_id, status: 'extracting', pii_warnings: pii.map((x) => x.type), provider: provider.name } };
+    // 기관 프로필 초안 생성(결정적 분석): 승인 전 사용자가 확인·수정한다
+    const institution = buildInstitutionProfile({
+      orgType, targetName: body.target_name, role: body.role,
+      sources: providedSources, claims, userNotes: (body.experiences || []).join('\n'),
+    });
+    store.setInstitution(profile.id, institution, 'review');
+    void pubNotice;
+    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: body._forceMock ? 'mock' : provider.name, institution, institution_status: 'review' } };
   }
 
   function getProfile(owner, id) {
@@ -136,12 +171,16 @@ export function createApp(overrides = {}) {
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
     const approved = p.approved_version_id ? store.getVersion(p.approved_version_id) : null;
     const current = p.version_id ? store.getVersion(p.version_id) : null;
+    const inst = store.getInstitution(id);
     return {
       status: 200,
       body: {
         ...p,
         current_version: current ? { id: current.id, status: current.status, extracted: current.extracted } : null,
         approved_version: approved ? { id: approved.id, extracted: approved.extracted } : null,
+        sources: store.listSources(id),
+        institution: inst?.profile || null,
+        institution_status: inst?.status || null,
       },
     };
   }
@@ -153,7 +192,23 @@ export function createApp(overrides = {}) {
     if (!vid) return err('validation_error', 'version_id가 필요합니다.', 422);
     const v = store.approveVersion(owner, id, vid);
     if (!v) return err('not_found', '버전을 찾을 수 없습니다.', 404);
-    return { status: 200, body: { id: v.id, profile_id: id, status: 'approved', approved_at: v.approved_at } };
+    // 기관 프로필도 함께 승인(불변 스냅샷). 사용자가 수정한 경우 body.institution_edits 반영.
+    const inst = store.getInstitution(id);
+    let approvedInst = inst?.profile || null;
+    if (inst && body.institution_edits && typeof body.institution_edits === 'object') {
+      const edits = body.institution_edits;
+      approvedInst = {
+        ...inst.profile,
+        core_values: Array.isArray(edits.core_values) ? edits.core_values.slice(0, 10) : inst.profile.core_values,
+        role_focus: Array.isArray(edits.role_focus) ? edits.role_focus.slice(0, 5) : inst.profile.role_focus,
+        approved_note: typeof edits.note === 'string' ? edits.note.slice(0, 500) : null,
+        user_confirmed_at: now(),
+      };
+    } else if (inst) {
+      approvedInst = { ...inst.profile, user_confirmed_at: now() };
+    }
+    if (approvedInst) store.setInstitution(id, approvedInst, 'approved');
+    return { status: 200, body: { id: v.id, profile_id: id, status: 'approved', approved_at: v.approved_at, institution_status: approvedInst ? 'approved' : null } };
   }
 
   function createSession(owner, body) {
@@ -163,12 +218,14 @@ export function createApp(overrides = {}) {
       }
     }
     let version = null;
+    let institution = null;
     if (body.profile_version_id) {
       version = store.getVersion(body.profile_version_id);
       if (!version || version.status !== 'approved') return err('conflict', '승인된 공고 버전이 필요합니다.', 409);
       const p = store.getProfile(owner, version.profile_id);
       if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
       if (new Date(p.expires_at).getTime() < Date.now()) return err('conflict', '만료된 프로필입니다.', 409);
+      institution = store.getInstitution(p.id)?.profile || null;
     }
     const mode = body.mode === 'discussion_beta' || body.mode === 'pt_beta' ? body.mode : 'structured';
     if (mode !== 'structured') return err('not_implemented', '해당 모드는 닫힌 베타이며 기본 비활성입니다.', 422);
@@ -176,6 +233,12 @@ export function createApp(overrides = {}) {
     const active = store.listSessions(owner).find((s) => ['active', 'paused', 'completing'].includes(s.state));
     if (active) return err('conflict', '이미 진행 중인 세션이 있습니다.', 409, { details: { session_id: active.id } });
     if (!['supportive', 'standard', 'challenging'].includes(body.persona || 'standard')) return err('validation_error', '성향 값이 올바르지 않습니다.', 422);
+    const orgOf = institution?.org_type || version ? store.getProfile(owner, version?.profile_id)?.org_type : null;
+    const role = normalizeRole(body.interviewer_role, orgOf || 'general');
+    if (body.interviewer_role && !ROLES[body.interviewer_role]) return err('validation_error', '면접관 역할 값이 올바르지 않습니다.', 422);
+    if (institution?.org_type === 'highschool' && provider.name === 'gemini') {
+      return err('not_implemented', '고등학교 입학면접 연습은 Mock 검증 범위이며 Gemini 실호출을 사용하지 않습니다.', 422);
+    }
     try {
       // 사전 확인만 수행(전액 예약은 다른 호출의 여유를 막음). 실제 예약은 호출 단위.
       if (!ledger.canAfford(`session:${owner}`, config.budgets.sessionHardCap)) {
@@ -184,14 +247,28 @@ export function createApp(overrides = {}) {
     } catch (e) {
       return err('quota_exceeded', '예산 한도를 초과했습니다.', 429, { retryable: true, details: { reason: e.message } });
     }    const { picked, coverage } = selectQuestions((body.seed || Date.now()) >>> 0, 5);
+    // 기관 맞춤 질문이 있으면 앞에 배치(확인된 것만). 없음 → 일반 팩 그대로.
+    let questions = picked.map((q) => ({ ...q }));
+    let question_basis = 'general-template-v1';
+    if (institution && !institution.fallback_to_general && Array.isArray(institution.recommended_questions) && institution.recommended_questions.length) {
+      const instQs = institution.recommended_questions.slice(0, 2).map((q) => ({
+        id: q.id || `inst-${q.primary}`, text: q.text, primary: q.primary, secondary: q.secondary || [],
+        followup: q.text.includes('?') ? q.text : undefined,
+        followup_dimensions: [q.primary],
+        _institution_basis: q.basis, _rationale: q.rationale,
+      }));
+      questions = [...instQs, ...questions].slice(0, 5);
+      question_basis = institution.badge || '기관 맞춤 검토 가능';
+    }
     const s = store.createSession(owner, {
       ...body, mode,
-      questions: picked.map((q) => ({ ...q })),
-      policy_snapshot: { provider: provider.name, model: config.gemini.textModel, rubric: 'behavioral-ko-v1', pack: 'general-entry-ko@0.1.0-draft', budget_cap: config.budgets.sessionHardCap },
+      interviewer_role: role,
+      questions,
+      policy_snapshot: { provider: provider.name, model: config.gemini.textModel, rubric: 'behavioral-ko-v1', pack: 'general-entry-ko@0.1.0-draft', budget_cap: config.budgets.sessionHardCap, interviewer_role: role, persona: body.persona || 'standard', question_basis, institution_approved: !!institution },
     });
-    store.updateSession(s, { coverage });
-    store.pushEvent(s.id, 'session.snapshot', { state: 'ready', questions: s.questions.length });
-    return { status: 201, body: { id: s.id, state: s.state, version: s.version, limits: { duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: provider.name, coverage } };
+    store.updateSession(s, { coverage, question_basis });
+    store.pushEvent(s.id, 'session.snapshot', { state: 'ready', questions: s.questions.length, interviewer_role: role, question_basis });
+    return { status: 201, body: { id: s.id, state: s.state, version: s.version, limits: { duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: provider.name, coverage, interviewer_role: role, role_label: ROLES[role].label, question_basis } };
   }
 
   function getSession(owner, id) {
@@ -202,7 +279,10 @@ export function createApp(overrides = {}) {
   function publicSession(s) {
     return {
       id: s.id, state: s.state, version: s.version, mode: s.mode, task_type: s.task_type,
-      persona: s.persona, blind: s.blind, duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, input_mode: s.input_mode,
+      persona: s.persona, blind: s.blind, interviewer_role: s.interviewer_role || 'practitioner',
+      role_label: (ROLES[s.interviewer_role] || ROLES.practitioner).label,
+      question_basis: s.question_basis || 'general-template-v1',
+      duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, input_mode: s.input_mode,
       active_elapsed_ms: s.active_elapsed_ms + (s.state === 'active' && s.started_at ? Math.max(0, Date.now() - Date.parse(s.started_at)) : 0), questions: s.questions.map((q) => ({ id: q.id, text: q.text, primary: q.primary, secondary: q.secondary })), q_index: s.q_index,
       current_question: s.questions[s.q_index] || null, followups_used: s.followups_used, llm_calls: s.llm_calls,
       coverage: s.coverage || null, degraded_reason: s.degraded_reason, last_seq: (store.events.get(s.id) || []).filter((e) => e.durable).length,
@@ -281,9 +361,16 @@ export function createApp(overrides = {}) {
       }
       try {
         ledger.reserve(`session:${s.id}`, 0.005);
-        const result = await provider.next({ persona: s.persona, followupReason, questionText: q.followup || q.text, recentAnswer: text });
+        // highschool 세션은 Mock 강제(미성년자 보호)
+        const useProvider = s.highschool_mock ? mock : provider;
+        const result = await useProvider.next({ persona: s.persona, role: s.interviewer_role, followupReason, questionText: q.followup || q.text, recentAnswer: text });
         ledger.settle(`session:${s.id}`, 0.005, priceOf(result.model, result.usage));
         utterance = result.utterance;
+        // 역할 전략: 서버가 최종 문장을 역할 맞춤 후속으로 교체(평가 기준은 불변)
+        if (action === 'ask_followup' && followupReason) {
+          const tailored = followupForRole(s.interviewer_role, followupReason, null);
+          if (tailored) utterance = tailored;
+        }
       } catch (e) {
         // 대체: 검증된 정적 후속/다음 질문 (예약이 있었으면 unknown 처리)
         if (e.code === 429) {
@@ -343,12 +430,41 @@ export function createApp(overrides = {}) {
       const generated = buildMockEvaluation({ sessionId: s.id, turnsWithText });
       const v = validateEvaluation(generated, turnsWithText.map((t) => ({ turn_id: t.turn_id, revision: t.revision, speaker: 'user', text: t.text, elicited_dimensions: t.elicited })));
       if (!v.ok) throw new Error(v.errors.join('; '));
+      // 기관 연결: 공개 요구사항과 답변의 근거 연결 (평가 점수와 별도 레이어)
+      let institution_link = { mode: 'general', note: '공고 연결 없이 일반 역량 기준으로만 분석합니다.', links: [], uncovered: [] };
+      let institution_profile = null;
+      if (s.profile_version_id) {
+        const ver = store.getVersion(s.profile_version_id);
+        const prof = ver ? store.getProfile(owner, ver.profile_id) : null;
+        const inst = ver && prof ? store.getInstitution(prof.id)?.profile : null;
+        if (inst) {
+          institution_profile = { org_type: inst.org_type, org_label: inst.org_label, target_name: inst.target_name, role: inst.role, badge: inst.badge, fallback_to_general: inst.fallback_to_general, core_values: inst.core_values, unevaluable: inst.unevaluable, disclaimer: inst.disclaimer };
+          institution_link = linkAnswersToInstitution({ institution: inst, turnsWithText });
+        }
+      }
+      // 재연습 질문: 기관 미관찰 요구 우선
+      const next_actions = [...(generated.next_actions || [])];
+      for (const u of (institution_link.uncovered || []).slice(0, 2)) {
+        if (next_actions.length >= 3) break;
+        if (next_actions.some((a) => a.practice_question?.includes(u.requirement))) continue;
+        next_actions.push({
+          dimension_id: 'relevance',
+          action: `다음 답변에서는 ‘${u.requirement}’ 요구와 연결되는 본인 행동 근거를 한 가지 덧붙이세요.`,
+          practice_question: `‘${u.requirement}’ 요구와 연결되는 본인의 경험을 설명해 주세요.`,
+          institution_requirement: u.requirement,
+        });
+      }
       report = {
         ...generated,
+        next_actions: next_actions.slice(0, 3),
         evaluation_id: randomUUID(),
         status: 'ready',
         generated_at: now(),
         provider: provider.name,
+        interviewer_role: s.interviewer_role || null,
+        role_label: s.interviewer_role ? (ROLES[s.interviewer_role]?.label || null) : null,
+        institution: institution_profile,
+        institution_link,
         badge: 'AI 생성 코칭 · 실제 합격 예측 아님',
         model_version: provider.name === 'gemini' ? config.gemini.textModel : 'mock-model-v1',
         rubric_version: 'behavioral-ko-v1',
@@ -503,6 +619,43 @@ export function createApp(overrides = {}) {
     return { status: 202, body: { deletion_id: job.id, state: 'completed', kind: 'account', backup_expiry: job.backup_expiry } };
   }
 
+  // ---- 기관 출처·프로필 API ----
+  // POST /profiles/:id/sources — 사용자 제공 URL·공식자료 메타 등록(외부 fetch 없음)
+  function addInstitutionSource(owner, profileId, body) {
+    const p = store.getProfile(owner, profileId);
+    if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
+    const list = Array.isArray(body.sources) ? body.sources : [body];
+    if (!list.length || list.length > 10) return err('validation_error', 'sources는 1~10개여야 합니다.', 422);
+    const added = [];
+    for (const rs of list) {
+      try {
+        const ns = normalizeSource(rs, {});
+        ns.id = randomUUID();
+        store.addSource(profileId, { ...ns, owner_id: owner });
+        added.push(ns);
+      } catch (e) {
+        return err('validation_error', e.message || '사용할 수 없는 출처 URL입니다.', 422, { details: e.details || null });
+      }
+    }
+    // 출처 추가 후 기관 프로필 재생성(초안, 승인 전까지 review)
+    const ver = p.version_id ? store.getVersion(p.version_id) : null;
+    const claims = ver?.extracted?.claims || [];
+    const institution = buildInstitutionProfile({
+      orgType: normalizeOrgType(p.org_type), targetName: p.target_name, role: p.role,
+      sources: store.listSources(profileId), claims, userNotes: (p.experiences || []).join('\n'),
+    });
+    store.setInstitution(profileId, institution, 'review');
+    return { status: 201, body: { added, institution, institution_status: 'review' } };
+  }
+
+  function getInstitution(owner, profileId) {
+    const p = store.getProfile(owner, profileId);
+    if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
+    const inst = store.getInstitution(profileId);
+    if (!inst) return err('not_found', '기관 분석이 없습니다. 먼저 공고를 분석하세요.', 404);
+    return { status: 200, body: { profile_id: profileId, status: inst.status, approved_at: inst.approved_at || null, institution: inst.profile, sources: store.listSources(profileId) } };
+  }
+
   function createPractice(owner, body) {
     const eid = body.evaluation_id;
     if (!eid) return err('validation_error', 'evaluation_id가 필요합니다.', 422);
@@ -618,6 +771,14 @@ export function createApp(overrides = {}) {
       }
       if ((m = /^\/api\/v1\/profiles\/([^/]+)\/approve$/.exec(p)) && method === 'POST') {
         const r = approveProfile(owner, m[1], body);
+        return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body);
+      }
+      if ((m = /^\/api\/v1\/profiles\/([^/]+)\/sources$/.exec(p)) && method === 'POST') {
+        const r = addInstitutionSource(owner, m[1], body);
+        return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body);
+      }
+      if ((m = /^\/api\/v1\/profiles\/([^/]+)\/institution$/.exec(p)) && method === 'GET') {
+        const r = getInstitution(owner, m[1]);
         return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body);
       }
       if (method === 'POST' && p === '/api/v1/sessions') {

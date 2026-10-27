@@ -16,8 +16,9 @@
 
 ```powershell
 npm start                 # http://localhost:3000
-npm test                  # 통합 테스트 25개 (외부 키 불필요)
+npm test                  # 통합 테스트 31개 (외부 키 불필요)
 node tools/verify-design.mjs
+node tools/e2e-institution.mjs  # 기관 맞춤형 14개
 node tools/cost-model-gemini.mjs --sessions=1000
 ```
 

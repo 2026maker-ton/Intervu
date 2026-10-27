@@ -158,6 +158,12 @@ button { font: inherit; cursor: pointer; border-radius: 10px; }
 .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--muted); margin-left: 6px; }
 .tag.user { color: var(--amber); border-color: #d9b45a; background: var(--amber-wash); }
 .missing { color: var(--amber); font-size: 13px; font-weight: 600; }
+.tag.official { color: var(--green-deep); border-color: var(--green); background: var(--green-wash); }
+.inst-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--navy); color: #f4efe2; border-radius: 12px; padding: 12px 14px; margin: 14px 0 10px; }
+.inst-head .tag { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.25); color: #ffe9ad; }
+.inst-head .tag.official { background: #0e7c4b; border-color: #0e7c4b; color: #fff; }
+.inst-link h3, #institutionBody h3 { font-size: 14px; color: var(--green-deep); margin: 14px 0 8px; }
+#institutionBody label { margin-top: 10px; }
 
 /* 라이브룸 (시그니처) */
 .room { border: 2px solid var(--navy); background: linear-gradient(180deg, #fffdf7, #f3ecdd); }

@@ -15,6 +15,8 @@ export function createStore() {
   const attempts = new Map();       // id -> practice attempt
   const deletions = new Map();      // id -> deletion job
   const profileCalls = new Map();   // owner -> [timestamps] (프로필 추출 속도 제한)
+  const instSources = new Map();    // profile_id -> [source rows] (기관 자료 출처)
+  const institutions = new Map();   // profile_id -> { profile object, approved, approved_at }
 
   const now = () => new Date().toISOString();
   function pushEvent(sessionId, type, payload = {}, opts = {}) {
@@ -65,6 +67,21 @@ export function createStore() {
       return v;
     },
     getVersion(id) { return profileVersions.get(id) || null; },
+    // 기관 출처: 사용자 제공 URL·공식자료 메타 + 검수 상태. 외부 fetch 없음.
+    addSource(profile_id, row) {
+      const list = instSources.get(profile_id) || [];
+      list.push(row);
+      instSources.set(profile_id, list.slice(-30));
+      return row;
+    },
+    listSources(profile_id) { return (instSources.get(profile_id) || []).slice(); },
+    // 기관 프로필(분석 결과 버전): 승인 전 review, 승인 후 approved(불변 스냅샷)
+    setInstitution(profile_id, profile, status = 'review') {
+      const row = { profile_id, status, profile, created_at: now(), approved_at: status === 'approved' ? now() : null };
+      institutions.set(profile_id, row);
+      return row;
+    },
+    getInstitution(profile_id) { return institutions.get(profile_id) || null; },
 
     // sessions
     createSession(owner, data) {
@@ -73,6 +90,9 @@ export function createStore() {
         id, owner_id: owner, profile_version_id: data.profile_version_id || null,
         mode: data.mode || 'structured', task_type: data.task_type || 'behavioral',
         participant_layout: 'one_to_one', blind: !!data.blind, persona: data.persona || 'standard',
+        interviewer_role: data.interviewer_role || 'practitioner',
+        question_basis: data.question_basis || 'general-template-v1',
+        highschool_mock: !!data.highschool_mock,
         duration_minutes: Number.isFinite(data.duration_minutes) && data.duration_minutes > 0 ? data.duration_minutes : 15,
         duration_seconds: Number.isFinite(data.duration_seconds) && data.duration_seconds > 0 ? data.duration_seconds : (Number.isFinite(data.duration_minutes) && data.duration_minutes > 0 ? data.duration_minutes * 60 : 900),
         input_mode: data.input_mode === 'voice' ? 'voice' : 'text',
@@ -145,6 +165,8 @@ export function createStore() {
         p.experiences = [];
         p.target_name = '';
         p.status = 'deleted';
+        instSources.delete(p.id);
+        institutions.delete(p.id);
         const vid = p.approved_version_id || p.version_id;
         const v = profileVersions.get(vid);
         if (v) { v.extracted = null; v.status = 'deleted'; }

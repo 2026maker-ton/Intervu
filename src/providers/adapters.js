@@ -17,9 +17,15 @@ export function createMockAdapter() {
         missing_fields: ['interview_duration', 'participant_count'],
       };
     },
-    async next({ persona, followupReason, questionText, recentAnswer }) {
+    async next({ persona, role, followupReason, questionText }) {
       await sleep(5);
-      const map = {
+      // 역할별 꼬리질문 전략(서버가 최종 결정, Mock도 동일 전략 반영)
+      const roleMap = {
+        hr: { missing_personal_action: '팀에서 본인이 맡은 역할과 갈등을 풀기 위해 한 일을 설명해 주세요.', missing_evidence: '그때 팀과 공유한 기록이나 합의 내용을 덧붙여 주세요.', missing_reason: '그 방식을 택한 이유를 조직 관점에서 설명해 주세요.', missing_result: '그 이후 팀의 일하는 방식에 어떤 변화가 있었나요?', missing_reflection: '다음에 팀으로 일한다면 바꿀 점 한 가지를 말해 주세요.', unclear: '팀 경험에서 본인이 한 일을 한 가지 다시 말해 주세요.' },
+        executive: { missing_personal_action: '결정 과정에서 본인이 책임진 부분을 설명해 주세요.', missing_evidence: '결정할 때 확인한 사실관계를 한 가지 덧붙여 주세요.', missing_reason: '상충하는 기준 중 무엇을 우선한 이유는 무엇인가요?', missing_result: '그 결정의 장기 영향을 한 문장으로 말해 주세요.', missing_reflection: '다음에 같은 결정을 한다면 무엇을 달리하겠습니까?', unclear: '결정의 핵심 한 가지를 다시 말해 주세요.' },
+      };
+      const table = roleMap[role] || {};
+      const fallback = {
         missing_personal_action: '그 과정에서 본인이 직접 한 행동을 한 가지 설명해 주세요.',
         missing_evidence: '그때 확인한 근거를 한 가지 덧붙여 주세요.',
         missing_reason: '그 대안을 택하지 않은 이유는 무엇인가요?',
@@ -27,8 +33,8 @@ export function createMockAdapter() {
         missing_reflection: '그 경험에서 다음에 바꿀 행동 한 가지를 말해 주세요.',
         unclear: '답변이 잘 들리지 않았습니다. 핵심 행동 한 가지를 다시 말해 주세요.',
       };
-      const utterance = map[followupReason] || questionText;
-      void persona; void recentAnswer;
+      const utterance = table[followupReason] || fallback[followupReason] || questionText;
+      void persona;
       return { model: 'mock-model-v1', usage: { input: 800, output: 60 }, utterance: utterance.slice(0, 240) };
     },
     async evaluate({ dimensions }) {

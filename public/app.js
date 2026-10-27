@@ -93,12 +93,16 @@ $('#profileForm').addEventListener('submit', async (e) => {
       target_name: String(fd.get('target_name') || '').trim(),
       role: String(fd.get('role') || '').trim(),
       source_text: String(fd.get('source_text') || '').trim(),
+      sources: String(fd.get('source_urls') || '').split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 3).map((url) => ({ url, kind: 'official' })),
       experiences,
     };
     const created = await api('/profiles', { method: 'POST', body: payload, idempotent: true });
     state.profile = created;
+    state.institution = created.institution || null;
+    state.institutionStatus = created.institution_status || null;
     const detail = await api(`/profiles/${created.id}`);
     state.versionId = created.version_id;
+    state.sources = detail.sources || [];
     renderExtract(detail, created);
     $('#extractCard').hidden = false;
     setStep('profile', '완료', true);
@@ -144,17 +148,48 @@ function renderExtract(detail, created) {
     ${missing.length ? `<p class="missing">공고에서 확인되지 않음: ${missing.map(esc).join(', ')} — 연습 가정으로 진행합니다.</p>` : ''}
     ${ex.rejected_spans ? `<p class="missing">출처 구간 불일치 ${ex.rejected_spans}건을 제외했습니다.</p>` : ''}
     <p class="fine">공급자: ${esc(created.provider)} · 사용자 승인 전에는 세션을 시작할 수 없습니다.</p>`;
+  renderInstitution(detail.institution || created.institution || null, detail.sources || []);
+}
+
+function basisTag(basis) {
+  if (basis === 'official') return '<span class="tag official">공식 자료 확인</span>';
+  if (basis === 'user') return '<span class="tag user">사용자 입력</span>';
+  return '<span class="tag">연습 가정</span>';
+}
+
+function renderInstitution(inst, sources) {
+  const box = $('#institutionBody');
+  if (!box) return;
+  if (!inst) { box.innerHTML = ''; return; }
+  const values = (inst.core_values || []).map((c) => `<li><span class="val">${esc(c.label)}</span>${basisTag(c.basis)}<span class="meta">${c.source_title ? `근거: “${esc(c.source_quote)}” · ${esc(c.source_title)}` : esc(c.note || '일반 역량으로 연습합니다.')}</span></li>`).join('');
+  const formats = (inst.formats || []).map((f) => `<li><span class="val">${esc(f.item)}</span>${basisTag(f.basis)}<span class="meta">${esc(f.note || '')}</span></li>`).join('');
+  const recs = (inst.recommended_questions || []).map((q) => `<li><span class="val">${esc(q.text)}</span>${basisTag(q.basis)}<span class="meta">${esc(q.rationale || '')}</span></li>`).join('');
+  const unev = (inst.unevaluable || []).map((u) => `<li><span class="val">${esc(u.area)}</span><span class="tag">평가 불가</span><span class="meta">${esc(u.reason)}</span></li>`).join('');
+  const fresh = (inst.sources_summary?.freshness || []).map((f) => `<li><span class="val">${esc(f.title || '출처')}</span><span class="tag ${f.state === 'fresh' ? 'official' : ''}">${esc(f.state)}${f.age_days != null ? ` · ${f.age_days}일` : ''}</span><span class="meta">${esc(f.note || '')}</span></li>`).join('');
+  const srcs = (sources || []).map((s) => `<li><span class="val">${esc(s.title || s.url || '출처')}</span><span class="tag ${s.kind === 'official' ? 'official' : 'user'}">${esc(s.kind === 'official' ? '공식' : s.kind === 'unofficial' ? '비공식 참고' : s.kind === 'user' ? '사용자 입력' : '가정')}</span><span class="meta">${esc(s.url || '')}${s.published_at ? ` · 발행 ${esc(s.published_at)}` : ' · 발행일 미확인'} · 확인 ${esc((s.retrieved_at || '').slice(0, 10))}</span></li>`).join('');
+  const conflicts = (inst.sources_summary?.conflicts || []).map((c) => `<li><span class="val">${esc(c.key)}</span><span class="tag">상충</span><span class="meta">서로 다른 값 ${c.count}건 — 단정하지 않고 해당 항목은 보류합니다.</span></li>`).join('');
+  box.innerHTML = `
+    <div class="inst-head"><strong>${esc(inst.org_label)} · ${esc(inst.target_name || '기관 미지정')} · ${esc(inst.role || '직무·학과 미지정')}</strong><span class="tag ${inst.fallback_to_general ? '' : 'official'}">${esc(inst.badge)}</span></div>
+    <h3>핵심 가치·요구 역량</h3><ul class="claims">${values || '<li>확인된 역량 없음</li>'}</ul>
+    <h3>면접 형식·전형 조건</h3><ul class="claims">${formats}</ul>
+    <h3>권장 연습 질문 (질문별 근거)</h3><ul class="claims">${recs}</ul>
+    <h3>평가 가능한 영역 / 불가 영역</h3><ul class="claims">${(inst.evaluable || []).map((e2) => `<li><span class="val">${esc(e2.label)}</span>${basisTag(e2.basis)}</li>`).join('')}${unev}</ul>
+    ${srcs ? `<h3>출처 (URL·발행일·확인일)</h3><ul class="claims">${srcs}</ul>` : ''}
+    ${fresh ? `<h3>자료 신선도</h3><ul class="claims">${fresh}</ul>` : ''}
+    ${conflicts ? `<h3>상충 자료</h3><ul class="claims">${conflicts}</ul>` : ''}
+    <p class="fine">${esc(inst.disclaimer || '')}</p>`;
 }
 
 $('#approveBtn').addEventListener('click', async () => {
   if (!state.profile) return;
   try {
-    await api(`/profiles/${state.profile.id}/approve`, { method: 'POST', body: { version_id: state.versionId }, idempotent: true });
+    const note = ($('#institutionNote')?.value || '').trim();
+    await api(`/profiles/${state.profile.id}/approve`, { method: 'POST', body: { version_id: state.versionId, institution_edits: note ? { note } : {} }, idempotent: true });
     $('#setupCard').hidden = false;
     setStep('extract', '승인 완료', true);
     setStep('setup', '진행 중');
     $('#setupCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    toast('공고 버전을 승인했습니다. 면접을 설정하세요.');
+    toast('공고 버전과 기관 분석을 승인했습니다. 면접을 설정하세요.');
   } catch (err) { toast(err.message, true); }
 });
 
@@ -176,6 +211,7 @@ $('#sessionForm').addEventListener('submit', async (e) => {
         mode: 'structured',
         task_type: 'behavioral',
         persona: fd.get('persona') || 'standard',
+        interviewer_role: fd.get('interviewer_role') || 'practitioner',
         blind: fd.get('blind') === 'on',
         duration_minutes: Number(fd.get('duration_minutes')),
         input_mode: 'text',
@@ -366,7 +402,13 @@ async function loadReport() {
 }
 
 function renderReport(r) {
-  $('#reportBadge').textContent = `${r.badge} · ${r.provider} · ${r.rubric_version}`;
+  const roleLine = r.role_label ? ` · 면접관 ${esc(r.role_label)}` : '';
+  $('#reportBadge').textContent = `${r.badge} · ${r.provider} · ${r.rubric_version}${r.role_label ? ` · 면접관 ${r.role_label}` : ''}`;
+  const inst = r.institution ? `
+    <div class="inst-head"><strong>${esc(r.institution.org_label || '')} ${esc(r.institution.target_name || '')} · ${esc(r.institution.role || '')}</strong><span class="tag ${r.institution.fallback_to_general ? '' : 'official'}">${esc(r.institution.badge || '')}</span></div>
+    <div class="inst-link">${renderInstitutionLink(r.institution_link)}</div>
+    <p class="fine">${esc(r.institution.disclaimer || '기관의 비공개 채점기준을 아는 것처럼 표현하지 않습니다.')}</p>` : '';
+  void roleLine;
   const dims = r.dimensions.map((d) => {
     const scored = d.status === 'scored';
     const ev = d.evidence.map((e) => `<li><q>${esc(e.quote)}</q> <span class="lv">· 답변 수준 ${e.answer_level}</span></li>`).join('');
@@ -386,7 +428,7 @@ function renderReport(r) {
       <p class="fine">재연습 질문: ${esc(a.practice_question)}</p>
       <button class="ghost practice-btn" data-dim="${esc(a.dimension_id)}">90초 재연습 시작</button>
     </div>`).join('');
-  $('#reportBody').innerHTML = `${dims}${actions || '<p class="hint">개선 행동을 제안할 만큼 관찰된 차원이 없습니다.</p>'}
+  $('#reportBody').innerHTML = `${inst}${dims}${actions || '<p class="hint">개선 행동을 제안할 만큼 관찰된 차원이 없습니다.</p>'}
     <div class="actions">
       <button class="ghost" id="copyBtn">텍스트로 복사</button>
       <button class="ghost" id="exportBtn">JSON 내보내기</button>
@@ -472,6 +514,14 @@ async function checkAppeal(id) {
     const a = await api(`/appeals/${id}`);
     toast(`이의 ${a.status} · 유형 ${a.category} · 접수 ${new Date(a.created_at).toLocaleString('ko-KR')}`);
   } catch (err) { toast(err.message, true); }
+}
+
+function renderInstitutionLink(link) {
+  if (!link) return '';
+  if (link.mode === 'general') return `<p class="hint">${esc(link.note)}</p>`;
+  const rows = (link.links || []).map((l) => `<li><span class="val">${esc(l.requirement)}</span>${basisTag(l.basis)}<span class="meta">${esc(l.note)}${l.observed_with_evidence ? '' : ' · 근거 보완 필요'}</span></li>`).join('');
+  const uncovered = (link.uncovered || []).map((u) => `<li><span class="val">${esc(u.requirement)}</span><span class="tag">미관찰</span><span class="meta">${esc(u.note)}</span></li>`).join('');
+  return `<h3>기관 요구와 답변의 연결</h3><p class="hint">${esc(link.note)}</p><ul class="claims">${rows || '<li>연결된 요구 없음</li>'}${uncovered}</ul>`;
 }
 
 function resetAll() {

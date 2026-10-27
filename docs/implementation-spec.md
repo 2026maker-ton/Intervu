@@ -269,4 +269,4 @@ tests/e2e/                microphone-mocked browser journeys
 - **이벤트**: durable 이벤트만 `seq` 증가. `seq=null`은 재생 대상 아님.
 - **연결**: `POST /sessions/:id/connect`로 30초 일회성 티켓 발급. MVP는 실제 WSS 미연동이며 `GET /sessions/:id/ws?ticket=` 확인 후 REST 명령으로 진행.
 - **내보내기/삭제**: `POST /exports` → 10분 유효 `GET /exports/:id`(JSON). 세션 삭제는 즉시 `deleting→deleted`, 전사 마스킹·보고서 삭제·이벤트 비움. `DELETE /account`는 계정 전체 tombstone 후 파기. 백업 만료일 고지.
-- **테스트**: `npm test` 25개 통합 테스트(인증·멱등·소유권·상태전이·근거검증·90초 재연습·서버 시간상한·예산·공급자 게이트·프로필 속도제한·일회성 티켓·내보내기·계정삭제·이의제기). 브라우저 E2E로 승인→면접→보고서→재연습→삭제 흐름 확인.
+- **테스트**: `npm test` 31개 통합 테스트(인증·멱등·소유권·상태전이·근거검증·90초 재연습·서버 시간상한·예산·공급자 게이트·프로필 속도제한·일회성 티켓·내보내기·계정삭제·이의제기·기관 6종). 브라우저 E2E로 승인→면접→보고서→재연습→삭제 흐름 확인. 기관 E2E(`node tools/e2e-institution.mjs`) 14개 별도 통과.

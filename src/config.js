@@ -79,5 +79,10 @@ export function loadConfig(env = process.env) {
     },
     // 킬 스위치(사양 §13·§12): 'gemini'가 포함되면 외부 호출을 차단하고 Mock으로 동작.
     killSwitch: String(env.KILL_PROVIDERS || env.INTERVU_KILL || 'none').toLowerCase(),
+    // 관리자 인증 (PROJECT §2.3/§3): ADMIN_TOKEN이 설정되면 /admin/* 은 x-admin-token 일치 시에만 허용.
+    // 미설정 시 개발 토큰만으로 동작하는 dev-open 모드이며, 공개본 조회에는 영향이 없다.
+    adminToken: String(env.ADMIN_TOKEN || ''),
+    // 빈 문자열을 명시하면 영속화를 끈다(테스트·격리 환경). 미설정 시 기본 파일 사용.
+    trendsFile: env.TRENDS_FILE === undefined ? 'data/trends.json' : String(env.TRENDS_FILE),
   };
 }

@@ -1,0 +1,21 @@
+name: Product contract and regression guard
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  project-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate PROJECT.md and AGENTS.md
+        run: npm run check:project
+      - name: Run existing offline regression suite
+        run: npm test

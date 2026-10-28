@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test tests/run.mjs",
+    "check:project": "node tools/check-project.mjs",
+    "test": "node tools/check-project.mjs && node --test tests/run.mjs",
     "verify:design": "node tools/verify-design.mjs",
     "cost": "node tools/cost-model.mjs --sessions=1000",
     "cost:gemini": "node tools/cost-model-gemini.mjs --sessions=1000",

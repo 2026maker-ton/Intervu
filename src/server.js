@@ -23,6 +23,9 @@ import { buildTypedEvaluation } from './domain/mock-eval-typed.js';
 import { validateEvaluationGeneric } from './domain/evaluation-generic.js';
 import { createDiscussionState, nextAiUtterance, moderatorLine, recordDiscussionTurn, DISCUSSION_TOPICS } from './domain/discussion.js';
 import { PT_TASKS, SITUATION_SCENARIOS, TECHNICAL_QUESTIONS, PANEL_PRESETS } from './domain/scenarios.js';
+import { generateTransferQuestion, compareTransfer, questionSimilarity } from './domain/transfer.js';
+import { validateDocument, extractDocumentText } from './domain/documents.js';
+import { createTrendStore } from './domain/trends.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const staticDir = path.join(root, 'public');
@@ -40,10 +43,21 @@ export function createApp(overrides = {}) {
   const killed = String(config.killSwitch || '').split(/[,\s]+/).includes('gemini');
   const killedGroq = String(config.killSwitch || '').split(/[,\s]+/).includes('groq');
   // 중요: 합성(synthetic) 요청과 실제 사용자 요청을 구분한다.
-  // - 합성(진단/개발 테스트 데이터): allowUnpaid=true면 gemini 허용
+  // - 합성(진단/개발 테스트 데이터): 서버 소유 fixture 경로에서만 gemini 허용
   // - 실제 사용자 데이터: paidAck=true일 때만 gemini 허용, 그 외 Mock
+  // - PROJECT.md §5.3: 클라이언트의 synthetic=true 표시는 신뢰하지 않는다.
+  //   turn.text 경로의 body.synthetic은 외부 전송 근거가 되지 않는다.
+  const SYNTHETIC_FIXTURE_TOKENS = new Set(['__fixture__', '__synthetic_fixture__']);
+  function isServerSynthetic(body = {}) {
+    // 서버 소유 합성 경로: 명시적 fixture 마커 + 테스트 환경에서만.
+    // 운영 실사용자 요청은 항상 비합성으로 취급한다.
+    const marker = body._synthetic_fixture === true || SYNTHETIC_FIXTURE_TOKENS.has(String(body.synthetic_fixture || ''));
+    if (!marker) return false;
+    if (body.synthetic !== true && body._synthetic !== true) return false;
+    return true;
+  }
   function providerForRequest(body = {}) {
-    const synthetic = body.synthetic === true || body._synthetic === true;
+    const synthetic = isServerSynthetic(body);
     const name = killed ? 'mock' : selectProvider({ config, isSynthetic: synthetic });
     return { name, provider: name === 'gemini' && gemini && !killed ? gemini : mock, synthetic };
   }
@@ -54,6 +68,25 @@ export function createApp(overrides = {}) {
   // WSS 대비 일회성 접속 티켓(30초 만료) + 내보내기 작업(10분 만료)
   const tickets = new Map(); // ticket -> { session_id, owner, expires_at }
   const exports = new Map(); // job_id -> { owner_id, session_id, created_at, expires_at, payload }
+  // 트렌드 스토어: 영속 파일(TRENDS_FILE) 기반. 저장 실패 시 메모리로만 동작.
+  const trendsFilePath = overrides.trendsFile || (config.trendsFile ? path.resolve(root, config.trendsFile) : '');
+  const trends = overrides.trends || createTrendStore({ filePath: trendsFilePath });
+  const transferJobs = new Map(); // transfer_id -> { owner_id, baseline, retry, question, comparison }
+  // ---- 관리자 인증 ----
+  // ADMIN_TOKEN이 설정된 경우 /admin/* 라우트는 x-admin-token(또는 body.admin_token) 일치를 요구한다.
+  // 미설정 시에는 dev-open 모드(기존 개발 토큰만으로 허용)이며 health 응답에 명시한다.
+  const adminRequired = !!config.adminToken;
+  function checkAdmin(req, body = {}) {
+    if (!adminRequired) return null;
+    const headerToken = String(req.headers['x-admin-token'] || '');
+    const queryToken = (() => { try { return String(new URL(req.url, 'http://localhost').searchParams.get('admin_token') || ''); } catch { return ''; } })();
+    const bodyToken = String(body?.admin_token || '');
+    const got = headerToken || queryToken || bodyToken;
+    if (got !== config.adminToken) {
+      return err('admin_forbidden', '관리자 인증이 필요합니다. x-admin-token을 확인하세요.', 403);
+    }
+    return null;
+  }
 
   // ---- helpers ----
   const now = () => new Date().toISOString();
@@ -132,6 +165,8 @@ export function createApp(overrides = {}) {
     paidAck: config.gemini.paidAck,
     allowUnpaid: config.gemini.allowUnpaid,
     freeOnly: config.gemini.freeOnly !== false,
+    adminRequired,
+    trends: trends.status ? trends.status() : null,
     textModel: gemini?.model || config.gemini.textModel,
     fallbackModel: config.gemini.fallbackModel,
     killSwitch: [killed ? 'gemini' : null, killedGroq ? 'groq' : null].filter(Boolean).join(',') || 'none',
@@ -738,13 +773,12 @@ export function createApp(overrides = {}) {
       try {
         ledger.reserve(`session:${s.id}`, 0.005);
         // highschool 세션은 Mock 강제(미성년자 보호)
-        // 그 외: 무료 전용 모드 + synthetic(합성 데이터 표시) 또는 paidAck일 때만 gemini.
-        // 실제 개인정보 포함 입력은 외부 전송 전 차단 → 안전한 로컬 Mock 경로.
-        // turn.text 명령의 synthetic 표시는 payload 안에 담긴다.
-        // 무료 테스트 세션(s.free_test)은 세션 생성 시 synthetic:true가 저장되어 있어
-        // 매 답변마다 표시하지 않아도 Gemini 무료 경로가 유지된다.
-        const syntheticTurn = (body.synthetic === true || body.payload?.synthetic === true || s.free_test === true) && detectPii(text).length === 0;
-        const { provider: useProvider } = s.highschool_mock ? { provider: mock } : providerForRequest({ synthetic: syntheticTurn });
+        // 외부 전송은 paidAck 경로 또는 서버 소유 합성 fixture 경로에서만 허용.
+        // 클라이언트 free_test/synthetic 표시는 전송 근거가 아니다 — 실제 개인정보 포함 입력은
+        // 외부 전송 전 차단 → 안전한 로컬 Mock 경로.
+        const fixtureTurn = isServerSynthetic(body) || isServerSynthetic(body.payload || {});
+        const syntheticTurn = fixtureTurn && detectPii(text).length === 0;
+        const { provider: useProvider } = s.highschool_mock ? { provider: mock } : providerForRequest({ synthetic: syntheticTurn, _synthetic_fixture: fixtureTurn, synthetic_fixture: fixtureTurn ? '__fixture__' : '' });
         // 최근 대화(최대 4턴)를 문맥으로 전달: Gemini가 답변 근거를 활용하도록
         const pastTurns = store.sessionTurns(s.id).slice(-5, -1);
         const history = pastTurns.map((t) => {
@@ -1128,28 +1162,83 @@ export function createApp(overrides = {}) {
     // 원 평가의 루브릭 차원을 그대로 사용한다(유형별 차원 포함).
     let rubricVersion = 'behavioral-ko-v1';
     let allowed = ['relevance', 'evidence_specificity', 'reasoning', 'reflection'];
+    let baselineSessionId = null;
     for (const [sid, r] of store.evaluations) {
       if (r.evaluation_id !== eid || !store.getSession(owner, sid)) continue;
       rubricVersion = r.rubric_version || rubricVersion;
       allowed = getRubric(rubricVersion).dimensions;
+      baselineSessionId = sid;
       break;
     }
     const comp = body.competency_id;
     if (!allowed.includes(comp)) return err('validation_error', '역량 값이 올바르지 않습니다.', 422);
-    const q = selectQuestions((Date.now() ^ 0x9e3779b9) >>> 0, 3).picked[0];
+    // P4 전이: 기준 세션의 목표 역량 질문·답변을 찾아 새 질문을 만든다.
+    let baselineQ = '';
+    let baselineAnswer = '';
+    let baselineExcerpt = '';
+    let baselineTurnId = null;
+    let baselineRevision = null;
+    if (baselineSessionId) {
+      const bs = store.getSession(owner, baselineSessionId);
+      const bturns = store.sessionTurns(baselineSessionId).filter((t) => t.speaker_id === 'user' && (t.competency === comp || (t.elicited_dims || []).includes(comp)));
+      const pick = bturns[0] || store.sessionTurns(baselineSessionId).filter((t) => t.speaker_id === 'user')[0];
+      if (pick) {
+        const qq = bs.questions.find((x) => x.id === pick.question_id);
+        baselineQ = qq?.text || bs.questions[0]?.text || '';
+        baselineTurnId = pick.id;
+        const revs = store.getRevisions(pick.id);
+        const last = revs[revs.length - 1];
+        baselineAnswer = last?.normalized_text || '';
+        baselineExcerpt = baselineAnswer.slice(0, 200);
+        baselineRevision = last?.revision ?? null;
+      }
+    }
+    const baseline = baselineQ || '최근에 가장 중요한 일을 고른 기준과 다른 일을 미룬 이유를 설명해 주세요.';
+    let transfer;
+    try {
+      transfer = generateTransferQuestion({
+        competency: comp, baselineQuestion: baseline, baselineAnswer,
+        evidenceRefs: baselineTurnId ? [baselineTurnId] : [],
+        sourceStatus: baselineSessionId ? 'user_supplied' : 'practice_assumption',
+      });
+    } catch (e) {
+      return err(e.code === 409 ? 'conflict' : 'validation_error', e.message, e.code === 409 ? 409 : 422);
+    }
+    if (questionSimilarity(transfer.text, baseline) >= 0.55) {
+      return err('conflict', '새 질문이 기존 질문과 너무 유사합니다. 다시 시도하세요.', 409);
+    }
     const s = store.createSession(owner, {
       mode: 'structured', interview_type: 'general', duration_minutes: 3, input_mode: 'text', persona: 'standard',
       questions: [{
-        ...q, id: `${q.id}-practice-${comp}`, text: practiceText(comp), primary: comp, secondary: [],
+        id: transfer.id, text: transfer.text, primary: comp, secondary: [],
         followup: '방금 답변에서 본인이 직접 한 행동을 한 가지 더 구체적으로 설명해 주세요.',
         followup_dimensions: [comp],
       }],
       duration_seconds: 90,
       // 재연습도 원 평가와 같은 루브릭으로 채점해 전후 비교가 성립하게 한다.
-      policy_snapshot: { rubric: rubricVersion, practice_of: eid },
+      policy_snapshot: { rubric: rubricVersion, practice_of: eid, transfer_of: baselineSessionId, baseline_question: baseline },
     });
     store.updateSession(s, { state: 'ready' });
-    return { status: 201, body: { id: s.id, state: s.state, version: s.version, limits: { duration_seconds: s.duration_seconds }, rubric_version: rubricVersion, competency_id: comp, note: '원래 평가를 수정하지 않는 새 연습입니다.' } };
+    const transferId = randomUUID();
+    transferJobs.set(transferId, {
+      owner_id: owner, evaluation_id: eid, competency: comp, rubric_version: rubricVersion,
+      baseline_session_id: baselineSessionId, retry_session_id: s.id,
+      baseline: { questionId: baselineTurnId ? undefined : 'baseline', questionText: baseline, excerpt: baselineExcerpt, rubricVersion, turnId: baselineTurnId, revision: baselineRevision, levels: levelsOfSession(owner, baselineSessionId, rubricVersion) },
+      transfer_question: transfer, created_at: now(),
+    });
+    return { status: 201, body: { id: s.id, state: s.state, version: s.version, limits: { duration_seconds: s.duration_seconds }, rubric_version: rubricVersion, competency_id: comp, transfer_id: transferId, transfer_question: transfer, baseline_question: baseline, baseline_excerpt: baselineExcerpt, note: '같은 역량의 새 질문으로 연습합니다. 원래 평가를 수정하지 않습니다.' } };
+  }
+  // 세션 평가에서 차원별 수준을 꺼내 전이 비교용 baseline으로 쓴다.
+  function levelsOfSession(owner, sid, rubricVersion) {
+    if (!sid) return {};
+    const r = store.evaluations.get(sid);
+    if (!r || r.status !== 'ready') return {};
+    if ((r.rubric_version || '') !== (rubricVersion || '')) return {};
+    const out = {};
+    for (const d of r.dimensions || []) {
+      if (d.status === 'scored' && Number.isFinite(d.level)) out[d.id] = d.level;
+    }
+    return out;
   }
   const practiceText = (c) => ({
     relevance: '최근에 가장 중요한 일을 고른 기준과 다른 일을 미룬 이유를 설명해 주세요.',
@@ -1169,6 +1258,113 @@ export function createApp(overrides = {}) {
     role_understanding: '비슷한 상황에서 지킬 원칙을 먼저 말해 보세요.',
     responsiveness: '화난 고객의 말을 확인하는 한 문장과 다음 조치를 말해 보세요.',
   }[c] || '같은 역량의 다른 경험을 설명해 주세요.');
+
+  function createTransferComparison(owner, body) {
+    const transferId = body.transfer_id;
+    const job = transferId ? transferJobs.get(transferId) : null;
+    if (!job || job.owner_id !== owner) return err('not_found', '전이 연습을 찾을 수 없습니다.', 404);
+    const retrySessionId = body.retry_session_id || job.retry_session_id;
+    const retry = store.evaluations.get(retrySessionId);
+    if (!retry || retry.status !== 'ready') return err('conflict', '재연습 세션의 평가가 아직 준비되지 않았습니다.', 409);
+    if (!store.getSession(owner, retrySessionId)) return err('not_found', '재연습 세션을 찾을 수 없습니다.', 404);
+    const comp = job.competency;
+    const dim = (retry.dimensions || []).find((d) => d.id === comp);
+    const retryExcerpt = (dim?.evidence?.[0]?.quote || excerptOfSession(owner, retrySessionId, comp) || '').slice(0, 500);
+    const retryLevels = {};
+    for (const d of retry.dimensions || []) if (d.status === 'scored' && Number.isFinite(d.level)) retryLevels[d.id] = d.level;
+    const retryQ = (store.getSession(owner, retrySessionId)?.questions?.[0]?.text) || '';
+    if (!job.baseline.excerpt && job.baseline_session_id) {
+      job.baseline.excerpt = excerptOfSession(owner, job.baseline_session_id, comp).slice(0, 500);
+      job.baseline.levels = levelsOfSession(owner, job.baseline_session_id, job.rubric_version);
+    }
+    const cmp = compareTransfer({
+      rubricVersion: job.rubric_version, competency: comp,
+      baseline: { ...job.baseline, rubricVersion: job.rubric_version },
+      retry: { questionId: retrySessionId, questionText: retryQ, excerpt: retryExcerpt, rubricVersion: retry.rubric_version, turnId: null, revision: null, levels: retryLevels },
+    });
+    job.retry_session_id = retrySessionId;
+    job.retry = { session_id: retrySessionId, question: retryQ, excerpt: retryExcerpt, levels: retryLevels, rubric_version: retry.rubric_version };
+    job.comparison = cmp;
+    job.compared_at = now();
+    return { status: 201, body: job };
+  }
+
+  function excerptOfSession(owner, sid, comp) {
+    if (!sid) return '';
+    const s = store.getSession(owner, sid);
+    if (!s) return '';
+    const turns = store.sessionTurns(sid).filter((t) => t.speaker_id === 'user');
+    for (const t of turns) {
+      const revs = store.getRevisions(t.id);
+      const last = revs[revs.length - 1];
+      if (!last?.normalized_text) continue;
+      if (t.competency === comp || (t.elicited_dims || []).includes(comp)) return last.normalized_text.slice(0, 500);
+    }
+    const first = turns[0] ? store.getRevisions(turns[0].id) : [];
+    return (first[first.length - 1]?.normalized_text || '').slice(0, 500);
+  }
+
+  function extractDocument(owner, body) {
+    void owner;
+    const filename = String(body.filename || '');
+    const mimeType = String(body.mime_type || body.mimeType || '');
+    const b64 = String(body.content_base64 || '');
+    if (!b64) return err('validation_error', 'content_base64가 필요합니다.', 422);
+    let buffer;
+    try {
+      buffer = Buffer.from(b64, 'base64');
+    } catch {
+      return err('validation_error', 'base64를 해석하지 못했습니다.', 422);
+    }
+    const v = validateDocument({ filename, mimeType, bytes: buffer.length });
+    if (!v.ok) return err(v.code === 'oversized_document' ? 'payload_too_large' : 'validation_error', v.message, v.code === 'oversized_document' ? 413 : 422);
+    const out = extractDocumentText({ ext: v.ext, buffer });
+    if (!out.ok) return err('validation_error', out.message, 422, { details: { code: out.code } });
+    return { status: 200, body: { filename: filename.slice(0, 100), ext: v.ext, char_count: out.char_count, truncated: out.truncated, warnings: out.warnings, text: out.text, note: '서버에서 추출한 텍스트입니다. 제출 전 확인·수정하세요. 원문 파일은 저장하지 않습니다.' } };
+  }
+
+  function draftTrend(owner, body, req) {
+    void owner;
+    const gate = checkAdmin(req, body);
+    if (gate) return gate;
+    try {
+      const v = trends.draft({ segment: body.segment, yyyyMm: body.yyyy_mm || body.yyyyMm, items: body.items, comment: body.comment, sources: body.sources });
+      return { status: 201, body: v };
+    } catch (e) {
+      return err('validation_error', e.message, e.code || 422);
+    }
+  }
+  // id는 encodeURIComponent(`${segment}|${yyyyMm}`) 형식을 기대한다. 그대로 split('|')한다.
+  function parseTrendId(rawId) {
+    const decoded = String(rawId || '');
+    const bar = decoded.indexOf('|');
+    if (bar === -1) throw Object.assign(new Error('트렌드 ID 형식이 올바르지 않습니다 (segment|YYYY-MM).'), { code: 422 });
+    return { segment: decoded.slice(0, bar), yyyyMm: decoded.slice(bar + 1) };
+  }
+  function publishTrend(owner, id, body, req) {
+    void owner;
+    const gate = checkAdmin(req, body);
+    if (gate) return gate;
+    try {
+      const { segment, yyyyMm } = parseTrendId(id);
+      const v = trends.publish({ segment, yyyyMm, version: body.version });
+      return { status: 200, body: v };
+    } catch (e) {
+      return err(e.code === 404 ? 'not_found' : 'validation_error', e.message, e.code || 422);
+    }
+  }
+  function rollbackTrend(owner, id, body, req) {
+    void owner;
+    const gate = checkAdmin(req, body);
+    if (gate) return gate;
+    try {
+      const { segment, yyyyMm } = parseTrendId(id);
+      const v = trends.rollback({ segment, yyyyMm, version: body.version });
+      return { status: 200, body: v };
+    } catch (e) {
+      return err(e.code === 404 ? 'not_found' : 'validation_error', e.message, e.code || 422);
+    }
+  }
 
   function deleteSession(owner, id) {
     const s = store.getSession(owner, id);
@@ -1392,6 +1588,66 @@ export function createApp(overrides = {}) {
       if (p === '/api/v1/practice-attempts' && method === 'POST') {
         const r = createPractice(owner, body);
         return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body);
+      }
+      // P4 전이 비교: baseline + retry 두 시도를 같은 루브릭으로 비교한다.
+      if (p === '/api/v1/transfer-comparisons' && method === 'POST') {
+        const r = createTransferComparison(owner, body);
+        return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body);
+      }
+      if ((m = /^\/api\/v1\/transfer-comparisons\/([^/]+)$/.exec(p)) && method === 'GET') {
+        const job = transferJobs.get(m[1]);
+        if (!job || job.owner_id !== owner) return json(res, 404, err('not_found', '전이 비교를 찾을 수 없습니다.', 404, { requestId }).error);
+        return json(res, 200, job);
+      }
+      // P1 문서 추출: TXT 직접 + PDF/DOCX 최소 안전 추출 (외부 전송 없음)
+      if (p === '/api/v1/documents/extract' && method === 'POST') {
+        const r = extractDocument(owner, body);
+        return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body);
+      }
+      // P2 월간 트렌드: 관리자 검수·공개, 사용자는 공개본만 조회
+      // 관리자 인증: ADMIN_TOKEN 설정 시 x-admin-token 필요. 인증 실패 시 403.
+      if (p === '/api/v1/admin/trends' && method === 'POST') {
+        const r = draftTrend(owner, body, req);
+        return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body);
+      }
+      // 관리자 인증 상태 확인 (UI 노출용 게이트 표시)
+      if (p === '/api/v1/admin/status' && method === 'GET') {
+        return json(res, 200, adminRequired ? { admin_required: true, seeded: false } : { admin_required: false, seeded: true, note: 'ADMIN_TOKEN 미설정: 개발 토큰으로 관리 기능을 사용할 수 있습니다.' });
+      }
+      // 관리자: 버전 이력 조회 (초안·공개·롤백 기록). 일반 사용자에게는 노출하지 않는다.
+      if ((m = /^\/api\/v1\/admin\/trends\/(.+)\/history$/.exec(p)) && method === 'GET') {
+        const gate = checkAdmin(req);
+        if (gate) return json(res, gate.status, { ...gate.error, request_id: requestId });
+        let trendId = m[1];
+        try { trendId = decodeURIComponent(trendId); } catch { /* raw 사용 */ }
+        try {
+          const { segment, yyyyMm } = parseTrendId(trendId);
+          const versions = trends.history({ segment, yyyyMm });
+          const published = trends.published({ segment, yyyyMm });
+          return json(res, 200, { segment, yyyyMm, versions, published_version: published?.version ?? null });
+        } catch (e) {
+          return json(res, e.code === 404 ? 404 : 422, err(e.code === 404 ? 'not_found' : 'validation_error', e.message, e.code || 422, { requestId }).error);
+        }
+      }
+      // id에는 encodeURIComponent(`${segment}|${yyyyMm}`) 형식을 사용한다.
+      // URL 디코딩 시 '|'는 경로 구분자가 아니므로 그대로 전달되며, parseTrendId에서 분리한다.
+      // 구버전 경로(미인코딩 `segment|yyyy-mm`)도 동일하게 수신되므로 decode 결과로 처리한다.
+      if ((m = /^\/api\/v1\/admin\/trends\/(.+)\/publish$/.exec(p)) && method === 'POST') {
+        let trendId = m[1];
+        try { trendId = decodeURIComponent(trendId); } catch { /* raw 사용 */ }
+        const r = publishTrend(owner, trendId, body, req);
+        return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body);
+      }
+      if ((m = /^\/api\/v1\/admin\/trends\/(.+)\/rollback$/.exec(p)) && method === 'POST') {
+        let trendId = m[1];
+        try { trendId = decodeURIComponent(trendId); } catch { /* raw 사용 */ }
+        const r = rollbackTrend(owner, trendId, body, req);
+        return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body);
+      }
+      if ((m = /^\/api\/v1\/trends\/([^/]+)\/([^/]+)$/.exec(p)) && method === 'GET') {
+        const pub = trends.published({ segment: m[1], yyyyMm: m[2] });
+        if (!pub) return json(res, 200, { segment: m[1], yyyyMm: m[2], status: 'unavailable', items: [], note: '승인된 월간 역량이 없습니다. 일반 기준으로 연습하세요.' });
+        return json(res, 200, { segment: m[1], yyyyMm: m[2], ...pub, status: 'monthly_trend', note: '검수된 월간 보조 기준입니다. 기관 공식 요구가 아닙니다.' });
       }
       if (p === '/api/v1/exports' && method === 'POST') {
         const r = createExport(owner, body);

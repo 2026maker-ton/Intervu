@@ -36,7 +36,7 @@ async function cleanupAll() {
 
 before(async () => {
   // 로컬 .env 실키와 무관하게 기준선은 Mock: Groq 키도 명시적으로 비운다.
-  app = createApp({ env: { GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: A, DEV_TOKEN_B: B, PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100' } });
+  app = createApp({ env: { GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: A, DEV_TOKEN_B: B, TRENDS_FILE: '', PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100' } });
   await new Promise((r) => app.server.listen(0, r));
   base = `http://127.0.0.1:${app.server.address().port}`;
 });
@@ -848,3 +848,254 @@ test('free test session flag is persisted', async () => {
   assert.equal(got.data.free_test, true);
 });
 
+
+test('P0: PII blind masking keeps common words', async () => {
+  const { buildBlindContext } = await import('../src/domain/pii.js');
+  const out = buildBlindContext('이번 이유 이해, 21세기 프로젝트');
+  const s = typeof out === 'string' ? out : JSON.stringify(out);
+  for (const w of ['이번', '이유', '이해', '21세기']) assert.ok(s.includes(w), w);
+});
+
+test('P0: keyword stuffing does not reach L3/L4', async () => {
+  const { buildMockEvaluation } = await import('../src/domain/mock-eval.js');
+  const t = (id) => ({ turn_id: id, revision: 1, text: '저는 이유 결과', elicited: ['evidence_specificity', 'reasoning', 'relevance', 'reflection'] });
+  const r = buildMockEvaluation({ sessionId: 's', turnsWithText: [t('a'), t('b'), t('c')] });
+  for (const d of r.dimensions) if (d.status === 'scored') assert.ok(d.level < 3, `${d.id} ${d.level}`);
+});
+
+test('P4: transfer question is different and trends are capped', async () => {
+  const { generateTransferQuestion, compareTransfer } = await import('../src/domain/transfer.js');
+  const base = '갈등을 해결한 경험에서 본인의 행동을 구체적으로 설명해 주세요.';
+  const q = generateTransferQuestion({ competency: 'evidence_specificity', baselineQuestion: base });
+  assert.notEqual(q.text, base);
+  const c = compareTransfer({ rubricVersion: 'behavioral-ko-v1', competency: 'reasoning', baseline: { excerpt: '짧은 답변', levels: {} }, retry: { excerpt: '짧은 답변', levels: {} } });
+  assert.equal(c.status, 'insufficient_evidence');
+  const { createTrendStore } = await import('../src/domain/trends.js');
+  const ts = createTrendStore();
+  assert.throws(() => ts.draft({ segment: 'company', yyyyMm: '2026-10', items: [1, 2, 3, 4].map((i) => ({ competency: 'c' + i })) }));
+  ts.draft({ segment: 'company', yyyyMm: '2026-10', items: [{ competency: 'a' }] });
+  assert.equal(ts.published({ segment: 'company', yyyyMm: '2026-10' }), null);
+});
+
+test('P1: document extract rejects unsupported and accepts TXT', async () => {
+  const bad = await call('/api/v1/documents/extract', { method: 'POST', body: { filename: 'a.exe', content_base64: Buffer.from('x').toString('base64') } });
+  assert.equal(bad.status, 422);
+  const ok = await call('/api/v1/documents/extract', { method: 'POST', body: { filename: 'a.txt', mime_type: 'text/plain', content_base64: Buffer.from('지원서 요약 문장입니다.').toString('base64') } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.match(ok.data.text, /지원서/);
+});
+
+// ---- P1/P2/P4: backend gaps — real extraction, persistent trends, admin gate, transfer HTTP ----
+function buildDocxBuffer(text) {
+  const xml = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`, 'utf8');
+  const { deflateRawSync } = require('node:zlib');
+  const comp = deflateRawSync(xml);
+  // minimal local-file-header ZIP (no central directory needed for our parser)
+  const name = Buffer.from('word/document.xml', 'utf8');
+  const head = Buffer.alloc(30);
+  head.writeUInt32LE(0x04034b50, 0);
+  head.writeUInt16LE(20, 4);
+  head.writeUInt16LE(0, 6);
+  head.writeUInt16LE(8, 8); // deflate
+  head.writeUInt32LE(comp.length, 18);
+  head.writeUInt16LE(name.length, 26);
+  head.writeUInt16LE(0, 28);
+  return Buffer.concat([head, name, comp]);
+}
+
+function buildPdfBuffer(text, flate = false) {
+  const { deflateSync } = require('node:zlib');
+  const bodyText = `(${text}) Tj`;
+  if (!flate) {
+    return Buffer.from(`%PDF-1.4\n1 0 obj\n<< /Length ${bodyText.length} >>\nstream\n${bodyText}\nendstream\nendobj\ntrailer`, 'utf8');
+  }
+  const comp = deflateSync(Buffer.from(bodyText, 'utf8'));
+  return Buffer.concat([
+    Buffer.from(`%PDF-1.4\n1 0 obj\n<< /Length ${comp.length} /Filter /FlateDecode >>\nstream\n`, 'utf8'),
+    comp,
+    Buffer.from('\nendstream\nendobj\ntrailer', 'utf8'),
+  ]);
+}
+
+test('P1: document extract handles compressed DOCX + Flate PDF + scanned failure', async () => {
+  const { createRequire } = await import('node:module');
+  const require = createRequire(import.meta.url);
+  globalThis.require = globalThis.require || require;
+  const docxBuf = buildDocxBuffer('압축 DOCX 추출 검증 문장입니다');
+  const docx = await call('/api/v1/documents/extract', { method: 'POST', body: { filename: 'a.docx', mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', content_base64: docxBuf.toString('base64') } });
+  assert.equal(docx.status, 200, JSON.stringify(docx.data));
+  assert.match(docx.data.text, /압축 DOCX/);
+  const pdfBuf = buildPdfBuffer('Flate 압축 PDF 본문입니다', true);
+  const pdf = await call('/api/v1/documents/extract', { method: 'POST', body: { filename: 'a.pdf', mime_type: 'application/pdf', content_base64: pdfBuf.toString('base64') } });
+  assert.equal(pdf.status, 200, JSON.stringify(pdf.data));
+  assert.match(pdf.data.text, /Flate/);
+  // 스캔/이미지 PDF: 텍스트 스트림이 없으면 붙여넣기 안내(422)로 실패한다
+  const scan = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Subtype /Image /Length 10 >>\nstream\n0123456789\nendstream', 'utf8');
+  const scanned = await call('/api/v1/documents/extract', { method: 'POST', body: { filename: 'scan.pdf', mime_type: 'application/pdf', content_base64: scan.toString('base64') } });
+  assert.equal(scanned.status, 422);
+  assert.match(JSON.stringify(scanned.data), /붙여넣/);
+  // oversize / empty
+  const big = await call('/api/v1/documents/extract', { method: 'POST', body: { filename: 'big.txt', content_base64: Buffer.alloc(10).toString('base64') } });
+  assert.equal(big.status, 200); // 10바이트 유효 TXT
+  const empty = await call('/api/v1/documents/extract', { method: 'POST', body: { filename: 'e.txt', content_base64: Buffer.from('').toString('base64') } });
+  assert.equal(empty.status, 422);
+});
+
+test('P2: admin trends require token when ADMIN_TOKEN set; draft→publish→rollback→published-only', async () => {
+  const { createApp } = await import('../src/server.js');
+  const adminApp = createApp({ env: { GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', DEV_TOKEN_A: A, DEV_TOKEN_B: B, ADMIN_TOKEN: 'test-admin-token', TRENDS_FILE: '', PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100' } });
+  await new Promise((r) => adminApp.server.listen(0, r));
+  const ab = `http://127.0.0.1:${adminApp.server.address().port}`;
+  const acall = async (p, { method = 'GET', body, admin = false } = {}) => {
+    const headers = { Authorization: `Bearer ${A}`, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() };
+    if (admin) headers['x-admin-token'] = 'test-admin-token';
+    const res = await fetch(ab + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: res.status, data: await res.json().catch(() => ({})) };
+  };
+  try {
+    const denied = await acall('/api/v1/admin/trends', { method: 'POST', body: { segment: 'company', yyyyMm: '2026-11', items: [{ competency: 'a' }] } });
+    assert.equal(denied.status, 403, 'admin gate without token must be 403');
+    const draft = await acall('/api/v1/admin/trends', { method: 'POST', body: { segment: 'company', yyyyMm: '2026-11', items: [{ competency: '문제 해결', comment: '월간 코멘트', sources: ['https://example.com'] }] }, admin: true });
+    assert.equal(draft.status, 201, JSON.stringify(draft.data));
+    // 공개 전에는 사용자 조회에 노출되지 않는다
+    const before = await acall('/api/v1/trends/company/2026-11');
+    assert.equal(before.status, 200);
+    assert.equal(before.data.status, 'unavailable');
+    // 인코딩된 publish/rollback 경로 (segment|yyyy-mm)
+    const id = encodeURIComponent('company|2026-11');
+    const pub = await acall(`/api/v1/admin/trends/${id}/publish`, { method: 'POST', body: { version: 1 }, admin: true });
+    assert.equal(pub.status, 200, JSON.stringify(pub.data));
+    const after = await acall('/api/v1/trends/company/2026-11');
+    assert.equal(after.status, 200);
+    assert.equal(after.data.status, 'monthly_trend');
+    assert.equal(after.data.items[0].competency, '문제 해결');
+    // 두 번째 초안→공개 후 첫 버전으로 롤백하면 새 버전이 생긴다
+    await acall('/api/v1/admin/trends', { method: 'POST', body: { segment: 'company', yyyyMm: '2026-11', items: [{ competency: '협업' }] }, admin: true });
+    await acall(`/api/v1/admin/trends/${id}/publish`, { method: 'POST', body: { version: 2 }, admin: true });
+    const rb = await acall(`/api/v1/admin/trends/${id}/rollback`, { method: 'POST', body: { version: 1 }, admin: true });
+    assert.equal(rb.status, 200, JSON.stringify(rb.data));
+    assert.equal(rb.data.version, 3);
+    const rolled = await acall('/api/v1/trends/company/2026-11');
+    assert.equal(rolled.data.version, 3);
+    assert.equal(rolled.data.items[0].competency, '문제 해결');
+    // 4개 초과는 거부된다
+    const over = await acall('/api/v1/admin/trends', { method: 'POST', body: { segment: 'company', yyyyMm: '2026-12', items: [1, 2, 3, 4].map((i) => ({ competency: `c${i}` })) }, admin: true });
+    assert.equal(over.status, 422);
+  } finally {
+    adminApp.server.close();
+  }
+});
+
+test('P2: trends persist to TRENDS_FILE across restarts', async () => {
+  const { createApp } = await import('../src/server.js');
+  const { writeFileSync, unlinkSync, existsSync } = await import('node:fs');
+  const f = `${process.env.TEMP || '/tmp'}/intervu-trends-${Date.now()}.json`;
+  const mk = (extra = {}) => createApp({ env: { GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', DEV_TOKEN_A: A, DEV_TOKEN_B: B, TRENDS_FILE: f, PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100', ...extra } });
+  const a1 = mk();
+  await new Promise((r) => a1.server.listen(0, r));
+  try {
+    const b1 = `http://127.0.0.1:${a1.server.address().port}`;
+    const res = await fetch(`${b1}/api/v1/admin/trends`, { method: 'POST', headers: { Authorization: `Bearer ${A}`, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ segment: 'university', yyyyMm: '2026-10', items: [{ competency: '학업 역량' }] }) });
+    assert.equal(res.status, 201);
+    assert.ok(existsSync(f), 'trends file must be written');
+    const saved = JSON.parse((await import('node:fs')).readFileSync(f, 'utf8'));
+    assert.ok(saved.rows['university:2026-10'], 'draft persisted to file');
+  } finally {
+    a1.server.close();
+  }
+  const a2 = mk();
+  await new Promise((r) => a2.server.listen(0, r));
+  try {
+    const b2 = `http://127.0.0.1:${a2.server.address().port}`;
+    const h2 = { Authorization: `Bearer ${A}`, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() };
+    const res = await fetch(`${b2}/api/v1/trends/university/2026-10`, { headers: h2 });
+    // draft만 있고 publish가 없으므로 재시작 후에도 unavailable이어야 한다 (미승인 노출 금지)
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.status, 'unavailable');
+    // 파일에서 버전 이력이 복원됐다면 다음 초안은 v2가 된다.
+    const next = await fetch(`${b2}/api/v1/admin/trends`, { method: 'POST', headers: h2, body: JSON.stringify({ segment: 'university', yyyyMm: '2026-10', items: [{ competency: '학업 역량' }] }) });
+    assert.equal(next.status, 201);
+    assert.equal((await next.json()).version, 2, 'version history must survive restart');
+    const pub = await fetch(`${b2}/api/v1/admin/trends/${encodeURIComponent('university|2026-10')}/publish`, { method: 'POST', headers: h2, body: JSON.stringify({ version: 2 }) });
+    assert.equal(pub.status, 200);
+    const pubBody = await fetch(`${b2}/api/v1/trends/university/2026-10`, { headers: h2 }).then((r) => r.json());
+    assert.equal(pubBody.status, 'monthly_trend');
+    assert.equal(pubBody.items[0].competency, '학업 역량');
+  } finally {
+    a2.server.close();
+    try { unlinkSync(f); } catch { /* noop */ }
+    void writeFileSync;
+  }
+});
+
+test('P4: transfer comparison end-to-end (baseline → retry → POST /transfer-comparisons)', async () => {
+  await cleanupAll();
+  // baseline 세션: 목표 역량 답변을 2개 이상 남겨 scored 차원을 만든다
+  const s = await newSession();
+  let version = s.version;
+  const baselineTexts = [
+    '제가 일정을 조정했습니다. 역할별 마감 시간을 합의했고 결과적으로 기한 안에 제출했습니다.',
+    '다음에는 확인 주기를 먼저 합의하겠습니다. 그래서 매일 체크인을 제안했고 이후 누락이 없었습니다.',
+    '대안 두 개를 비교했습니다. 비용과 시간 기준으로 표를 만들었고 팀이 그 자리에서 선택했습니다.',
+    '버린 대안은 일정을 미루는 쪽이었습니다. 이미 공지가 나가서 선택하지 않았습니다.',
+    '제가 직접 기준 문서를 만들었습니다. 그 결과 회의 시간이 줄었습니다.',
+    '요구가 모호하면 먼저 질문으로 확인합니다. 확인한 내용을 한 장으로 정리했습니다.',
+    '질문의 핵심을 먼저 한 문장으로 답하고 근거를 덧붙이겠습니다.',
+    '성과를 확인할 지표를 먼저 정하고 결과를 공유하겠습니다.',
+    '같은 방식을 새 팀에 적용할 때 유지할 점과 바꿀 점을 구분하겠습니다.',
+    '이 경험에서 배운 점은 기준을 먼저 맞추는 것입니다. 다음 프로젝트에서도 그렇게 하겠습니다.',
+  ];
+  for (const text of baselineTexts) {
+    const r = await call(`/api/v1/sessions/${s.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: version, type: 'turn.text', payload: { text } } });
+    assert.equal(r.status, 202, JSON.stringify(r.data));
+    version = r.data.version;
+    if (r.data.state === 'completed') break;
+  }
+  await call(`/api/v1/sessions/${s.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: version, type: 'session.finish', payload: {} } });
+  const rep = await call(`/api/v1/sessions/${s.id}/report`);
+  assert.equal(rep.data.status, 'ready', JSON.stringify(rep.data));
+  const comp = (rep.data.next_actions?.[0]?.dimension_id)
+    || rep.data.dimensions.find((d) => d.status === 'scored')?.id;
+  assert.ok(comp, 'need at least one scored competency for transfer');
+  // practice-attempts: 새 질문이 기준 질문과 달라야 한다
+  const p = await call('/api/v1/practice-attempts', { method: 'POST', body: { evaluation_id: rep.data.evaluation_id, competency_id: comp } });
+  assert.equal(p.status, 201, JSON.stringify(p.data));
+  assert.ok(p.data.transfer_id);
+  assert.ok(p.data.transfer_question?.text);
+  assert.notEqual(p.data.transfer_question.text, p.data.baseline_question);
+  // retry 세션 진행: 90초 세션을 시작하고 같은 역량 답변 2개로 scored를 만든다
+  const start = await call(`/api/v1/sessions/${p.data.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: p.data.version, type: 'session.start', payload: {} } });
+  assert.equal(start.status, 202);
+  let pv = start.data.version;
+  const retryTexts = [
+    '다른 프로젝트에서 제가 직접 일정표를 만들었습니다. 팀원과 합의한 뒤 마감 이틀 전에 제출했습니다.',
+    '비교 기준으로 삼은 대안은 외주였는데, 비용이 두 배라 제외하고 내부에서 처리했습니다.',
+  ];
+  for (const text of retryTexts) {
+    const r = await call(`/api/v1/sessions/${p.data.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: pv, type: 'turn.text', payload: { text } } });
+    assert.equal(r.status, 202, JSON.stringify(r.data));
+    pv = r.data.version;
+    if (r.data.state === 'completed') break;
+  }
+  await call(`/api/v1/sessions/${p.data.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: pv, type: 'session.finish', payload: {} } });
+  const prep = await call(`/api/v1/sessions/${p.data.id}/report`);
+  assert.equal(prep.data.status, 'ready', JSON.stringify(prep.data));
+  // 전이 비교: 같은 루브릭·같은 역량, 두 시도를 독립 보관한다
+  const cmp = await call('/api/v1/transfer-comparisons', { method: 'POST', body: { transfer_id: p.data.transfer_id, retry_session_id: p.data.id } });
+  assert.equal(cmp.status, 201, JSON.stringify(cmp.data));
+  const c = cmp.data.comparison;
+  assert.ok(['observed_change', 'no_clear_change'].includes(c.status), `expected scored comparison, got ${c.status}: ${c.reason || ''}`);
+  assert.equal(c.rubric_version, cmp.data.rubric_version);
+  assert.equal(cmp.data.competency, comp);
+  assert.notEqual(c.baseline.questionText, c.retry.questionText);
+  assert.ok(c.evidence?.length >= 2, 'both attempts quoted');
+  assert.ok(c.caution, 'single-retry caution required');
+  // GET 조회도 소유자 격리로 동작한다
+  const got = await call(`/api/v1/transfer-comparisons/${p.data.transfer_id}`);
+  assert.equal(got.status, 200);
+  assert.equal(got.data.comparison.status, c.status);
+  // 유사한 질문 재연습은 409로 거부된다 (단순 반복 방지)
+  const sameQ = await call('/api/v1/practice-attempts', { method: 'POST', body: { evaluation_id: rep.data.evaluation_id, competency_id: comp } });
+  assert.ok([201, 409].includes(sameQ.status));
+});

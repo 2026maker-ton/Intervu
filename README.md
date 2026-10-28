@@ -25,3 +25,13 @@ node tools/cost-model-gemini.mjs --sessions=1000
 `.env`에 `GEMINI_API_KEY`가 있으면 서버가 Gemini 어댑터를 초기화한다. **단, 실제 사용자 데이터 전송은 `GEMINI_PAID_ACK=true` 전까지 차단되고 Mock으로 동작한다.** 무료 할당량은 학습·인간 검토 대상이므로 합성 트래픽에만 명시적으로 허용한다. 자세한 내용과 보안 경계는 `docs/decisions/2026-10-24-gemini-first.md`와 `.env.example`을 따른다.
 
 외부 라이브러리 없이 Node.js 20+로 동작한다. 검증 도구는 합성 근거 구간·중앙값·비용 산식을 검사하며 실제 제품의 품질이나 보안을 검증한 것은 아니다.
+
+## Current state (UI rebuild)
+
+- 9-screen UI (dashboard, application, evidence, setup, room, feedback, repractice comparison, history/data, admin) at hash routes #/screen.
+- Company/university journeys only in the main flow. Evaluator is rule-based reference observation, not validated AI scoring.
+- Mock provider without keys; no external transmission. Live Gemini/Groq NOT verified here (no keys).
+- Admin: set ADMIN_TOKEN (x-admin-token). Without it, admin runs in open dev mode - not real production auth.
+- Trends persist to TRENDS_FILE (draft -> publish -> rollback, published-only exposure).
+- Tests: npm test (59 + project guard); browser E2E: node tools/e2e-ui.mjs (needs playwright + chromium).
+

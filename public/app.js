@@ -95,6 +95,15 @@ async function loadProvider() {
     const detail = $('#providerDetail');
     if (detail) detail.textContent = h.provider.note + (h.provider.killSwitch && h.provider.killSwitch !== 'none' ? ' (외부 호출 차단 중)' : '');
     state.geminiModel = h.provider.textModel || null;
+    // 무료 테스트 가능 여부: 키 있음 + 합성 허용(allowUnpaid) → UI에서 synthetic 플래그 전송
+    state.freeTestAvailable = !!h.provider.configured && !!h.provider.allowUnpaid && !String(h.provider.killSwitch || '').includes('gemini');
+    const freeBox = $('#freeTestRow');
+    if (freeBox) freeBox.hidden = !state.freeTestAvailable;
+    if (!state.freeTestAvailable) {
+      const chip2 = $('#providerChip');
+      chip2.textContent = 'Mock 모드 (무료 테스트 불가)';
+      chip2.title = '서버에 GEMINI_API_KEY + GEMINI_ALLOW_UNPAID=true가 필요합니다.';
+    }
   } catch {
     $('#providerChip').textContent = '서버 연결 실패';
     $('#providerChip').className = 'provider-chip';
@@ -566,6 +575,8 @@ $('#sessionForm').addEventListener('submit', async (e) => {
   btn.disabled = true; btn.textContent = '준비 중…';
   try {
     const inputMode = fd.get('input_mode') || 'text';
+    // 무료 테스트: synthetic 플래그를 세션에 저장 → 이후 turn.text에서 Gemini 경로 허용
+    const freeTest = fd.get('free_test') === 'on' && state.freeTestAvailable !== false;
     const body = {
       profile_version_id: state.versionId || undefined,
       interview_type: selectedType,
@@ -575,6 +586,7 @@ $('#sessionForm').addEventListener('submit', async (e) => {
       duration_minutes: Number(fd.get('duration_minutes')),
       input_mode: inputMode,
       consent_version: 'mvp-2026-10',
+      synthetic: freeTest === true ? true : undefined,
     };
     if (selectedType === 'panel') {
       const roles = [...$('#panelRoleGroup').querySelectorAll('input:checked')].map((i) => i.value);
@@ -607,7 +619,7 @@ $('#sessionForm').addEventListener('submit', async (e) => {
     $('#sessionCard').hidden = false;
     const personaLabel = fd.get('persona') === 'challenging' ? '논리 검증형' : fd.get('persona') === 'supportive' ? '친절형' : '일반형';
     const typeLabel = catalog.types.find((t) => t.id === s.interview_type)?.label || s.interview_type;
-    $('#sessionMeta').textContent = `${typeLabel} · ${s.limits.duration_minutes}분 · ${personaLabel} · 블라인드 ${s.blind ? 'ON' : 'OFF'}`;
+    $('#sessionMeta').textContent = `${typeLabel} · ${s.limits.duration_minutes}분 · ${personaLabel} · 블라인드 ${s.blind ? 'ON' : 'OFF'}${s.free_test ? ' · 무료 테스트' : ' · Mock'}`;
     $('#roomState').textContent = 'LIVE'; $('#roomState').classList.add('on');
     questionCount = 0;
     questionTotal = started.question_total || s.limits.question_count || 4;
@@ -826,7 +838,8 @@ $('#answerBtn').addEventListener('click', async () => {
   try {
     const r = await api(`/sessions/${state.session.id}/commands`, {
       method: 'POST', idempotent: true,
-      body: { command_id: uuid(), expected_version: state.session.version, type: 'turn.text', payload: { text } },
+      // 무료 테스트 세션이면 synthetic 표시를 함께 전송 (개인정보 포함 시 서버가 차단)
+      body: { command_id: uuid(), expected_version: state.session.version, type: 'turn.text', payload: { text, ...(state.session.free_test ? { synthetic: true } : {}) } },
     });
     state.session.version = r.version;
     answerEl.value = ''; $('#charCount').textContent = '0';

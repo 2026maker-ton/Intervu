@@ -124,6 +124,7 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
   const ALLOWED_FREE_MODELS = new Set(['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash']);
   const FREE_ONLY = String(process.env.GEMINI_FREE_ONLY ?? 'true').toLowerCase() !== 'false';
   async function withFallback(fn) {
+    const safeFallback = FREE_ONLY && !ALLOWED_FREE_MODELS.has(fallbackModel) ? 'gemini-3.5-flash-lite' : fallbackModel;
     try {
       const model = FREE_ONLY && !ALLOWED_FREE_MODELS.has(textModel) ? 'gemini-3.5-flash-lite' : textModel;
       return await fn(model);
@@ -133,9 +134,9 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
         const wait = Math.min(Number(e.retryAfter) || 2, 5) * 1000;
         await sleep(wait);
       }
-      if (fallbackModel && fallbackModel !== textModel) {
+      if (safeFallback && safeFallback !== textModel) {
         stats.fallbacks += 1;
-        try { return await fn(fallbackModel); } catch (e2) { e2.attempts = 2; throw e2; }
+        try { return await fn(safeFallback); } catch (e2) { e2.attempts = 2; throw e2; }
       }
       e.attempts = 1;
       throw e;

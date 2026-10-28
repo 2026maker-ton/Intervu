@@ -93,6 +93,7 @@ export function createStore() {
         participant_layout: data.participant_layout || 'one_to_one', blind: !!data.blind, persona: data.persona || 'standard',
         interviewer_role: data.interviewer_role || 'practitioner',
         question_basis: data.question_basis || 'general-template-v1',
+        free_test: data.synthetic === true, // 무료 테스트 세션: 합성 데이터 표시, Gemini 무료 경로 허용
         panel_roles: data.panel_roles || null,
         topic_id: data.topic_id || null, topic_title: data.topic_title || null, topic_brief: data.topic_brief || null,
         discussion: data.discussion || null,
@@ -104,7 +105,7 @@ export function createStore() {
         highschool_mock: !!data.highschool_mock,
         duration_minutes: Number.isFinite(data.duration_minutes) && data.duration_minutes > 0 ? data.duration_minutes : 15,
         duration_seconds: Number.isFinite(data.duration_seconds) && data.duration_seconds > 0 ? data.duration_seconds : (Number.isFinite(data.duration_minutes) && data.duration_minutes > 0 ? data.duration_minutes * 60 : 900),
-        input_mode: data.input_mode === 'voice' ? 'voice' : 'text',
+        input_mode: ['voice', 'groq'].includes(data.input_mode) ? data.input_mode : 'text',
         state: 'ready', version: 1, active_elapsed_ms: 0, seed: (Math.random() * 2 ** 31) >>> 0,
         questions: data.questions || [], q_index: 0, followups_used: 0, llm_calls: 0,
         policy_snapshot: data.policy_snapshot || {}, created_at: now(),

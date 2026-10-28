@@ -451,7 +451,7 @@ export function createApp(overrides = {}) {
     });
     store.updateSession(s, { coverage, question_basis });
     store.pushEvent(s.id, 'session.snapshot', { state: 'ready', questions: s.questions.length, interviewer_role: role, question_basis });
-    return { status: 201, body: { id: s.id, state: s.state, version: s.version, interview_type, task_type: s.task_type, participant_layout: s.participant_layout, limits: { duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: provider.name, coverage, interviewer_role: role, role_label: ROLES[role].label, panel_roles: s.panel_roles || null, topic: s.topic_title ? { id: s.topic_id, title: s.topic_title, brief: s.topic_brief } : null, pt_task: s.pt_task_id ? { id: s.pt_task_id, title: s.pt_task_title, brief: s.pt_brief, prepare_seconds: s.pt_prepare_seconds, present_seconds: s.pt_present_seconds } : null, scenario: s.scenario_id ? { id: s.scenario_id, title: s.scenario_title } : null, rubric_version, question_basis } };
+    return { status: 201, body: { id: s.id, state: s.state, version: s.version, interview_type, task_type: s.task_type, participant_layout: s.participant_layout, free_test: !!s.free_test, limits: { duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: provider.name, coverage, interviewer_role: role, role_label: ROLES[role].label, panel_roles: s.panel_roles || null, topic: s.topic_title ? { id: s.topic_id, title: s.topic_title, brief: s.topic_brief } : null, pt_task: s.pt_task_id ? { id: s.pt_task_id, title: s.pt_task_title, brief: s.pt_brief, prepare_seconds: s.pt_prepare_seconds, present_seconds: s.pt_present_seconds } : null, scenario: s.scenario_id ? { id: s.scenario_id, title: s.scenario_title } : null, rubric_version, question_basis } };
   }
 
   function getSession(owner, id) {
@@ -464,7 +464,7 @@ export function createApp(overrides = {}) {
       id: s.id, state: s.state, version: s.version, mode: s.mode, task_type: s.task_type,
       interview_type: s.interview_type || s.mode || 'general',
       participant_layout: s.participant_layout || 'one_to_one',
-      persona: s.persona, blind: s.blind, interviewer_role: s.interviewer_role || 'practitioner',
+      persona: s.persona, blind: s.blind, free_test: !!s.free_test, interviewer_role: s.interviewer_role || 'practitioner',
       role_label: (ROLES[s.interviewer_role] || ROLES.practitioner).label,
       question_basis: s.question_basis || 'general-template-v1',
       rubric_version: s.policy_snapshot?.rubric || rubricForInterviewType(s.interview_type || s.mode || 'general'),
@@ -741,7 +741,9 @@ export function createApp(overrides = {}) {
         // 그 외: 무료 전용 모드 + synthetic(합성 데이터 표시) 또는 paidAck일 때만 gemini.
         // 실제 개인정보 포함 입력은 외부 전송 전 차단 → 안전한 로컬 Mock 경로.
         // turn.text 명령의 synthetic 표시는 payload 안에 담긴다.
-        const syntheticTurn = (body.synthetic === true || body.payload?.synthetic === true) && detectPii(text).length === 0;
+        // 무료 테스트 세션(s.free_test)은 세션 생성 시 synthetic:true가 저장되어 있어
+        // 매 답변마다 표시하지 않아도 Gemini 무료 경로가 유지된다.
+        const syntheticTurn = (body.synthetic === true || body.payload?.synthetic === true || s.free_test === true) && detectPii(text).length === 0;
         const { provider: useProvider } = s.highschool_mock ? { provider: mock } : providerForRequest({ synthetic: syntheticTurn });
         // 최근 대화(최대 4턴)를 문맥으로 전달: Gemini가 답변 근거를 활용하도록
         const pastTurns = store.sessionTurns(s.id).slice(-5, -1);

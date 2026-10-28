@@ -828,3 +828,23 @@ test('turn response carries explicit provider flag (mock default)', async () => 
   assert.equal(r.data.provider, 'mock', 'mock-first default must be explicit in response');
 });
 
+test('free test toggle still keeps mock when unchecked', async () => {
+  await cleanupAll();
+  const s = await call('/api/v1/sessions', { method: 'POST', body: { interview_type: 'general', duration_minutes: 5 } });
+  assert.equal(s.status, 201, JSON.stringify(s.data));
+  assert.equal(s.data.free_test, false, 'no synthetic flag means real-data path stays mock');
+  const st = await call(`/api/v1/sessions/${s.data.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: s.data.version, type: 'session.start', payload: {} } });
+  const r = await call(`/api/v1/sessions/${s.data.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: st.data.version, type: 'turn.text', payload: { text: '제가 직접 일정을 조정했고 결과적으로 기한 안에 제출했습니다.' } } });
+  assert.equal(r.status, 202, JSON.stringify(r.data));
+  assert.equal(r.data.provider, 'mock', 'unchecked free test must never call gemini');
+});
+
+test('free test session flag is persisted', async () => {
+  await cleanupAll();
+  const s = await call('/api/v1/sessions', { method: 'POST', body: { interview_type: 'general', duration_minutes: 5, synthetic: true } });
+  assert.equal(s.status, 201, JSON.stringify(s.data));
+  assert.equal(s.data.free_test, true);
+  const got = await call(`/api/v1/sessions/${s.data.id}`);
+  assert.equal(got.data.free_test, true);
+});
+

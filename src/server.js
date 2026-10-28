@@ -16,7 +16,7 @@ import { canSessionTransition } from './domain/state.js';
 import { selectQuestions, FOLLOWUPS, followupReasonFor } from './domain/questions.js';
 import { buildMockEvaluation } from './domain/mock-eval.js';
 import { validateEvaluation, checkFeedbackSafety } from './domain/evaluation.js';
-import { createMockAdapter, createGeminiAdapter, selectProvider } from './providers/adapters.js';
+import { createMockAdapter, createGeminiAdapter, createGroqWhisperAdapter, selectProvider } from './providers/adapters.js';
 import { INTERVIEW_TYPES, DURATIONS, PERSONAS, INPUT_MODES, normalizeInterviewType, validateCombination, questionCountForDuration } from './domain/interview-types.js';
 import { rubricForInterviewType, getRubric } from './domain/rubrics.js';
 import { buildTypedEvaluation } from './domain/mock-eval-typed.js';
@@ -36,9 +36,19 @@ export function createApp(overrides = {}) {
   const ledger = overrides.ledger || createLedger({ sessionHardCap: config.budgets.sessionHardCap, monthlyApiBudget: config.budgets.monthlyApiBudget });
   const mock = createMockAdapter();
   const gemini = config.gemini.apiKey ? createGeminiAdapter({ apiKey: config.gemini.apiKey, textModel: config.gemini.textModel, fallbackModel: config.gemini.fallbackModel, timeoutMs: config.gemini.timeoutMs }) : null;
+  const groq = config.groq.apiKey ? createGroqWhisperAdapter({ apiKey: config.groq.apiKey, model: config.groq.model, timeoutMs: config.groq.timeoutMs, maxAudioBytes: config.groq.maxAudioBytes }) : null;
   const killed = String(config.killSwitch || '').split(/[,\s]+/).includes('gemini');
-  const providerName = killed ? 'mock' : selectProvider({ config, isSynthetic: true });
-  const provider = providerName === 'gemini' && gemini && !killed ? gemini : mock;
+  const killedGroq = String(config.killSwitch || '').split(/[,\s]+/).includes('groq');
+  // 중요: 합성(synthetic) 요청과 실제 사용자 요청을 구분한다.
+  // - 합성(진단/개발 테스트 데이터): allowUnpaid=true면 gemini 허용
+  // - 실제 사용자 데이터: paidAck=true일 때만 gemini 허용, 그 외 Mock
+  function providerForRequest(body = {}) {
+    const synthetic = body.synthetic === true || body._synthetic === true;
+    const name = killed ? 'mock' : selectProvider({ config, isSynthetic: synthetic });
+    return { name, provider: name === 'gemini' && gemini && !killed ? gemini : mock, synthetic };
+  }
+  // 기본 경로(Mock): isSynthetic=false → 키 존재만으로 외부 전송 없음
+  const { name: providerName, provider } = providerForRequest({});
   const idempotency = new Map();
   const requestLog = [];
   // WSS 대비 일회성 접속 티켓(30초 만료) + 내보내기 작업(10분 만료)
@@ -81,6 +91,35 @@ export function createApp(overrides = {}) {
     });
     req.on('error', reject);
   });
+  // multipart/form-data 파서(의존성 없음): 오디오 1개 필드만 추출한다.
+  const readMultipartAudio = (req, maxBytes) => new Promise((resolve, reject) => {
+    const ctype = String(req.headers['content-type'] || '');
+    const m = /boundary=(?:"([^"]+)"|([^\s;]+))/.exec(ctype);
+    if (!m) return reject(err('validation_error', 'multipart/form-data 형식이 필요합니다.', 422));
+    const boundary = Buffer.from(`--${m[1] || m[2]}`, 'utf8');
+    let size = 0; const chunks = [];
+    req.on('data', (c) => { size += c.length; if (size > maxBytes + 65536) { reject(err('payload_too_large', `음성은 ${Math.round(maxBytes / 1024 / 1024)}MB 이하만 가능합니다.`, 413)); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => {
+      try {
+        const buf = Buffer.concat(chunks);
+        // 첫 번째 파일 파트의 헤더 종료(\r\n\r\n) 이후 ~ 마지막 boundary 이전을 오디오로 취급
+        const headerEnd = buf.indexOf(Buffer.from('\r\n\r\n'));
+        const tailIdx = buf.lastIndexOf(boundary);
+        if (headerEnd === -1 || tailIdx === -1 || tailIdx <= headerEnd) return reject(err('validation_error', '음성 파일을 찾지 못했습니다.', 422));
+        const headerText = buf.slice(0, headerEnd).toString('latin1');
+        const fnMatch = /filename="([^"]*)"/.exec(headerText);
+        const typeMatch = /Content-Type:\s*([^\r\n;]+)/i.exec(headerText);
+        let audio = buf.slice(headerEnd + 4, tailIdx);
+        if (audio.length >= 2 && audio[audio.length - 2] === 13 && audio[audio.length - 1] === 10) audio = audio.slice(0, -2);
+        const filename = (fnMatch?.[1] || 'answer.webm').slice(0, 100);
+        const mimeType = (typeMatch?.[1] || 'audio/webm').trim().slice(0, 100);
+        resolve({ audio, filename, mimeType });
+      } catch {
+        reject(err('invalid_audio', '음성 데이터를 읽지 못했습니다.', 422));
+      }
+    });
+    req.on('error', reject);
+  });
   const auth = (req) => {
     const h = req.headers.authorization || '';
     const m = /^Bearer\s+(.+)$/.exec(h);
@@ -92,12 +131,19 @@ export function createApp(overrides = {}) {
     configured: !!config.gemini.apiKey,
     paidAck: config.gemini.paidAck,
     allowUnpaid: config.gemini.allowUnpaid,
-    textModel: config.gemini.textModel,
-    killSwitch: killed ? 'gemini' : 'none',
+    freeOnly: config.gemini.freeOnly !== false,
+    textModel: gemini?.model || config.gemini.textModel,
+    fallbackModel: config.gemini.fallbackModel,
+    killSwitch: [killed ? 'gemini' : null, killedGroq ? 'groq' : null].filter(Boolean).join(',') || 'none',
+    groq: groq && !killedGroq
+      ? { configured: true, model: groq.model, maxAudioBytes: config.groq.maxAudioBytes, maxRecordingSeconds: config.groq.maxRecordingSeconds }
+      : { configured: !!config.groq.apiKey, model: config.groq.model, disabled: true },
     note: killed
       ? 'AI 외부 호출이 비활성화되어 Mock으로 동작합니다.'
       : provider.name === 'gemini'
-        ? '실사용자 데이터 전송은 Paid 확인 + DPA 검토 후에만 허용됩니다.'
+        ? (config.gemini.freeOnly !== false
+          ? '무료 전용 모드: 검증된 무료 모델만 사용, 유료 전환·자동 상향 없음. 실제 개인정보는 전송하지 마세요.'
+          : '실사용자 데이터 전송은 Paid 확인 + DPA 검토 후에만 허용됩니다.')
         : 'Mock provider로 동작 중입니다. 실제 사용자 데이터는 외부로 전송되지 않습니다.',
   });
 
@@ -141,7 +187,14 @@ export function createApp(overrides = {}) {
     let extracted;
     try {
       // 미성년자 가능 기관(highschool)은 항상 Mock 추출(외부 전송 금지)
-      const useProvider = provider.name === 'gemini' && !body._forceMock ? provider : mock;
+      // 그 외: 합성 요청(synthetic=true + allowUnpaid)이거나 paidAck일 때만 gemini.
+      // body.synthetic은 개발/진단용 합성 데이터 표시이며, 실제 개인정보 포함 시 서버가 차단한다.
+      const { provider: useProvider, synthetic } = providerForRequest(body);
+      if (body._forceMock) {
+        extracted = extractClaims(masked, body.experiences || []);
+      } else if (synthetic && detectPii(source).length > 0) {
+        throw Object.assign(new Error('synthetic traffic must not contain PII'), { code: 422 });
+      }
       if (useProvider.name === 'gemini') {
         ledger.reserve(`profile:${profile.id}`, 0.01);
         const caught = await useProvider.extract({ sourceText: masked, blindContext: blind });
@@ -151,6 +204,9 @@ export function createApp(overrides = {}) {
         extracted = extractClaims(masked, body.experiences || []);
       }
     } catch (e) {
+      if (e.code === 422 && /PII/.test(e.message)) {
+        return err('validation_error', '합성 테스트 데이터에 개인정보를 포함할 수 없습니다.', 422, { requestId });
+      }
       // 추출 실패 → 일반 템플릿(세션은 계속 가능)
       extracted = { claims: [], missing_fields: ['extraction_failed'], recommended_template: 'general-entry-v1', degraded_reason: e.code || 'provider_error' };
     }
@@ -670,6 +726,8 @@ export function createApp(overrides = {}) {
       let utterance = q.text;
       let action = 'next_question';
       let followupReason = null;
+      let geminiUsed = false;
+      let geminiModel = null;
       // 패널: 현재 질문 담당 역할의 꼬리질문 전략을 사용 (평가는 동일 루브릭)
       const panelRole = (s.interview_type === 'panel') ? (q._panel_role || (s.panel_roles || [])[s.q_index % (s.panel_roles || ['practitioner']).length] || s.interviewer_role) : s.interviewer_role;
       const needFollowup = s.followups_used < config.limits.maxFollowupsTotal && !q._followedUp;
@@ -680,28 +738,53 @@ export function createApp(overrides = {}) {
       try {
         ledger.reserve(`session:${s.id}`, 0.005);
         // highschool 세션은 Mock 강제(미성년자 보호)
-        const useProvider = s.highschool_mock ? mock : provider;
-        const result = await useProvider.next({ persona: s.persona, role: panelRole, followupReason, questionText: q.followup || q.text, recentAnswer: text });
+        // 그 외: 무료 전용 모드 + synthetic(합성 데이터 표시) 또는 paidAck일 때만 gemini.
+        // 실제 개인정보 포함 입력은 외부 전송 전 차단 → 안전한 로컬 Mock 경로.
+        // turn.text 명령의 synthetic 표시는 payload 안에 담긴다.
+        const syntheticTurn = (body.synthetic === true || body.payload?.synthetic === true) && detectPii(text).length === 0;
+        const { provider: useProvider } = s.highschool_mock ? { provider: mock } : providerForRequest({ synthetic: syntheticTurn });
+        // 최근 대화(최대 4턴)를 문맥으로 전달: Gemini가 답변 근거를 활용하도록
+        const pastTurns = store.sessionTurns(s.id).slice(-5, -1);
+        const history = pastTurns.map((t) => {
+          const revs = store.getRevisions(t.id);
+          const last = revs[revs.length - 1];
+          const qq = s.questions.find((x) => x.id === t.question_id);
+          return { question: qq?.text || '', answer: last?.normalized_text || '' };
+        }).filter((h) => h.question || h.answer);
+        history.push({ question: q.followup || q.text, answer: text });
+        const result = await useProvider.next({
+          persona: s.persona, role: panelRole, followupReason,
+          questionText: q.followup || q.text, recentAnswer: text,
+          interviewType: s.interview_type, history,
+        });
         ledger.settle(`session:${s.id}`, 0.005, priceOf(result.model, result.usage));
         utterance = result.utterance;
-        // 역할 전략: 서버가 최종 문장을 역할 맞춤 후속으로 교체(평가 기준은 불변)
-        if (action === 'ask_followup' && followupReason) {
-          const tailored = followupForRole(panelRole, followupReason, null);
-          if (tailored) utterance = tailored;
+        if (useProvider.name === 'gemini') {
+          // Gemini 실생성 사용 표시(보고서·로그에서 Mock과 구분)
+          s.degraded_reason = null;
+          geminiUsed = true;
+          try { geminiModel = result.model || useProvider.model; } catch { geminiModel = config.gemini.textModel; }
+          store.pushEvent(s.id, 'provider.used', { provider: 'gemini', model: geminiModel || result.model });
         }
       } catch (e) {
         // 대체: 검증된 정적 후속/다음 질문 (예약이 있었으면 unknown 처리)
         if (e.code === 429) {
-          s.degraded_reason = 'budget_exhausted';
-          store.pushEvent(s.id, 'budget.warning', { reason: 'budget_exhausted' });
+          // 무료 한도 소진: 추가 과금 없이 종료. 유료 모델로 자동 전환 금지.
+          s.degraded_reason = 'free_quota_exhausted';
+          store.pushEvent(s.id, 'budget.warning', { reason: 'free_quota_exhausted', fallback: 'static', retryable: false });
           utterance = q.text;
           return finishSession(owner, s, accept, commandId);
         }
         const res = ledger.usage(`session:${s.id}`);
         if (res.reserved > 0) ledger.settle(`session:${s.id}`, 0.005, 0.005, { unknown: !e.code || e.code >= 500 });
-        utterance = followupReason ? FOLLOWUPS[followupReason] : q.text;
+        // Fallback 전용: 검증된 정적 후속/역할 문장 (Mock 경로와 동일 전략)
+        if (followupReason) {
+          utterance = followupForRole(panelRole, followupReason, null) || FOLLOWUPS[followupReason] || q.text;
+        } else {
+          utterance = q.text;
+        }
         s.degraded_reason = 'provider_fallback';
-        store.pushEvent(s.id, 'budget.warning', { reason: 'provider_fallback' });
+        store.pushEvent(s.id, 'budget.warning', { reason: 'provider_fallback', fallback: 'static' });
       }
       s.llm_calls += 1;
       const panel_prefix = (s.interview_type === 'panel' && panelRole) ? `[${(ROLES[panelRole] || {}).label || panelRole}] ` : '';
@@ -727,7 +810,14 @@ export function createApp(overrides = {}) {
         }
       }
       store.updateSession(s, {});
-      const resp = { command_id: commandId, state: s.state, version: s.version, action, utterance, turn_id: turn.id, revision: rev.revision, current_question: s.questions[s.q_index] || null, followups_used: s.followups_used, llm_calls: s.llm_calls };
+      const resp = {
+        command_id: commandId, state: s.state, version: s.version, action, utterance,
+        turn_id: turn.id, revision: rev.revision, current_question: s.questions[s.q_index] || null,
+        followups_used: s.followups_used, llm_calls: s.llm_calls,
+        provider: geminiUsed ? 'gemini' : 'mock',
+        ...(geminiUsed && geminiModel ? { model: geminiModel } : {}),
+        ...(s.degraded_reason ? { degraded_reason: s.degraded_reason } : {}),
+      };
       if (s.interview_type === 'panel') resp.speaker_role = panelRole;
       return accept(resp);
     }
@@ -864,6 +954,29 @@ export function createApp(overrides = {}) {
         note: 'MVP는 실제 소켓 연결 없이 REST 명령으로 진행합니다.',
       },
     };
+  }
+
+  // Groq Whisper STT: POST /sessions/:id/transcriptions (multipart audio)
+  // 녹음 후 전사 방식. 전사 텍스트는 답변 입력창 확인용으로만 반환하며,
+  // 기존 turn.text 제출 API를 그대로 사용해 Gemini 면접을 진행한다.
+  function sttStatus() {
+    if (!config.groq.apiKey) return { configured: false, provider: 'none', message: '음성 인식 키가 없습니다. 텍스트로 답해 주세요.' };
+    if (killedGroq) return { configured: true, provider: 'disabled', message: '음성 인식이 비활성화되어 있습니다. 텍스트로 답해 주세요.' };
+    return {
+      configured: true, provider: 'groq-whisper', model: groq.model,
+      maxAudioMB: Math.round(config.groq.maxAudioBytes / 1024 / 1024),
+      maxRecordingSeconds: config.groq.maxRecordingSeconds,
+      message: 'Groq Whisper 한국어 전사를 사용할 수 있습니다.',
+    };
+  }
+  async function transcribeAudio(owner, id) {
+    const s = store.getSession(owner, id);
+    if (!s) return err('not_found', '세션을 찾을 수 없습니다.', 404);
+    if (s.state === 'deleting' || s.state === 'deleted') return err('not_found', '세션을 찾을 수 없습니다.', 404);
+    if (!groq || killedGroq || !config.groq.apiKey) {
+      return err('stt_unavailable', '음성 인식을 사용할 수 없습니다. 텍스트로 답해 주세요.', 503, { retryable: false });
+    }
+    return { status: 202, body: { pending: true } }; // 실제 파싱·호출은 라우터에서 수행
   }
 
   function useTicket(ticket) {
@@ -1108,8 +1221,32 @@ export function createApp(overrides = {}) {
         return json(res, 200, {
           provider: provider.name,
           gemini: st ? { calls: st.calls, failures: st.failures, rate_limits: st.rateLimits, fallbacks: st.fallbacks, avg_ms: st.calls ? Math.round(st.totalMs / st.calls) : 0 } : null,
+          groq: groq?.stats ? { calls: groq.stats.calls, failures: groq.stats.failures, rate_limits: groq.stats.rateLimits, avg_ms: groq.stats.calls ? Math.round(groq.stats.totalMs / groq.stats.calls) : 0 } : null,
           ledger: { monthly_spent: Number(ledger.state.monthlySpent.toFixed(6)), monthly_reserved: Number(ledger.state.monthlyReserved.toFixed(6)), budget: config.budgets.monthlyApiBudget },
         });
+      }
+      // Groq STT 연결 상태(키 노출 없음, 상태만 반환)
+      if (p === '/api/v1/stt/status' && method === 'GET') {
+        return json(res, 200, sttStatus());
+      }
+      // Gemini 진단: 현재 키에서 generateContent 가능한 모델 목록(합성 전용, 키·개인정보 미포함)
+      if (p === '/api/v1/diagnostics/gemini-models' && method === 'GET') {
+        if (!gemini || killed) return json(res, 200, { available: false, reason: killed ? 'kill_switch' : 'no_key', models: [], configured_model: null });
+        try {
+          const models = await gemini.listModels();
+          const want = [config.gemini.textModel, config.gemini.fallbackModel];
+          return json(res, 200, {
+            available: true,
+            models: models.slice(0, 60),
+            configured_model: gemini.model,
+            configured_supported: models.includes(gemini.model),
+            fallback_model: config.gemini.fallbackModel,
+            fallback_supported: models.includes(config.gemini.fallbackModel),
+            free_only: config.gemini.freeOnly !== false,
+          });
+        } catch (e) {
+          return json(res, 502, err('diagnostics_failed', '모델 목록 조회에 실패했습니다.', 502, { requestId, details: e.details || null }).error);
+        }
       }
 
       // 정적 UI
@@ -1144,7 +1281,7 @@ export function createApp(overrides = {}) {
       if (write && !idemKey) return json(res, 422, err('idempotency_required', 'Idempotency-Key 헤더가 필요합니다.', 422, { requestId }).error);
 
       let body = {};
-      if (write) body = await readBody(req);
+      if (write && !/^\/api\/v1\/sessions\/[^/]+\/transcriptions$/.test(p)) body = await readBody(req);
 
       // POST /profiles
       if (method === 'POST' && p === '/api/v1/profiles') {
@@ -1181,6 +1318,50 @@ export function createApp(overrides = {}) {
       if ((m = /^\/api\/v1\/sessions\/([^/]+)\/commands$/.exec(p)) && method === 'POST') {
         const r = await runCommand(owner, m[1], body, requestId);
         return r.error ? json(res, r.status, { ...r.error, request_id: requestId }) : json(res, r.status, r.body);
+      }
+      // Groq Whisper 전사: multipart 음성 → 텍스트(JSON). 원음은 저장하지 않고 전사 후 폐기.
+      if ((m = /^\/api\/v1\/sessions\/([^/]+)\/transcriptions$/.exec(p)) && method === 'POST') {
+        const sid = m[1];
+        const gate = await transcribeAudio(owner, sid);
+        if (gate.error) return json(res, gate.status, { ...gate.error, request_id: requestId });
+        let parsed;
+        try {
+          parsed = await readMultipartAudio(req, config.groq.maxAudioBytes);
+        } catch (e) {
+          return json(res, e.status || 422, { ...e.error, request_id: requestId });
+        }
+        // 보안: 허용 오디오 형식만(브라우저 MediaRecorder 출력 + 호환 포맷)
+        const ALLOWED_AUDIO = new Set(['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/flac', 'audio/m4a', 'video/webm']);
+        const mimeBase = String(parsed.mimeType || '').split(';')[0].trim().toLowerCase();
+        if (!ALLOWED_AUDIO.has(mimeBase)) {
+          return json(res, 422, err('validation_error', `지원하지 않는 음성 형식입니다: ${mimeBase || 'unknown'}`, 422, { requestId }).error);
+        }
+        try {
+          // 합성/개발 표시가 없어도 STT 자체는 PII를 외부로 보내지 않는다:
+          // 음성은 전사 목적의 일시 처리이며 텍스트 결과에서 PII 경고를 함께 반환한다.
+          const out = await groq.transcribe({ audioBuffer: parsed.audio, filename: parsed.filename, mimeType: mimeBase });
+          // parsed.audio 참조 해제(전사 후 메모리에서 폐기)
+          parsed.audio = null;
+          if (!out.text) {
+            return json(res, 200, { text: '', empty: true, model: out.model, note: '전사 결과가 비어 있습니다. 다시 녹음하거나 텍스트로 입력하세요.' });
+          }
+          const pii = detectPii(out.text).map((x) => x.type);
+          return json(res, 200, {
+            text: out.text, model: out.model, language: out.language || 'ko',
+            pii_warnings: pii,
+            note: pii.length ? '전사에 개인정보 후보가 있습니다. 제출 전 확인·수정하세요.' : '전사 결과를 확인·수정한 뒤 답변 제출 버튼을 누르세요.',
+          });
+        } catch (e) {
+          parsed.audio = null;
+          if (e.code === 429) {
+            // 무료 한도 소진: 텍스트 입력 유지, 재시도 없음
+            return json(res, 429, err('quota_exceeded', '음성 인식 무료 한도를 소진했습니다. 텍스트로 답해 주세요.', 429, { retryable: false, requestId }).error);
+          }
+          if (e.code === 413 || e.code === 422) {
+            return json(res, e.code, err(e.code === 413 ? 'payload_too_large' : 'invalid_audio', e.message, e.code, { requestId }).error);
+          }
+          return json(res, 502, err('stt_failed', '음성 인식에 실패했습니다. 텍스트로 답해 주세요.', 502, { retryable: false, requestId }).error);
+        }
       }
       if ((m = /^\/api\/v1\/sessions\/([^/]+)\/connect$/.exec(p)) && method === 'POST') {
         const r = connectSession(owner, m[1]);

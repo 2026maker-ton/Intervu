@@ -85,14 +85,49 @@ async function loadProvider() {
   try {
     const h = await api('/health');
     const chip = $('#providerChip');
-    chip.textContent = h.provider.selected === 'gemini' ? 'Gemini 연결됨' : 'Mock 모드';
+    const freeOnly = h.provider.freeOnly !== false;
+    if (h.provider.selected === 'gemini') {
+      chip.textContent = freeOnly ? 'Gemini 연결됨 · 무료 전용' : 'Gemini 연결됨';
+    } else {
+      chip.textContent = 'Mock 모드';
+    }
     chip.className = `provider-chip ${h.provider.selected}`;
     const detail = $('#providerDetail');
     if (detail) detail.textContent = h.provider.note + (h.provider.killSwitch && h.provider.killSwitch !== 'none' ? ' (외부 호출 차단 중)' : '');
+    state.geminiModel = h.provider.textModel || null;
   } catch {
     $('#providerChip').textContent = '서버 연결 실패';
     $('#providerChip').className = 'provider-chip';
   }
+  try {
+    const s = await api('/stt/status');
+    const chip = $('#sttChip');
+    state.stt = s;
+    if (!s.configured) {
+      chip.textContent = 'STT 미설정 · 텍스트 입력';
+      chip.className = 'provider-chip stt-off';
+      setSttStatus('음성 인식 키가 없습니다. 텍스트로 답해 주세요.', 'warn');
+    } else if (s.provider === 'disabled') {
+      chip.textContent = 'STT 비활성화';
+      chip.className = 'provider-chip stt-off';
+      setSttStatus(s.message || '음성 인식이 비활성화되어 있습니다.', 'warn');
+    } else {
+      chip.textContent = `Groq 전사 · ${s.model || 'whisper'}`;
+      chip.className = 'provider-chip stt-ok';
+      setSttStatus(s.message || `Groq 한국어 전사를 사용할 수 있습니다. (최대 ${s.maxRecordingSeconds || 120}초)`, 'ok');
+    }
+  } catch {
+    const chip = $('#sttChip');
+    if (chip) { chip.textContent = 'STT 확인 실패'; chip.className = 'provider-chip'; }
+    setSttStatus('전사 상태를 확인하지 못했습니다. 텍스트로 답할 수 있습니다.', 'warn');
+  }
+}
+
+function setSttStatus(text, cls = '') {
+  const el = $('#sttStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.className = cls;
 }
 
 // ---- 1. profile ----
@@ -369,8 +404,160 @@ $('#voiceBtn')?.addEventListener('click', () => {
 
 const inputModeSelect = $('#inputModeSelect');
 inputModeSelect?.addEventListener('change', () => {
-  $('#voiceRow').hidden = inputModeSelect.value !== 'voice';
+  const v = inputModeSelect.value;
+  $('#voiceRow').hidden = v !== 'voice';
+  $('#sttRow').hidden = v !== 'groq';
+  if (v === 'groq') {
+    updateSttButtons();
+    setSttStatus(state.stt?.configured ? (state.stt.message || '녹음 후 “전사 요청”을 누르세요.') : '음성 인식 키가 없습니다. 텍스트로 답해 주세요.', state.stt?.configured ? 'ok' : 'warn');
+  }
 });
+
+// ---- Groq Whisper: 녹음 후 전사 (실시간 스트리밍 없음, 원음은 전사 후 즉시 폐기) ----
+let mediaRecorder = null;
+let recChunks = [];
+let recStream = null;
+let recBlob = null;
+let recMime = '';
+let recTimer = null;
+let recStartedAt = 0;
+
+function sttLimitSeconds() {
+  return Number(state.stt?.maxRecordingSeconds || 120);
+}
+
+function updateSttButtons() {
+  const recBtn = $('#sttRecBtn');
+  const txBtn = $('#sttTranscribeBtn');
+  if (!recBtn || !txBtn) return;
+  const recording = !!mediaRecorder;
+  recBtn.setAttribute('aria-pressed', String(recording));
+  recBtn.textContent = recording ? '■ 녹음 중지' : '⏺ 녹음 시작';
+  txBtn.disabled = recording || !recBlob;
+}
+
+function stopRecTimer() {
+  if (recTimer) { clearInterval(recTimer); recTimer = null; }
+}
+
+function stopMediaStream() {
+  if (recStream) { recStream.getTracks().forEach((t) => { try { t.stop(); } catch { /* noop */ } }); recStream = null; }
+}
+
+async function toggleRecording() {
+  const recBtn = $('#sttRecBtn');
+  if (mediaRecorder) {
+    try { mediaRecorder.stop(); } catch { /* noop */ }
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) { setSttStatus('이 브라우저는 녹음을 지원하지 않습니다. 텍스트로 답해 주세요.', 'warn'); return; }
+  if (!state.stt?.configured || state.stt?.provider === 'disabled') { setSttStatus('음성 인식을 사용할 수 없습니다. 텍스트로 답해 주세요.', 'warn'); return; }
+  try {
+    recBtn.disabled = true;
+    recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    recBtn.disabled = false;
+    setSttStatus('마이크 권한이 거부되었습니다. 텍스트로 답해 주세요.', 'warn');
+    return;
+  }
+  recChunks = [];
+  recBlob = null;
+  const limit = sttLimitSeconds();
+  const prefer = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+  recMime = '';
+  if (window.MediaRecorder?.isTypeSupported) {
+    recMime = prefer.find((m) => { try { return MediaRecorder.isTypeSupported(m); } catch { return false; } }) || '';
+  }
+  try {
+    mediaRecorder = recMime ? new MediaRecorder(recStream, { mimeType: recMime }) : new MediaRecorder(recStream);
+  } catch {
+    stopMediaStream();
+    mediaRecorder = null;
+    recBtn.disabled = false;
+    setSttStatus('녹음을 시작하지 못했습니다. 텍스트로 답해 주세요.', 'warn');
+    return;
+  }
+  recStartedAt = Date.now();
+  mediaRecorder.ondataavailable = (ev) => { if (ev.data?.size) recChunks.push(ev.data); };
+  mediaRecorder.onstop = () => {
+    stopRecTimer();
+    stopMediaStream();
+    mediaRecorder = null;
+    recBtn.disabled = false;
+    try {
+      recBlob = new Blob(recChunks, { type: recMime || mediaRecorder?.mimeType || 'audio/webm' });
+      recMime = recBlob.type || recMime || 'audio/webm';
+    } catch { recBlob = null; }
+    recChunks = [];
+    updateSttButtons();
+    if (!recBlob || !recBlob.size) { setSttStatus('녹음된 소리가 없습니다. 다시 녹음하거나 텍스트로 입력하세요.', 'warn'); return; }
+    const secs = Math.round((Date.now() - recStartedAt) / 1000);
+    const kb = Math.round(recBlob.size / 1024);
+    setSttStatus(`녹음 완료 (${secs}초 · ${kb}KB). “전사 요청”을 누르면 텍스트로 바뀝니다.`, 'ok');
+  };
+  mediaRecorder.onerror = () => {
+    stopRecTimer();
+    stopMediaStream();
+    mediaRecorder = null;
+    recBtn.disabled = false;
+    updateSttButtons();
+    setSttStatus('녹음 중 오류가 발생했습니다. 텍스트로 답해 주세요.', 'warn');
+  };
+  mediaRecorder.start(250);
+  recBtn.disabled = false;
+  updateSttButtons();
+  setSttStatus(`녹음 중… 최대 ${limit}초. 끝나면 “녹음 중지”를 누르세요.`, 'rec');
+  const tick = () => {
+    const left = limit - Math.floor((Date.now() - recStartedAt) / 1000);
+    if (left <= 0) {
+      try { mediaRecorder?.stop(); } catch { /* noop */ }
+      return;
+    }
+    setSttStatus(`녹음 중… ${left}초 남음. 끝나면 “녹음 중지”를 누르세요.`, 'rec');
+  };
+  stopRecTimer();
+  recTimer = setInterval(tick, 1000);
+}
+
+async function transcribeRecording() {
+  if (!recBlob || mediaRecorder) return;
+  const txBtn = $('#sttTranscribeBtn');
+  txBtn.disabled = true;
+  setSttStatus('전사 중… (Groq Whisper, 한국어)', 'rec');
+  try {
+    const fd = new FormData();
+    const ext = /mp4/i.test(recMime) ? 'm4a' : /ogg/i.test(recMime) ? 'ogg' : 'webm';
+    fd.append('file', recBlob, `answer.${ext}`);
+    const headers = { Authorization: `Bearer ${state.token}`, 'Idempotency-Key': uuid() };
+    const res = await fetch(`/api/v1/sessions/${state.session.id}/transcriptions`, { method: 'POST', headers, body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = data?.error?.message || `전사 실패 (${res.status})`;
+      throw Object.assign(new Error(res.status === 429 ? '무료 한도를 소진했습니다. 텍스트로 답해 주세요.' : msg), { status: res.status });
+    }
+    recBlob = null;
+    updateSttButtons();
+    if (!data.text) {
+      setSttStatus(data.note || '전사 결과가 비어 있습니다. 다시 녹음하거나 텍스트로 입력하세요.', 'warn');
+      return;
+    }
+    const answer = $('#answerText');
+    answer.value = String(data.text || '').slice(0, 4000);
+    $('#charCount').textContent = [...answer.value].length;
+    const extra = data.pii_warnings?.length ? ` 개인정보 후보(${data.pii_warnings.join(', ')})가 있으니 제출 전 확인하세요.` : ' 내용을 확인·수정한 뒤 “답변 완료”를 누르세요.';
+    setSttStatus(`전사 완료 (${data.model || 'whisper'}).${extra}`, data.pii_warnings?.length ? 'warn' : 'ok');
+    toast('전사가 입력창에 채워졌습니다. 확인 후 제출하세요.');
+    answer.focus();
+  } catch (e) {
+    setSttStatus(e.message || '전사에 실패했습니다. 텍스트로 답해 주세요.', 'warn');
+    toast(e.message || '전사에 실패했습니다.', true);
+  } finally {
+    updateSttButtons();
+  }
+}
+
+$('#sttRecBtn')?.addEventListener('click', toggleRecording);
+$('#sttTranscribeBtn')?.addEventListener('click', transcribeRecording);
 
 $('#sessionForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -425,6 +612,9 @@ $('#sessionForm').addEventListener('submit', async (e) => {
     questionCount = 0;
     questionTotal = started.question_total || s.limits.question_count || 4;
     $('#voiceRow').hidden = inputMode !== 'voice';
+    $('#sttRow').hidden = inputMode !== 'groq';
+    updateSttButtons();
+    setQuestion(started.question);
     setupRoomForType(s, started);
     startTimer(s.limits.duration_seconds || s.limits.duration_minutes * 60);
     $('#sessionCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -671,15 +861,25 @@ $('#answerBtn').addEventListener('click', async () => {
     } else if (r.state === 'completed') {
       return loadReport();
     } else if (r.action === 'ask_followup') {
-      $('#aiReply').innerHTML = `<p class="label">AI 면접관 · 추가 확인</p><p>${esc(r.utterance)}</p>`;
+      $('#aiReply').innerHTML = `<p class="label">AI 면접관 · 추가 확인${r.provider === 'gemini' ? ` · Gemini (${esc(r.model || state.geminiModel || '')})` : ''}</p><p>${esc(r.utterance)}</p>`;
       $('#aiReply').hidden = false;
       speak(r.utterance);
+    } else if (r.current_question) {
     } else if (r.current_question) {
       $('#questionText').textContent = r.current_question.text;
       questionCount += 1; updateProgress(); updateRoomSide();
       speak(r.current_question.text);
     }
-    $('#turnHint').textContent = `꼬리질문 ${r.followups_used}/3 · LLM 호출 ${r.llm_calls}/14`;
+    questionCount = (r.scenario_index || questionCount + 1);
+    updateProgress(); updateRoomSide();
+    if (r.provider === 'gemini') {
+      $('#turnHint').textContent = `꼬리질문 ${r.followups_used}/3 · Gemini ${esc(r.model || state.geminiModel || '')} · LLM ${r.llm_calls}/14`;
+    } else if (r.degraded_reason === 'free_quota_exhausted') {
+      toast('Gemini 무료 한도를 소진했습니다. 정적 질문으로 전환합니다.', true);
+      $('#turnHint').textContent = `꼬리질문 ${r.followups_used}/3 · 무료 한도 소진 · LLM ${r.llm_calls}/14`;
+    } else {
+      $('#turnHint').textContent = `꼬리질문 ${r.followups_used}/3 · Mock · LLM ${r.llm_calls}/14`;
+    }
     answerEl.focus();
   } catch (err) {
     toast(err.message, true);
@@ -879,8 +1079,8 @@ function resetAll() {
 
 $('#newSessionBtn').addEventListener('click', resetAll);
 
-// ---- 3. history ----
-function historyLabel(s) {
+  // ---- 3. history ----
+  function historyLabel(s) {
   const t = s.interview_type || s.mode || 'general';
   return `${TYPE_LABEL[t] || t} 면접 연습`;
 }

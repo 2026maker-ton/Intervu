@@ -49,7 +49,7 @@ export const INTERVIEW_TYPES = {
 
 export const DURATIONS = [5, 10, 15];
 export const PERSONAS = ['supportive', 'standard', 'challenging'];
-export const INPUT_MODES = ['text', 'voice'];
+export const INPUT_MODES = ['text', 'voice', 'groq'];
 
 export function normalizeInterviewType(raw) {
   const t = String(raw || 'general').trim().toLowerCase();

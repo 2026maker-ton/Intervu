@@ -22,6 +22,17 @@ export function loadConfig(env = process.env) {
       // Paid 확인(유료 결제계정 + DPA/보존 확인) 없이는 실제 사용자 데이터 전송 금지
       paidAck: String(env.GEMINI_PAID_ACK || 'false').toLowerCase() === 'true',
       allowUnpaid: String(env.GEMINI_ALLOW_UNPAID || 'false').toLowerCase() === 'true',
+      // 무료 전용: true면 유료 과금 모델로 절대 전환하지 않는다.
+      // Google 실제 결제 상태는 제어하지 않으므로 AI Studio 결제 비활성 별도 확인 필요.
+      freeOnly: String(env.GEMINI_FREE_ONLY ?? 'true').toLowerCase() !== 'false',
+    },
+    groq: {
+      apiKey: env.GROQ_WHISPER_KEY || env.GROQ_API_KEY || '',
+      model: env.GROQ_WHISPER_MODEL || 'whisper-large-v3-turbo',
+      timeoutMs: num('GROQ_TIMEOUT_MS', 30000),
+      // 무료 한도 보호: 25MB(무료 tier 상한), 녹음 120초, 1회 재시도 없음(429 즉시 fallback)
+      maxAudioBytes: num('GROQ_MAX_AUDIO_BYTES', 25 * 1024 * 1024),
+      maxRecordingSeconds: num('GROQ_MAX_RECORDING_SECONDS', 120),
     },
     // 모델 레지스트리: operation -> {provider, model, maxOutputTokens}
     // Gemini 우선. gpt-6-luna 등은 품질/비용 비교 후보로 유지(미연동).

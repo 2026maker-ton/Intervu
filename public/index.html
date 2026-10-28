@@ -21,7 +21,10 @@
     <button class="tab" data-view="history">기록</button>
     <button class="tab" data-view="privacy">데이터·안내</button>
   </nav>
-  <div class="provider-chip" id="providerChip" role="status" title="AI 공급자 상태">확인 중…</div>
+  <div class="provider-chips">
+    <div class="provider-chip" id="providerChip" role="status" title="AI 공급자 상태">확인 중…</div>
+    <div class="provider-chip" id="sttChip" role="status" title="음성 인식 상태">STT 확인 중…</div>
+  </div>
 </header>
 
 <main id="main">
@@ -127,6 +130,7 @@
                 <select name="input_mode" id="inputModeSelect">
                   <option value="text">텍스트</option>
                   <option value="voice">음성 (브라우저 인식 + 텍스트 확인)</option>
+                  <option value="groq">음성 녹음 → Groq 전사 (무료 데모)</option>
                 </select>
               </label>
               <div class="mic-test" id="micTestBox">
@@ -140,8 +144,9 @@
                 <strong>시작 전 확인</strong>
                 <ul>
                   <li>AI가 생성한 질문·코칭이며 실제 평가가 아닙니다.</li>
-                  <li>음성은 브라우저에서 텍스트로 변환한 뒤 서버로 전송됩니다. 원음은 전송·저장하지 않습니다.</li>
-                  <li>답변 텍스트는 선택된 AI 공급자에게 전송될 수 있습니다.</li>
+                  <li>브라우저 음성 인식은 원음이 서버로 전송되지 않습니다. Groq 녹음 전사는 MP3가 아닌 원음을 서버에서 처리 후 즉시 폐기합니다.</li>
+                  <li>답변 텍스트는 선택된 AI 공급자에게 전송될 수 있습니다. 실명·연락처 등 개인정보는 입력하지 마세요.</li>
+                  <li>Gemini 무료 전용 모드에서는 무료 한도 소진 시 정적 질문으로 전환되며 유료 모델로 자동 전환하지 않습니다.</li>
                   <li>예산 한도 초과 시 질문이 중단되고 종료됩니다.</li>
                   <li>기본 보관 30일 · 언제든 삭제할 수 있습니다.</li>
                 </ul>
@@ -203,6 +208,11 @@
           <div class="voice-row" id="voiceRow" hidden>
             <button class="ghost" id="voiceBtn" type="button" aria-pressed="false">🎙 말로 답하기</button>
             <span id="voiceStatus" role="status" class="fine">음성 인식은 브라우저에서 텍스트로 변환됩니다.</span>
+          </div>
+          <div class="stt-row" id="sttRow" hidden>
+            <button class="ghost" id="sttRecBtn" type="button" aria-pressed="false">⏺ 녹음 시작</button>
+            <button class="ghost small" id="sttTranscribeBtn" type="button" disabled>전사 요청</button>
+            <span id="sttStatus" role="status">Groq 전사 상태를 확인하는 중…</span>
           </div>
           <div class="actions">
             <button class="primary" id="answerBtn">답변 완료 ⏎</button>

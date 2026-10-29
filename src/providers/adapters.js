@@ -49,7 +49,7 @@ export function createMockAdapter() {
 }
 
 // Gemini 어댑터: REST generateContent. human-review/unpaid 금지 게이트는 호출자가 강제.
-export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutMs = 12000, fetchFn = fetch }) {
+export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutMs = 12000, fetchFn = fetch, freeOnly = true }) {
   if (!apiKey) throw new Error('GEMINI_API_KEY missing');
   const base = 'https://generativelanguage.googleapis.com/v1beta';
   // 호출 통계(운영 로그용, 본문 미포함)
@@ -122,7 +122,7 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
   // 대화/추출: 1회 재시도(429/5xx/timeout) 후 검증된 대체 모델, 그래도 실패하면 호출자가 정적 fallback
   // 무료 전용(freeOnly=true)이면 paid 전용 모델로 절대 전환하지 않는다.
   const ALLOWED_FREE_MODELS = new Set(['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash']);
-  const FREE_ONLY = String(process.env.GEMINI_FREE_ONLY ?? 'true').toLowerCase() !== 'false';
+  const FREE_ONLY = freeOnly !== false; // 설정(config.gemini.freeOnly)으로만 주입한다. 환경변수 직접 조회 없음.
   async function withFallback(fn) {
     const safeFallback = FREE_ONLY && !ALLOWED_FREE_MODELS.has(fallbackModel) ? 'gemini-3.5-flash-lite' : fallbackModel;
     try {

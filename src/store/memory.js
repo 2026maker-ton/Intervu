@@ -1,6 +1,6 @@
 // 인메모리 저장소 (MVP). 운영 교체 대상: Postgres + RLS.
 // 모든 행에 owner_id. 조회는 항상 owner scope 강제.
-import { randomUUID } from 'node:crypto';
+const randomUUID = () => globalThis.crypto.randomUUID();
 
 export function createStore() {
   const profiles = new Map();       // id -> {id, owner_id, ...}
@@ -17,6 +17,12 @@ export function createStore() {
   const profileCalls = new Map();   // owner -> [timestamps] (프로필 추출 속도 제한)
   const instSources = new Map();    // profile_id -> [source rows] (기관 자료 출처)
   const institutions = new Map();   // profile_id -> { profile object, approved, approved_at }
+  // WP-A1: 예전에 server.js 전역이던 상태 — 모두 Store 뒤로 이동
+  const tickets = new Map();        // ticket -> { session_id, owner, expires_at } (30초 일회성)
+  const exports_ = new Map();       // job_id -> { owner_id, session_id, expires_at, payload } (10분)
+  const transferJobs = new Map();   // transfer_id -> { owner_id, baseline_session_id, retry_session_id, ... }
+  const idempotency = new Map();    // `${owner}:${key}` -> { owner, fp, status, text, expires_at } (24시간)
+  const ledgerState = { monthlySpent: 0, monthlyReserved: 0, sessions: new Map() };
 
   const now = () => new Date().toISOString();
   function pushEvent(sessionId, type, payload = {}, opts = {}) {
@@ -195,6 +201,55 @@ export function createStore() {
       return job;
     },
 
+    // 일회성 접속 티켓
+    putTicket(ticket, rec) {
+      tickets.set(ticket, rec);
+      if (tickets.size > 500) for (const [k, v] of tickets) { if (v.expires_at < Date.now()) tickets.delete(k); }
+    },
+    takeTicket(ticket) {
+      const t = tickets.get(ticket);
+      if (!t) return null;
+      tickets.delete(ticket);
+      return t.expires_at < Date.now() ? null : t;
+    },
+    // 내보내기 작업
+    putExport(id, rec) {
+      exports_.set(id, rec);
+      if (exports_.size > 200) for (const [k, v] of exports_) { if (v.expires_at < Date.now()) exports_.delete(k); }
+    },
+    getExport(id) { return exports_.get(id) || null; },
+    deleteExport(id) { exports_.delete(id); },
+    // 전이 비교 작업
+    putTransferJob(id, job) { transferJobs.set(id, job); },
+    getTransferJob(id) { return transferJobs.get(id) || null; },
+    // 삭제 시 서버가 쥔 사용자 발언 사본 파기. sessionId가 없으면 소유자 전체.
+    // 멱등 응답(전이 비교 발췌 등 사용자 발언 포함 가능)은 소유자 단위로 모두 파기한다.
+    purgeOwned(owner, sessionId = null) {
+      for (const [id, j] of transferJobs) {
+        if (j.owner_id !== owner) continue;
+        if (!sessionId || j.baseline_session_id === sessionId || j.retry_session_id === sessionId) transferJobs.delete(id);
+      }
+      for (const [id, e] of exports_) {
+        if (e.owner_id !== owner) continue;
+        if (!sessionId || e.session_id === sessionId) exports_.delete(id);
+      }
+      for (const [k, r] of idempotency) if (r.owner === owner) idempotency.delete(k);
+    },
+    // Idempotency-Key 저장(24시간)
+    getIdem(owner, key) {
+      const k = `${owner}:${key}`;
+      const r = idempotency.get(k);
+      if (r && r.expires_at < Date.now()) { idempotency.delete(k); return null; }
+      return r || null;
+    },
+    putIdem(owner, key, rec) {
+      idempotency.set(`${owner}:${key}`, { owner, ...rec });
+      if (idempotency.size > 2000) for (const [k, r] of idempotency) { if (r.expires_at < Date.now()) idempotency.delete(k); }
+    },
+    // 예산 원장 상태(createLedger가 이 객체를 그대로 사용)
+    ledgerState() { return ledgerState; },
+
+    // 호환: 컬렉션 맵을 직접 노출(테스트·삭제 경로가 사용). 새 코드는 메서드를 우선한다.
     events, pushEvent, commands, evaluations, appeals, attempts, deletions,
   };
 }

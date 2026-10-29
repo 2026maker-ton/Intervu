@@ -17,6 +17,8 @@ export function createStore() {
   const profileCalls = new Map();   // owner -> [timestamps] (프로필 추출 속도 제한)
   const instSources = new Map();    // profile_id -> [source rows] (기관 자료 출처)
   const institutions = new Map();   // profile_id -> { profile object, approved, approved_at }
+  const documents = new Map();      // id -> SourceDocument (원본 바이너리 비저장)
+  const docRevisions = new Map();   // documentId -> [DocumentRevision]
   // WP-A1: 예전에 server.js 전역이던 상태 — 모두 Store 뒤로 이동
   const tickets = new Map();        // ticket -> { session_id, owner, expires_at } (30초 일회성)
   const exports_ = new Map();       // job_id -> { owner_id, session_id, expires_at, payload } (10분)
@@ -89,6 +91,25 @@ export function createStore() {
       return row;
     },
     getInstitution(profile_id) { return institutions.get(profile_id) || null; },
+
+    // documents (WP-C1)
+    createDocument(owner, data) {
+      const doc = { id: randomUUID(), owner_id: owner, profile_id: data.profile_id, kind: data.kind, filename: data.filename, sha256: data.sha256, extract_status: data.extract_status, failure_code: data.failure_code || null, created_at: now() };
+      documents.set(doc.id, doc);
+      docRevisions.set(doc.id, []);
+      return doc;
+    },
+    getDocument(owner, id) { const d = documents.get(id); return d && d.owner_id === owner ? d : null; },
+    listDocuments(owner, profile_id) { return [...documents.values()].filter((d) => d.owner_id === owner && d.profile_id === profile_id); },
+    addDocumentRevision(owner, id, { text_masked, origin }) {
+      const d = documents.get(id);
+      if (!d || d.owner_id !== owner) return null;
+      const list = docRevisions.get(id);
+      const rev = { document_id: id, revision: list.length + 1, origin, text_masked, char_count: [...text_masked].length, created_at: now() };
+      list.push(rev);
+      return rev;
+    },
+    getDocumentRevisions(owner, id) { const d = documents.get(id); return d && d.owner_id === owner ? (docRevisions.get(id) || []).slice() : null; },
 
     // sessions
     createSession(owner, data) {
@@ -189,6 +210,7 @@ export function createStore() {
         const v = profileVersions.get(vid);
         if (v) { v.extracted = null; v.status = 'deleted'; }
       }
+      for (const [did, dd] of documents) if (dd.owner_id === owner) { documents.delete(did); docRevisions.delete(did); }
       for (const [aid, a] of appeals) if (a.owner_id === owner) appeals.delete(aid);
       for (const [pid2, a2] of attempts) if (a2.owner_id === owner) attempts.delete(pid2);
       const job = {

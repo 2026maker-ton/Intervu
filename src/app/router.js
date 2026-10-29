@@ -5,6 +5,9 @@ import { readJsonBody } from './body.js';
 import { createKeyedMutex } from './mutex.js';
 import { err, now } from './util.js';
 
+// 문서 업로드: 5MB 파일의 base64(~6.99MB)+JSON 여유. 그 외 경로는 기본 1MB 유지(BUG-9).
+const DOCUMENT_BODY_LIMIT = 7_500_000;
+const DOCUMENT_UPLOAD_PATH = /^\/api\/v1\/(?:profiles\/[^/]+\/documents|documents\/extract)$/;
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
 const json = (status, body, extra = {}) => new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...extra } });
@@ -55,7 +58,7 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
       const isTranscription = /^\/api\/v1\/sessions\/[^/]+\/transcriptions$/.test(p);
       let body = {};
       let bodyText = '';
-      if (write && !isTranscription) ({ json: body, text: bodyText } = await readJsonBody(request));
+      if (write && !isTranscription) ({ json: body, text: bodyText } = await readJsonBody(request, DOCUMENT_UPLOAD_PATH.test(p) ? DOCUMENT_BODY_LIMIT : undefined));
 
       const run = () => {
         // 같은 세션에 대한 쓰기는 도착 순서대로 직렬 실행한다(명령 인터리빙 방지).
@@ -138,6 +141,9 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
       if ((mm = /^\/api\/v1\/transfer-comparisons\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.transfer.getTransferJob(owner, id1()));
       // P1 문서 추출: TXT 직접 + PDF/DOCX 최소 안전 추출 (외부 전송 없음)
       if (pth === '/api/v1/documents/extract' && mth === 'POST') return send(h.documents.extractDocument(owner, body));
+      if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/documents$/.exec(pth)) && mth === 'POST') return send(await h.documents.uploadDocument(owner, id1(), body));
+      if ((mm = /^\/api\/v1\/documents\/([^/]+)$/.exec(pth)) && mth === 'PATCH') return send(h.documents.editDocument(owner, id1(), body));
+      if ((mm = /^\/api\/v1\/documents\/([^/]+)\/revisions$/.exec(pth)) && mth === 'GET') return send(h.documents.listRevisions(owner, id1()));
       // P2 월간 트렌드: 관리자 검수·공개, 사용자는 공개본만 조회
       if (pth === '/api/v1/admin/trends' && mth === 'POST') return send(await h.admin.draftTrend(owner, body, req));
       if (pth === '/api/v1/admin/status' && mth === 'GET') return send(h.ops.adminStatus());

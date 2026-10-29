@@ -43,7 +43,13 @@ export function extractDocumentText({ ext, buffer }) {
       return finishExtract(text, { container: 'docx' });
     }
     if (ext === '.pdf') {
-      const text = extractPdfText(buf);
+      const { text, cid } = extractPdfText(buf);
+      if (!text && cid) {
+        return {
+          ok: false, code: 'unsupported_font_encoding',
+          message: '이 PDF는 글꼴 인코딩(CID/Type0) 때문에 글자를 안전하게 읽을 수 없습니다. 텍스트를 직접 붙여넣거나 DOCX/TXT로 올리세요.',
+        };
+      }
       if (!text) {
         return {
           ok: false, code: 'non_extractable_scanned',
@@ -168,21 +174,24 @@ function decodeEntities(s) {
 // ---- PDF: 평문 Tj/TJ + FlateDecode 스트림 inflate + hex 문자열 ----
 function extractPdfText(buf) {
   const head = buf.slice(0, 5).toString('latin1');
-  if (head !== '%PDF-') return '';
+  if (head !== '%PDF-') return { text: '', cid: false };
+  const streams = inflatePdfStreams(buf).map((b) => b.toString('utf8'));
+  const whole = buf.toString('utf8');
+  // CID/Type0(Identity-H) 글꼴: 문자열이 글리프 ID라 ToUnicode CMap 없이는 글자가 아니다.
+  // ponytail: ToUnicode CMap 파싱 미구현 → 있어도 명시적 실패. 필요하면 bfchar/bfrange 파서 추가.
+  const cid = [whole, ...streams].some((t) => /\/Identity-H|\/Type0\b/.test(t));
   const parts = [];
   // 1) FlateDecode 스트림을 inflate해서 모은다 (UTF-8 디코딩: 한글 보존)
-  for (const inflated of inflatePdfStreams(buf)) {
-    const text8 = inflated.toString('utf8');
-    const t = collectPdfStrings(text8);
+  for (const t8 of streams) {
+    const t = collectPdfStrings(t8, !cid);
     if (t) parts.push(t);
   }
   // 2) 파일 전체 평문도 수집 (비압축 PDF 호환)
-  const latin = buf.toString('utf8');
-  const plain = collectPdfStrings(latin);
+  const plain = collectPdfStrings(whole, !cid);
   if (plain) parts.push(plain);
   const text = parts.join(' ').replace(/\s+/g, ' ').trim();
-  if (!/[가-힣A-Za-z]{4,}/.test(text)) return '';
-  return text;
+  if (!/[가-힣A-Za-z]{4,}/.test(text)) return { text: '', cid };
+  return { text, cid: false };
 }
 
 function inflatePdfStreams(buf) {
@@ -220,7 +229,7 @@ function inflatePdfStreams(buf) {
   return out;
 }
 
-function collectPdfStrings(latin) {
+function collectPdfStrings(latin, allowHex = true) {
   const parts = [];
   // ( ... ) Tj / TJ — TJ 배열 안의 여러 조각도 함께 수집
   const reParen = /\((?:[^()\\]|\\.|\\\n)*\)\s*T[jJ]/g;
@@ -241,7 +250,7 @@ function collectPdfStrings(latin) {
   void reArr;
   // hex 문자열: <4D616E> Tj — UTF-16BE(BOM FEFF) 대응
   const reHex = /<([0-9A-Fa-f\s]{4,4000})>\s*T[jJ]/g;
-  while ((m = reHex.exec(latin)) && parts.join(' ').length < 20000) {
+  while (allowHex && (m = reHex.exec(latin)) && parts.join(' ').length < 20000) {
     const t = decodeHexString(m[1]);
     if (t.trim()) parts.push(t.trim());
   }

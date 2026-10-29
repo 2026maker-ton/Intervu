@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config.js';
 import { loadDotEnv } from '../env.js';
 import { createTrendStore } from '../domain/trends.js';
+import { createFileStore } from '../store/file.js';
 import { createCore } from '../app/core.js';
 import { randomUUID } from '../app/crypto.js';
 
@@ -36,8 +37,16 @@ export function createApp(overrides = {}) {
   // 트렌드 스토어: 영속 파일(TRENDS_FILE) 기반. 저장 실패 시 메모리로만 동작.
   const trendsFilePath = overrides.trendsFile || (config.trendsFile ? path.resolve(root, config.trendsFile) : '');
   const trends = overrides.trends || createTrendStore({ filePath: trendsFilePath });
-  const core = createCore({ env, store: overrides.store, ledger: overrides.ledger, trends, syntheticTraffic: overrides.syntheticTraffic === true });
+  // STORE=file → 파일 영속(DATA_DIR, 단일 프로세스 가정). 기본은 memory.
+  const store = overrides.store || (env.STORE === 'file'
+    ? createFileStore({ dir: path.resolve(root, env.DATA_DIR || 'data/store'), ttlDays: config.limits.dataTtlDaysDefault })
+    : undefined);
+  const core = createCore({ env, store, ledger: overrides.ledger, trends, syntheticTraffic: overrides.syntheticTraffic === true });
 
+  const fetchApp = async (request, e, ctx) => {
+    const del = request.method === 'DELETE';
+    try { return await core.fetch(request, e, ctx); } finally { core.store.afterRequest?.(del); }
+  };
   const server = http.createServer(async (req, res) => {
     try {
       const p = new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname;
@@ -57,7 +66,7 @@ export function createApp(overrides = {}) {
         req.resume();
         setTimeout(() => req.destroy(), 2000).unref();
       });
-      const response = await core.fetch(toRequest(req), env, {});
+      const response = await fetchApp(toRequest(req), env, {});
       res.writeHead(response.status, Object.fromEntries(response.headers));
       res.end(Buffer.from(await response.arrayBuffer()));
     } catch {
@@ -70,7 +79,7 @@ export function createApp(overrides = {}) {
     server, config: core.config, store: core.store, ledger: core.ledger,
     providerInfo: core.providerInfo, providerName: core.providerName,
     providerStats: core.providerStats,
-    fetch: core.fetch, // 핸들러 직접 호출(테스트·다른 어댑터용): (Request, env, ctx) => Response
+    fetch: fetchApp, // 핸들러 직접 호출(테스트·다른 어댑터용): (Request, env, ctx) => Response
   };
 }
 

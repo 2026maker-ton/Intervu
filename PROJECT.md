@@ -369,7 +369,7 @@
 | 런타임 | Node.js ≥20, **외부 의존성 0**(`package.json`에 dependencies 없음), 타입스크립트·린터·번들러 없음 | `package.json` |
 | 프런트엔드 | 순수 HTML/CSS/JS 단일 페이지, 해시 라우터 9화면(`#/dashboard`…`#/admin`). 같은 오리진 `/api/v1` 호출 | `public/index.html`(462줄), `public/app.js` 엔트리 + `public/core/*.js`·`public/screens/*.js` 네이티브 ES 모듈(WP-D1; 이전 단일 app.js), `public/ui/index.js` 컴포넌트 헬퍼·`core/copy.js` 고정 문구/금지 표현(WP-D2; 화면 적용은 후속 WP) |
 | 백엔드 | 플랫폼 중립 코어 `(Request, env, ctx)=>Response`(`src/app/router.js` + `handlers/*`, Web 표준 API·Web Crypto만) + Node `http` 어댑터(`src/node/server.js`: 변환·정적 서빙·CSP·.env 로딩). `src/server.js`는 호환 재수출. 쓰기 `Idempotency-Key` 24h 재생·세션별 쓰기 직렬화(WP-A1). Workers 어댑터는 `[TODO]`(A3) | `src/app/*`, `src/node/server.js`, `src/server.js` |
-| 저장소 | **인메모리 `Store`**(프로필·세션·턴·평가·티켓·내보내기·전이작업·멱등 기록·원장 상태를 `src/store/index.js` 계약 뒤로 이동, 구현 `memory.js`). 영속 `Store`는 `[TODO]`(A2). 파일 영속은 월간 트렌드(`data/trends.json`, git 제외)만 | `src/store/*`, `src/domain/trends.js` |
+| 저장소 | **인메모리 `Store`**(프로필·세션·턴·평가·티켓·내보내기·전이작업·멱등 기록·원장 상태를 `src/store/index.js` 계약 뒤로 이동, 구현 `memory.js`). 파일 영속 `Store`(`file.js`, `STORE=file`, 원자적 쓰기·만료 정리·삭제 즉시 반영, 단일 프로세스 가정)는 WP-A2로 추가, Workers/DO는 `[TODO]`(A3). 파일 영속은 월간 트렌드(`data/trends.json`, git 제외)만 | `src/store/*`, `src/domain/trends.js` |
 | 공급자 | Mock(기본), Gemini(게이트 통과 시 꼬리질문·공고 추출), Groq Whisper(STT), 브라우저 SpeechSynthesis(TTS) | `src/providers/adapters.js` |
 | 배포 | **없음.** GitHub Pages·Cloudflare Workers 설정 없음. CI는 `project-guard.yml`(`check:project` + `npm test`)뿐 | `git ls-files`, `.github/workflows/` |
 | 환경변수 | `.env.example` 기준 Gemini/Groq/예산/킬스위치/`ADMIN_TOKEN`/`TRENDS_FILE`. DeepSeek·Claude·ElevenLabs 변수 없음 | `.env.example`, `src/config.js` |
@@ -403,12 +403,12 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 약점 집중 코칭·재연습 | `[PARTIAL]` | `POST /practice-attempts`, `generateTransferQuestion`, UI `app.js:1338~1401` | 새 질문은 루브릭 5종 전 차원(15개) × **고정 템플릿 3개**에서 선택(`transfer.js TRANSFER_BANK`). 알 수 없는 역량은 422(대체 없음). 90초·1문항 세션 |
 | 새 질문 전후 비교 | `[PARTIAL]` | `compareTransfer`, `POST /transfer-comparisons`, UI `app.js:1429`, test 866·1032 | 같은 루브릭·다른 질문·유사도(바이그램 Jaccard 0.55)·판단 보류는 구현. 비교 수준은 키워드 규칙 점수의 차이. 전이 작업(`transferJobs`)이 **메모리에만** 있고 삭제 시 지워지지 않음 `[BUG]` |
 | 답변 수정 이력 | `[DONE]` | `addRevision`(stt_correction은 새 revision, content_rewrite는 새 연습), test 301·313 | — |
-| 결과 저장·기록 | `[PARTIAL]` | `GET /sessions`, `loadHistory`, test 380 | 서버 재시작 시 전부 소실. 사용자별 장기 추이 저장 없음 |
+| 결과 저장·기록 | `[PARTIAL]` | `GET /sessions`, `loadHistory`, test 380 | `STORE=file`이면 재시작 후 유지(WP-A2, tests/api/a2-file-store). 기본 memory는 재시작 시 소실. 사용자별 장기 추이 저장 없음 |
 | 내보내기·삭제 | `[DONE]`(인메모리 한정) | `POST /exports`(JSON, 10분), `DELETE /sessions/:id`, `DELETE /account`, test 287·380·P0-2 신규 4건 | 삭제 시 `transferJobs`·`exports`·재작성 연습·이의 제기 파기(`purgeOwnedCaches`, P0-2 수정). 내보내기는 JSON 10분 캐시뿐, 영속 저장·백업 삭제 절차 없음 |
 | 개인정보 처리 | `[PARTIAL]` | `detectPii`(이메일·전화·주민번호 + 휴리스틱 이름·학교·주소·학번/사번), `maskPii`, 블라인드 마스킹, test 852, c5-pii-corpus(오탐 66·정탐 36) | **이름·학교·주소 탐지는 표지어·접미어 기반 휴리스틱이라 누락·오탐이 있으며 완전 익명화가 아님.** 블라인드도 휴리스틱(UI도 "완전하지 않을 수 있음" 고지) |
 | 연령·미성년자 보호 | `[PARTIAL]` | 서버: `highschool` Mock 강제(test 520). UI: "만 19세 이상" 정적 문구 | 연령 확인 **절차** 없음(Figma 6단계 `[TODO]`). 고교 경로가 UI에는 없음 |
 | 오류 복구 | `[PARTIAL]` | 공급자 실패→정적 꼬리질문 폴백+`degraded_reason`, STT 실패→텍스트 안내, 평가 실패 상태, 보고서 폴링 | 대화 중 429는 **정적 폴백으로 계속하지 않고 세션을 즉시 종료**(`server.js:807~813`). 클라이언트 자동 재시도·세션 복구 없음 |
-| API 사용량·예산 | `[PARTIAL]` | `ledger.js`(예약→정산), 세션 $0.08·월 $30 상한, 프로필 분당2/일10 제한, 킬 스위치, test 330·356 | 원장이 **인메모리**(재시작 시 0). 월 경계 리셋 없음. 단가표는 Gemini 전용. 프로필 외 엔드포인트(문서 추출·STT·턴) 사용자별 속도 제한 없음. `config.registry`는 서버가 읽지 않음 |
+| API 사용량·예산 | `[PARTIAL]` | `ledger.js`(예약→정산), 세션 $0.08·월 $30 상한, 프로필 분당2/일10 제한, 킬 스위치, test 330·356 | 원장은 `STORE=file`이면 영속(YYYY-MM 월 경계 리셋, WP-A2), 기본 memory는 재시작 시 0. 공급자별 합계 필드는 저장만 되고 아직 원장이 채우지 않음. 단가표는 Gemini 전용. 프로필 외 엔드포인트(문서 추출·STT·턴) 사용자별 속도 제한 없음. `config.registry`는 서버가 읽지 않음 |
 | 인증 | `[PARTIAL]` | 환경변수로 명시한 접속 토큰 2개(`DEV_TOKEN_A/B`)만 유효 — **내장 기본 토큰 제거**(`config.js`), 브라우저도 내장 토큰 없이 첫 401에서 접속 토큰을 물어 저장(`app.js promptToken`, E2E [10b]). 소유권 검사·교차 사용자 격리 test 277, P0-6 테스트 | **실제 로그인·세션·계정 없음**(토큰은 운영자가 나눠 주는 공유 비밀, `localStorage` 저장). 예시 토큰(`dev-user-*-token`) 사용 시 서버 시작 경고만 출력. 공개 서비스 불가 |
 | 관리자 화면 | `[PARTIAL]` | `ADMIN_TOKEN` **필수**: 미설정이면 관리 기능·`/metrics`·`/diagnostics` 전체가 꺼짐(403 `admin_disabled`), 토큰은 `x-admin-token` 헤더로만 수신하고 상수시간 비교(`checkAdmin`), E2E·P0-6 테스트 | 역할 모델·감사 기록·토큰 교체 절차 없음(단일 공유 비밀). 출처 없는 트렌드 공개 허용은 BUG-5로 남음 |
 | 공급자 게이트(실데이터 외부 전송 차단) | `[DONE]`(2026-10-29 P0-1 수정, 스텁 fetch 시험) | `selectProvider`, `providerFor`(`server.js`), 테스트 `P0 gate:*` 3건+`forged synthetic/free_test…`, 오프라인 프로브 재실행 | 요청 본문의 `synthetic`·`free_test`는 전송 근거가 아님. 합성 전용 인스턴스는 `createApp({syntheticTraffic:true})` 코드 호출로만 켜짐. **실키·유료 경로(`paidAck=true`)는 실제 호출하지 않아 `[UNVERIFIED]`**. 요청별 동의·연령 게이트는 별도 `[TODO]` |
@@ -494,7 +494,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | BUG-7 | P1 | `[FIXED]` 전 루브릭 차원별 템플릿 3개 이상, 기준 질문과 유사도 <0.55, 미지 역량 422, 미사용 `practiceText` 제거. 테스트 `tests/domain/c4-*`, `tests/api/c4-*` | `transfer.js TRANSFER_BANK` |
 | BUG-8 | P1 | 대화 중 429 → 정적 폴백으로 계속하지 않고 `finishSession` 호출. 이 경로에서 원장 예약(0.005)이 정산되지 않음. `createSession`의 예산 사전 확인은 `session:${owner}` 키를 써서 실제 세션 원장과 무관 | `server.js:381,807~813` |
 | BUG-9 | P1 | 업로드 한도 불일치: 서버 상한 5MB vs JSON 본문 한도 1,000,000바이트(base64 팽창) → 약 0.7MB 초과 파일은 413. UI 안내와 다를 수 있음(코드 기준, 재현 미실시) | `server.js:118,1603`, `documents.js MAX_BYTES` |
-| DEBT-1 | P0 | **영속 저장 없음** — 프로세스 재시작 시 세션·보고서·전이 작업·예산 원장 소실(데모 중 서버 재시작=데이터 유실) | `src/store.js` 머리말 |
+| DEBT-1 | P0 | **부분 해소(WP-A2)** — `STORE=file`(`DATA_DIR`, 기본 `data/store/state.json`)이면 세션·턴·보고서·전이 작업·멱등 기록·원장이 재시작 후 유지. **기본값은 여전히 memory**이며 파일 저장은 **단일 프로세스 가정**(다중 프로세스 쓰기 보호 없음, 전체 스냅샷). 내보내기·티켓은 메모리 전용, 업로드 원본은 저장 안 함 | `src/store/file.js` |
 | DEBT-2 | P0(부분 완화) | **실제 인증 없음** — 정적 접속 토큰(내장 기본 토큰·클라이언트 내장 토큰은 P0-6에서 제거). 공개 배포 전에 반드시 교체 | `config.js`, `app.js:8` |
 | DEBT-3 | P0 | 공급자 라우팅 부재 — `config.registry`는 정의만 있고 미사용. 목표 구성(§4.2) 도입 시 어댑터 선택 구조 필요 | `grep registry src` |
 | DEBT-4 | P1 | `Idempotency-Key`는 필수 헤더지만 저장·재생하지 않음(`idempotency` Map 미사용). 명령은 `command_id`로 별도 보호 | `server.js:66,1477` |

@@ -412,3 +412,40 @@ footer p { margin: 0; font-size: .78rem; color: var(--muted); }
   .screen { display: block !important; }
   .card { break-inside: avoid; box-shadow: none; }
 }
+
+/* ---- WP-D2 디자인 시스템 토큰·컴포넌트 ---- */
+:root {
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+  --fs-xs: 12px; --fs-sm: 14px; --fs-md: 16px; --fs-lg: 20px; --fs-xl: 24px; --fs-2xl: 32px;
+  --state-ok: var(--green-deep); --state-ok-bg: var(--green-wash);
+  --state-warn: var(--amber); --state-warn-bg: var(--amber-wash);
+  --state-error: var(--red); --state-error-bg: var(--red-wash);
+  --state-info: #2c3f63; --state-info-bg: #eaeef7;
+  --state-neutral: var(--ink-2); --state-neutral-bg: var(--paper-2);
+  --focus-ring: #1f6feb; --touch-min: 44px;
+}
+.state-badge, .source-chip {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  padding: 2px var(--sp-2); border-radius: 999px; border: 1px solid currentColor;
+  font-size: var(--fs-xs); font-weight: 700; line-height: 1.5;
+}
+.state-badge.ok, .source-chip.ok { color: var(--state-ok); background: var(--state-ok-bg); }
+.state-badge.warn, .source-chip.warn { color: var(--state-warn); background: var(--state-warn-bg); }
+.state-badge.error, .source-chip.error { color: var(--state-error); background: var(--state-error-bg); }
+.state-badge.info, .source-chip.info { color: var(--state-info); background: var(--state-info-bg); }
+.state-badge.neutral, .source-chip.neutral { color: var(--state-neutral); background: var(--state-neutral-bg); }
+.evidence-quote { display: block; padding: var(--sp-2) var(--sp-3); border-left: 3px solid var(--line-2); background: var(--card); }
+.evidence-quote .meta { display: block; color: var(--muted); font-size: var(--fs-xs); }
+.provider-banner { padding: var(--sp-3) var(--sp-4); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
+.provider-banner.warn { background: var(--state-warn-bg); color: var(--state-warn); }
+.provider-banner.error { background: var(--state-error-bg); color: var(--state-error); }
+.empty-state, .error-state { padding: var(--sp-5); text-align: center; border: 1px dashed var(--line-2); border-radius: var(--radius); color: var(--ink-2); }
+.error-state { border-color: var(--state-error); color: var(--state-error); }
+.skeleton span { display: block; height: 1em; margin: var(--sp-2) 0; border-radius: 6px; background: var(--paper-2); }
+.stepper { display: flex; gap: var(--sp-2); list-style: none; margin: 0 0 var(--sp-4); padding: 0; flex-wrap: wrap; }
+.stepper li { padding: var(--sp-1) var(--sp-3); border-radius: 999px; background: var(--paper-2); color: var(--muted); font-size: var(--fs-sm); }
+.stepper li.done { background: var(--green-wash); color: var(--green-deep); }
+.stepper li.current { background: var(--navy); color: #fff; }
+.mode-chip { display: inline-block; padding: 2px var(--sp-3); border-radius: 999px; font-size: var(--fs-sm); background: var(--state-neutral-bg); }
+.mode-chip[data-mode="live"], .mode-chip[data-mode="partial-live"] { background: var(--state-ok-bg); color: var(--state-ok); }
+.mode-chip[data-mode="error"] { background: var(--state-error-bg); color: var(--state-error); }

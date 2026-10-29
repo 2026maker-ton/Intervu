@@ -124,6 +124,14 @@ async function main() {
     check(await page.locator('#evidenceState').innerText() === '확인 필요', '승인 전 상태 표시');
     await page.fill('#evidenceNote', '핵심가치 3개 확인, 면접 형식 확인');
     await page.screenshot({ path: path.join(OUT, '02-evidence-1440.png'), fullPage: true });
+    check(/거짓 여부를 판정하지 않습니다/.test(evText), '근거 화면 고정 문구(거짓 여부 미판정)');
+    check(/월간 트렌드\(보조\)/.test(evText) && /공식·출처/.test(evText) && /공고 키워드·핵심 가치/.test(evText), '근거 화면 섹션 라벨');
+    check(await page.locator('#evidenceBody .stepper li.current').innerText() === '2. 근거 확인', '근거 화면 스테퍼 ②');
+    await page.setViewportSize({ width: 390, height: 844 });
+    const evOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    check(evOverflow <= 1, '근거 화면 오버플로 없음 @390px', `overflow ${evOverflow}px`);
+    await page.screenshot({ path: path.join(OUT, '02-evidence-390.png'), fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.click('#approveBtn');
     await page.waitForSelector('#screen-setup:not([hidden])');
 
@@ -298,9 +306,12 @@ async function main() {
     // 잘못된 관리자 토큰 시도는 의도된 403이므로 예상 실패로 분류한다.
     const isExpectedProbe = (b) => /^403 \w+ .*\/api\/v1\/admin\//.test(b);
     const probes = badResponses.filter(isExpectedProbe);
-    const unexpected = badResponses.filter((b) => !isExpectedProbe(b));
+    // 근거 화면의 선택 API(claims/plan, WP-C8 전)는 404면 섹션을 숨기는 기능 감지이므로 예상 실패로 분류한다.
+    const isOptional404 = (b) => /^404 GET .*\/api\/v1\/profiles\/[^/]+\/(claims|plan)$/.test(b);
+    const opt404 = badResponses.filter(isOptional404).length;
+    const unexpected = badResponses.filter((b) => !isExpectedProbe(b) && !isOptional404(b));
     check(probes.length === 1, '의도된 관리자 403은 정확히 1회', `${probes.length}회`);
-    const realConsole = consoleErrors.filter((t) => !/favicon/i.test(t) && !(/403 \(Forbidden\)/.test(t) && probes.length === 1));
+    const realConsole = consoleErrors.filter((t) => !/favicon/i.test(t) && !(/403 \(Forbidden\)/.test(t) && probes.length === 1) && !(/404 \(Not Found\)/.test(t) && opt404 > 0));
     check(realConsole.length === 0, '콘솔 오류 없음', realConsole.slice(0, 3).join(' | '));
     check(pageErrors.length === 0, '페이지 예외 없음', pageErrors.slice(0, 3).join(' | '));
     check(unexpected.length === 0, '예상 외 실패 응답 없음', unexpected.slice(0, 4).join(' | '));

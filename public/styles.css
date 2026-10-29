@@ -449,3 +449,13 @@ footer p { margin: 0; font-size: .78rem; color: var(--muted); }
 .mode-chip { display: inline-block; padding: 2px var(--sp-3); border-radius: 999px; font-size: var(--fs-sm); background: var(--state-neutral-bg); }
 .mode-chip[data-mode="live"], .mode-chip[data-mode="partial-live"] { background: var(--state-ok-bg); color: var(--state-ok); }
 .mode-chip[data-mode="error"] { background: var(--state-error-bg); color: var(--state-error); }
+
+/* ---- WP-D4 S3 근거 확인 ---- */
+.ev-sec { border: 1px solid var(--line); border-radius: var(--radius-sm); margin: 0 0 var(--sp-3); background: var(--card); }
+.ev-sec > summary { cursor: pointer; padding: var(--sp-3) var(--sp-4); font-weight: 700; min-height: var(--touch-min); display: flex; align-items: center; }
+.ev-sec > summary:focus-visible, .claim-toggle input:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.ev-sec .ev-body { padding: 0 var(--sp-4) var(--sp-3); }
+.ev-sec h4 { margin: var(--sp-3) 0 var(--sp-2); font-size: var(--fs-sm); }
+.claim-item.excluded .evidence-quote { opacity: .55; text-decoration: line-through; }
+.claim-toggle { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--touch-min); font-size: var(--fs-sm); }
+.plan-list { margin: 0; padding-left: 1.2rem; display: grid; gap: var(--sp-2); }

@@ -5,7 +5,7 @@ import { SCREENS, renderScreen } from './core/router.js';
 import './screens/application.js';
 import './screens/evidence.js';
 import './screens/room.js';
-import { loadProvider } from './screens/dashboard.js';
+import { loadProvider, restoreFromStorage } from './screens/dashboard.js';
 import { loadCatalog, updateSetupSummary } from './screens/setup.js';
 
 (async function boot() {
@@ -13,6 +13,8 @@ import { loadCatalog, updateSetupSummary } from './screens/setup.js';
   await loadCatalog();
   updateSetupSummary();
   const initial = (location.hash || '').replace(/^#\/?/, '') || 'dashboard';
-  renderScreen(SCREENS.includes(initial) ? initial : 'dashboard');
+  const target = SCREENS.includes(initial) ? initial : 'dashboard';
   if (!location.hash) location.hash = '#/dashboard';
+  // 새로고침·직접 URL: 서버 상태로 복원(복원이 화면 이동까지 처리), 아니면 가드를 거쳐 그리기
+  if (!(await restoreFromStorage(target))) renderScreen(target);
 })();

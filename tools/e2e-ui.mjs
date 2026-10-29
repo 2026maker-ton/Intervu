@@ -257,8 +257,53 @@ async function main() {
     for (const s of screens) {
       await page.evaluate((n) => { location.hash = `#/${n}`; }, s);
       await page.waitForTimeout(120);
-      check(await page.locator(`#screen-${s}:not([hidden])`).count() === 1, `화면 도달: ${s}`);
+      // 가드: 진행 중 세션이 없으면 면접실은 대시보드로 되돌려진다
+      const expected = s === 'room' ? 'dashboard' : s;
+      check(await page.locator(`#screen-${expected}:not([hidden])`).count() === 1, `화면 도달: ${s}`, expected !== s ? `→ ${expected}` : '');
+      if (s === 'application') check((await page.title()).includes('지원 정보'), '화면별 document.title');
+      if (s === 'history') check(await page.evaluate(() => document.activeElement?.tagName) === 'H1', '화면 전환 시 h1 포커스');
     }
+
+    // 새로고침 복원: 완료 세션 → 코칭, 승인된 프로필 → 설정
+    console.log('\n[10a] 새로고침 복원·가드');
+    await page.evaluate(() => { location.hash = '#/setup'; });
+    await page.waitForSelector('#screen-setup:not([hidden])');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('#screen-setup:not([hidden])');
+    check(true, '새로고침 후 승인된 프로필로 설정 복원');
+    await page.evaluate(() => { location.hash = '#/feedback'; });
+    await page.waitForSelector('#screen-feedback:not([hidden])');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('#screen-feedback:not([hidden])');
+    check(await page.locator('#feedbackBody .evidence, #feedbackBody q, #feedbackBody blockquote').count() > 0 || /인용|관찰|판단 보류/.test(await page.locator('#feedbackBody').innerText()), '새로고침 후 코칭 복원');
+    // 진행 중 세션: 대시보드 "이어서 하기" → 면접실, 새로고침해도 면접실 복원
+    const made = await page.evaluate(async () => {
+      const h = { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('intervu.token')}`, 'Idempotency-Key': crypto.randomUUID() };
+      const r = await fetch('/api/v1/sessions', { method: 'POST', headers: h, body: JSON.stringify({ interview_type: 'general', persona: 'standard', blind: false, duration_minutes: 5, input_mode: 'text', consent_version: 'mvp-2026-10' }) });
+      return r.status;
+    });
+    check(made === 201 || made === 200, '진행 중 세션 준비', `status ${made}`);
+    await page.evaluate(() => { location.hash = '#/dashboard'; });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('#continueCard:not([hidden])', { timeout: 8000 });
+    check(true, '대시보드에 이어서 하기 카드');
+    check(await page.locator('#recentList .list-item').count() <= 3, '최근 연습 최대 3건');
+    await page.click('#continueBtn');
+    await page.waitForSelector('#screen-room:not([hidden])', { timeout: 8000 });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('#screen-room:not([hidden])', { timeout: 8000 });
+    check((await page.locator('#roomTitle').innerText()).length > 3 && !/불러오는 중/.test(await page.locator('#roomTitle').innerText()), '새로고침 후 면접실 복원(질문 표시)');
+    // 가드: 상태 없는 새 컨텍스트에서 증거 화면 직접 진입 → 지원 정보로 안내
+    const ctx3 = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR' });
+    await ctx3.addInitScript(() => localStorage.setItem('intervu.token', 'e2e-user-a'));
+    const p3 = await ctx3.newPage();
+    await p3.goto(`${base}/#/evidence`, { waitUntil: 'networkidle' });
+    await p3.waitForSelector('#screen-application:not([hidden])');
+    check(/먼저|입력/.test(await p3.locator('#toast').innerText()), '가드 안내 토스트');
+    await p3.goto(`${base}/#/room`, { waitUntil: 'networkidle' });
+    await p3.waitForSelector('#screen-dashboard:not([hidden])');
+    check(true, '면접실 직접 진입 시 대시보드로 이동');
+    await ctx3.close();
 
     for (const width of [1440, 768, 390]) {
       await page.setViewportSize({ width, height: 900 });

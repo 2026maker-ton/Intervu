@@ -5,6 +5,8 @@ export const STORE_METHODS = [
   // 프로필·기관
   'createProfile', 'getProfile', 'setExtracted', 'approveVersion', 'getVersion',
   'addSource', 'listSources', 'setInstitution', 'getInstitution', 'recordProfileCall', 'addConsent', 'getConsent',
+  // 문서(WP-C1)
+  'createDocument', 'getDocument', 'listDocuments', 'addDocumentRevision', 'getDocumentRevisions',
   // 세션·턴·전사
   'createSession', 'getSession', 'listSessions', 'updateSession',
   'createTurn', 'getTurn', 'sessionTurns', 'addRevision', 'getRevisions', 'pushEvent',

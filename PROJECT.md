@@ -384,8 +384,8 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 기업·대학 선택 UI | `[DONE]` | `public/app.js:241 startJourney`, `tools/check-project.mjs`가 `public|highschool` 여정 금지 검사, `tools/e2e-ui.mjs` | 서버는 `public/highschool/general` org_type도 계속 허용(`institution.js ORG_TYPES`). 고교는 Mock 강제 |
 | 직무·학과 입력 | `[DONE]` | `public/index.html:117~121` | 전형(대학) 별도 필드 없음 |
 | 공고·모집요강 붙여넣기 | `[DONE]`(Mock) | `source_text`(최대 20,000자) → `createProfile` | — |
-| 이력서·자소서 입력 | `[PARTIAL]` | 자기소개서·지원서 본문 별도 입력 `application_text`(최대 20,000자, 마스킹본만 저장·분석, 계정 삭제 시 파기) — `server.js createProfile`, `store.js`, test P0-3 | 이력서/자소서/지원서 문서 종류 구분과 원본/추출/수정 revision 분리 `[TODO]`. 파일 업로드 추출 텍스트는 이 입력란으로 들어감 |
-| 문서 업로드·추출(PDF/DOCX/TXT) | `[PARTIAL]` | `src/domain/documents.js`, `POST /documents/extract`, `public/app.js:372`, test 880·920 | 직접 만든 최소 파서. 합성 샘플만 검증. **한글 PDF의 CID/ToUnicode 폰트는 처리하지 않아 실제 한국어 PDF는 추출 실패 가능** `[UNVERIFIED]`. 5MB 상한이 있으나 JSON 본문 한도 1,000,000바이트(`readBody`) 때문에 실제 허용 파일은 약 0.7MB 이하로 추정(코드 기준, 재현 미실시) `[BUG]` |
+| 이력서·자소서 입력 | `[PARTIAL]` | 자기소개서·지원서 본문 별도 입력 `application_text`(최대 20,000자, 마스킹본만 저장·분석, 계정 삭제 시 파기) — `server.js createProfile`, `store.js`, test P0-3 | WP-C1: `POST /profiles/:id/documents`(kind posting/cover_letter/resume/other)·`PATCH /documents/:id`·`GET /documents/:id/revisions`로 문서 종류 구분과 revision 분리(extracted → user_edit, 마스킹본, 원본 바이너리 비저장·sha256만) 구현, 계정 삭제 시 파기. 프로필 생성 입력란/질문 생성이 이 문서 revision을 읽도록 연결 `[TODO]`(WP-D3/C7) |
+| 문서 업로드·추출(PDF/DOCX/TXT) | `[PARTIAL]` | `src/domain/documents.js`, `POST /documents/extract`, `public/app.js:372`, test 880·920 | 직접 만든 최소 파서. 합성 샘플(프로그램 생성 DOCX/텍스트 PDF/CID PDF/스캔형 PDF)만 검증. CID/Type0(Identity-H) 글꼴 PDF는 ToUnicode 파싱을 하지 않고 `unsupported_font_encoding`으로 명시 실패(쓰레기 텍스트 금지) — 실제 한국어 PDF 성공률은 `[UNVERIFIED]`. 업로드 경로만 본문 한도 7.5MB로 상향해 5MB 파일 허용(BUG-9 수정, 그 외 경로는 1MB 유지) |
 | 추출 텍스트 확인·수정 | `[PARTIAL]` | 추출 텍스트가 입력란에 채워짐 | 원본/추출/수정 revision 분리 없음 |
 | **지원서 주장·공백 추출** | `[PARTIAL]` | 신규 `src/domain/claims.js extractApplicantClaims`: 자소서를 문장 단위로 나눠 경험·성과 서술 문장을 **원문 코드포인트 span과 함께** 추출하고(`verifyClaimSpan` 재검증) 문장에 없는 정보(역할·결과·판단 기준·수치)를 `gaps`로 표시. 규칙 기반이라 외부 전송 없음. test `P0-3: applicant claims…`, E2E "지원서 주장 원문 인용 표시" | **의미 이해가 아닌 정규식 표지 기반**: 표현이 다르면 놓치거나(미탐) 소개 문장을 잘못 주장으로 볼 수 있음(오탐). 한국어 자소서 실사례 정확도 미측정 `[UNVERIFIED]`. 모델(Claude Sonnet) 기반 추출은 `[TODO]`(P0-4). 공고 키워드(`claims`)와 지원자 주장(`applicant_claims`)은 분리 표기 |
 | 기관 프로필(핵심가치·평가가능/불가·권장질문) | `[DONE]`(규칙 기반) | `institution.js buildInstitutionProfile`, test 410·467, `tools/e2e-institution.mjs` 14 PASS | 키워드 16개 매칭 기반. 사용자 확인·수정·승인 흐름은 있음(`approveProfile`) |
@@ -493,7 +493,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | BUG-6 | P1 | 보고서 표기 불일치: `badge:"AI 생성 코칭…"`이 규칙 기반 평가에도 붙음. `provider`는 전역값, `paidAck=true`면 `model_version`이 Gemini 모델명이 되어 **규칙 기반을 AI 평가로 오인시킬 수 있음**(UI 문구는 규칙 기반으로 정확). `PROJECT.md` §2.6 위반 소지 | `server.js:939~945` |
 | BUG-7 | P1 | `[FIXED]` 전 루브릭 차원별 템플릿 3개 이상, 기준 질문과 유사도 <0.55, 미지 역량 422, 미사용 `practiceText` 제거. 테스트 `tests/domain/c4-*`, `tests/api/c4-*` | `transfer.js TRANSFER_BANK` |
 | BUG-8 | P1 | 대화 중 429 → 정적 폴백으로 계속하지 않고 `finishSession` 호출. 이 경로에서 원장 예약(0.005)이 정산되지 않음. `createSession`의 예산 사전 확인은 `session:${owner}` 키를 써서 실제 세션 원장과 무관 | `server.js:381,807~813` |
-| BUG-9 | P1 | 업로드 한도 불일치: 서버 상한 5MB vs JSON 본문 한도 1,000,000바이트(base64 팽창) → 약 0.7MB 초과 파일은 413. UI 안내와 다를 수 있음(코드 기준, 재현 미실시) | `server.js:118,1603`, `documents.js MAX_BYTES` |
+| BUG-9 | P1 | `[DONE]` 업로드 한도 불일치 수정: 문서 업로드 경로(`/profiles/:id/documents`, `/documents/extract`)만 본문 한도 7.5MB(5MB 파일의 base64+여유), 나머지는 1MB 유지. 4MB 업로드 통과·5MB 초과 413 테스트(`tests/api/c1-documents.test.mjs`) | `router.js DOCUMENT_BODY_LIMIT`, `documents.js MAX_BYTES` |
 | DEBT-1 | P0 | **부분 해소(WP-A2)** — `STORE=file`(`DATA_DIR`, 기본 `data/store/state.json`)이면 세션·턴·보고서·전이 작업·멱등 기록·원장이 재시작 후 유지. **기본값은 여전히 memory**이며 파일 저장은 **단일 프로세스 가정**(다중 프로세스 쓰기 보호 없음, 전체 스냅샷). 내보내기·티켓은 메모리 전용, 업로드 원본은 저장 안 함 | `src/store/file.js` |
 | DEBT-2 | P0(부분 완화) | **실제 인증 없음** — 정적 접속 토큰(내장 기본 토큰·클라이언트 내장 토큰은 P0-6에서 제거). 공개 배포 전에 반드시 교체 | `config.js`, `app.js:8` |
 | DEBT-3 | P0 | 공급자 라우팅 부재 — `config.registry`는 정의만 있고 미사용. 목표 구성(§4.2) 도입 시 어댑터 선택 구조 필요 | `grep registry src` |
@@ -610,7 +610,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 단계 | 현재 구현 | 목표 동작 | 누락된 데이터 흐름 | 모델·API (현재 → 목표) | 선행·제약 |
 |---|---|---|---|---|---|
 | 1 기업·대학 선택 | `[DONE]` `app.js:241` | 유형 선택 | — | 없음 | — |
-| 2 지원 자료 제출 | `[PARTIAL]` 공고 텍스트·TXT/PDF/DOCX 추출·경험 3개 | 공고·이력서·자소서 문서 구분, 원본/추출/수정 revision | 문서 종류·revision 저장 | 없음 | 실제 한글 PDF 미검증, 업로드 한도 BUG-9 |
+| 2 지원 자료 제출 | `[PARTIAL]` 공고 텍스트·TXT/PDF/DOCX 추출·경험 3개 | 공고·이력서·자소서 문서 구분, 원본/추출/수정 revision(API 구현, UI 연결은 WP-D3) | 문서 종류·revision 저장(구현) | 없음 | 실제 한글 PDF 미검증(CID 글꼴은 명시 실패) |
 | 3 주장·공백 추출 | `[PARTIAL]` 키워드 14개 | 자소서 문장 단위 주장(역할·행동·결과·수치)과 공백, 원문 span | 지원자 주장 모델(`EvidenceClaim`) | 규칙/Gemini(공고 키워드) → Claude Sonnet | P0-3, 프롬프트 인젝션 방어 |
 | 4 공식 기준 탐색 | `[TODO]` URL 메타 기록만 | 서버 제어 수집기로 공식 페이지 수집·발췌 | 수집 결과·발췌 위치·확인일 저장 | 없음 → 수집기(+Claude Sonnet 요약은 선택) | SSRF·DNS·리디렉션 방어, 도메인 허용 목록(P1-6) |
 | 5 출처 검토·승인 | `[PARTIAL]` 기관 프로필 확인·승인(`approveProfile`) | 출처별 상태(공식 확인/사용자 제공/트렌드/미확인/수집 실패)와 승인 | `verified` 상태·수집 실패 구분 | 없음 | 4단계 선행 |

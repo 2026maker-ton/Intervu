@@ -1,0 +1,2 @@
+case_id,rater_id,previous_answer,followup_question,relevance,offtopic_reason,single_question_Y_N,memo
+EXAMPLE-000,R1,"(예시 행 — 삭제 후 사용)","(꼬리질문)",관련|부분관련|무관|판단불가,new_topic|generic|repeats_prior_question|other,Y|N,

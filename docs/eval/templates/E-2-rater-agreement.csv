@@ -1,0 +1,2 @@
+case_id,rater_id,dimension,answer_text,human_level_0to3,system_level_hidden_until_unblind,evidence_quote_judged_appropriate,cannot_judge,memo
+EXAMPLE-000,R1,relevance|evidence_specificity|reasoning|reflection,"(예시 행 — 삭제 후 사용)",0|1|2|3,,Y|N,Y|N,

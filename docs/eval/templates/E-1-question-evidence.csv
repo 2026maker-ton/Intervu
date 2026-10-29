@@ -1,0 +1,2 @@
+case_id,rater_id,question_text,linked_evidence_quote,link_judgement,fabricated_fact,error_type,memo
+EXAMPLE-000,R1,"(예시 행 — 삭제 후 사용)","(질문이 연결한 원문 문장)",연결적절|부분연결|연결안됨|판단불가,Y|N,none|wrong_sentence|invented_number|invented_event|other,

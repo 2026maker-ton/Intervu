@@ -1,0 +1,2 @@
+pair_id,rater_id,competency,label_X_text,label_Y_text,which_is_later_hidden_until_unblind,better_answer_X_Y_same,reason_category,cannot_judge,memo
+EXAMPLE-000,R1,reasoning,"(예시 행 — 삭제 후 사용: 같은 역량, 다른 질문에 대한 두 답변. 순서는 진행자가 무작위 배치)","(...)",,X|Y|same,more_specific_evidence|clearer_reasoning|less_relevant|other,Y|N,

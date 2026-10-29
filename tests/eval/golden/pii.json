@@ -1,0 +1,11 @@
+{
+  "_note": "합성 PII 표본(모두 가짜 값). expect_includes: detectPii 결과에 반드시 포함돼야 하는 유형. 휴리스틱이라 완전 탐지 보장 아님.",
+  "cases": [
+    { "id": "pii-01", "text": "연락처는 010-1234-5678 입니다.", "expect_includes": ["phone"] },
+    { "id": "pii-02", "text": "메일은 dev.person@example.com 으로 주세요.", "expect_includes": ["email"] },
+    { "id": "pii-03", "text": "주민번호는 900101-1234567 입니다.", "expect_includes": ["rrn"] },
+    { "id": "pii-04", "text": "전화 010 1234 5678 / 메일 a_b@test.co.kr", "expect_includes": ["phone", "email"] },
+    { "id": "pii-05", "text": "개인정보가 전혀 없는 문장입니다. 팀 일정을 조율했습니다.", "expect_includes": [], "expect_none": true },
+    { "id": "pii-06", "text": "저는 한빛고등학교 학생이고 학번: 20241234 입니다.", "expect_includes": ["school", "id_number"] }
+  ]
+}

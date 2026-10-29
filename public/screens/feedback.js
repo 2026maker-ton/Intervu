@@ -16,23 +16,24 @@ export async function loadReport({ attempt = 0 } = {}) {
   try {
     const r = await api(`/sessions/${state.session.id}/report`);
     if (r.status === 'pending' && attempt < 8) {
+      if (body) body.innerHTML = `<div class="skeleton" role="status">보고서를 만드는 중입니다… (${attempt + 1}/8)</div>`;
       setTimeout(() => loadReport({ attempt: attempt + 1 }), 1200);
       return;
     }
-    if (r.status !== 'ready') {
-      if (body) body.innerHTML = `<div class="empty-state"><h2>보고서를 만들지 못했습니다</h2><p>${esc(r.detail || '확정된 답변은 보존됩니다. 기록에서 다시 확인할 수 있습니다.')}</p><button class="ghost" type="button" data-go="dashboard">대시보드로</button></div>`;
-      $$('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
-      return;
-    }
+    if (r.status !== 'ready') { failedState(body, r.status === 'pending' ? '보고서 생성이 오래 걸리고 있습니다. 답변은 보존되어 있습니다.' : (r.detail || '답변은 보존되어 있습니다. 다시 시도할 수 있습니다.')); return; }
     state.lastReport = r;
     renderReport(r);
     if (state.flow === 'repractice' && state.transfer?.transfer_id) {
       await runComparison(state.transfer.transfer_id, state.session.id);
     }
-  } catch (err) {
-    if (body) body.innerHTML = `<div class="empty-state"><h2>보고서를 불러오지 못했습니다</h2><p>${esc(err.message)}</p><button class="ghost" type="button" data-go="dashboard">대시보드로</button></div>`;
-    $$('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
-  }
+  } catch (err) { failedState(body, err.message); }
+}
+
+function failedState(body, msg) {
+  if (!body) return;
+  body.innerHTML = `<div class="empty-state"><h2>보고서를 만들지 못했습니다</h2><p>${esc(msg)}</p><div class="actions"><button class="primary" type="button" id="retryReportBtn">다시 시도</button><button class="ghost" type="button" data-go="dashboard">대시보드로</button></div></div>`;
+  $('#retryReportBtn')?.addEventListener('click', () => loadReport());
+  $$('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
 }
 
 export function renderReport(r) {
@@ -51,14 +52,12 @@ export function renderReport(r) {
         <span class="meta">답변 수준 ${esc(String(e.answer_level))}${e.turn_id ? ` · turn ${esc(String(e.turn_id).slice(0, 8))} · rev ${esc(String(e.revision ?? 1))}` : ''}</span>
         ${e.turn_id ? `<button class="ghost tiny" type="button" data-revise-turn="${esc(e.turn_id)}">전사 교정</button>` : ''}
       </li>`).join('');
-    return `<div class="dim ${scored ? '' : 'abstain'}">
-      <div class="dim-head">
-        <h2>${esc(dimLabel(d.id))}</h2>
-        <span class="level ${scored ? '' : 'abstain'}">${scored ? `${esc(String(d.level))} / 4` : '판단 보류'}</span>
-      </div>
+    return `<details class="dim ${scored ? '' : 'abstain'}">
+      <summary class="dim-head"><span class="dim-name">${esc(dimLabel(d.id))}</span><span class="level ${scored ? '' : 'abstain'}">${scored ? `${esc(String(d.level))} / 4` : '판단 보류'}</span></summary>
       <p>${esc(d.observation)}</p>
       ${scored ? `<ul class="evidence">${ev}</ul>` : `<p class="fine">${esc(d.abstention_reason || '관찰 근거가 부족해 수준을 공개하지 않습니다.')}</p>`}
-    </div>`;
+      <button class="ghost tiny" type="button" data-appeal-dim="${esc(d.id)}">이의 제기</button>
+    </details>`;
   }).join('');
   const actions = (r.next_actions || []).map((a) => `
     <div class="action-card">
@@ -67,16 +66,18 @@ export function renderReport(r) {
       <p class="fine">재연습 질문 예시: ${esc(a.practice_question)}</p>
       <button class="primary small" type="button" data-practice="${esc(a.dimension_id)}">같은 역량의 새 질문으로 재연습</button>
     </div>`).join('');
+  const scoredCount = (r.dimensions || []).filter((d) => d.status === 'scored').length;
   const transferReady = (r.dimensions || []).some((d) => d.status === 'scored');
   body.innerHTML = `
     <div class="card report">
       ${inst}
-      <p class="fine">${esc(r.evaluator?.kind === 'llm' ? 'AI 분석(검증 중)' : '규칙 기반 참고 관찰')} · 실제 합격 예측 아님 · 평가기 ${esc(r.evaluator?.provider === 'mock' || !r.evaluator ? '규칙 기반(외부 AI 없음)' : r.evaluator.provider)} · ${esc(rubricNote(r.interview_type))}</p>
-      <p class="fine">현재 평가는 <strong>규칙 기반 참고 관찰</strong>입니다. 검증된 AI 채점이나 사람 평가자를 대체하지 않습니다.</p>
-      ${dims || '<p class="hint">평가할 수 있는 답변이 없습니다.</p>'}
-      ${renderInstitutionLink(r.institution_link)}
+      <div class="report-head"><span class="tag evaluator-chip">${esc(evaluatorLabel(r.evaluator))}</span><span class="tag">${esc(typeLabel(r.interview_type))}</span><span class="tag">${esc(r.rubric_version || '')}</span></div>
+      <p class="fine">각 수준은 해당 답변에서 관찰된 정도이며 합격 가능성이 아닙니다. 검증된 AI 채점이나 사람 평가자를 대체하지 않습니다. ${esc(rubricNote(r.interview_type))}</p>
+      ${renderHero(r)}
       ${renderClaimLinks(r.claim_links)}
-      ${actions ? `<section class="actions-wrap"><h2>다음 행동</h2>${actions}</section>` : '<p class="hint">개선 행동을 제안할 만큼 관찰된 차원이 없습니다.</p>'}
+      ${renderInstitutionLink(r.institution_link)}
+      <section><h2>차원별 상세</h2>${scoredCount < (r.dimensions || []).length ? '<p class="hint">판단 보류가 있는 차원은 답변이 더 필요합니다.</p>' : ''}${dims || '<p class="hint">평가할 수 있는 답변이 없습니다.</p>'}</section>
+      ${actions ? `<section class="actions-wrap"><details><summary>다른 다음 행동 보기</summary>${actions}</details></section>` : ''}
       ${transferReady ? `
         <div class="action-card transfer-card">
           <h3>새 질문에서 개선 확인</h3>
@@ -86,7 +87,6 @@ export function renderReport(r) {
       <div class="actions">
         <button class="ghost" id="copyBtn" type="button">텍스트로 복사</button>
         <button class="ghost" id="exportBtn" type="button">JSON 내보내기</button>
-        <button class="ghost" id="appealBtn" type="button">이의 제기</button>
         <button class="ghost" id="appealStatusBtn" type="button">이의 처리 상태</button>
         <button class="danger" id="deleteBtn" type="button">이 세션 삭제</button>
       </div>
@@ -120,7 +120,7 @@ export function renderReport(r) {
     } catch (err) { toast(err.message, true); }
   }));
 
-  $('#appealBtn')?.addEventListener('click', async () => {
+  $$('[data-appeal-dim]').forEach((ab) => ab.addEventListener('click', async () => {
     const category = await dialog({
       title: '이의 제기 1/2',
       message: '어떤 종류의 문제인가요? stt(오인식) / fact(사실) / evidence(근거) / inappropriate(부적절)',
@@ -136,7 +136,7 @@ export function renderReport(r) {
       await dialog({ title: '이의 접수 완료', message: `접수 ID: ${out.appeal_id}\n처리 목표 3영업일(운영 목표). 아래 ID로 상태를 확인할 수 있습니다.`, okText: '확인' });
       toast('이의를 접수했습니다.');
     } catch (err) { toast(err.message, true); }
-  });
+  }));
 
   $('#appealStatusBtn')?.addEventListener('click', async () => {
     const id = await askInput('이의 처리 상태', '접수 ID를 입력하세요.', '접수 ID');
@@ -159,9 +159,29 @@ export function renderReport(r) {
   renderTransferBox(r);
 }
 
+function evaluatorLabel(ev) {
+  if (!ev || ev.kind === 'rule_based') return '규칙 기반 참고 관찰';
+  return `AI 분석(검증 중) · ${ev.provider || ''}${ev.model_alias ? ` · ${ev.model_alias}` : ''}`;
+}
+
+// 가장 먼저 바꿀 것 1개: 실제로 한 말 -> 부족한 부분 -> 행동 1개 -> 재연습 CTA
+function renderHero(r) {
+  const a = (r.next_actions || [])[0];
+  if (!a) return '<p class="hint">개선 행동을 제안할 만큼 관찰된 차원이 없습니다. 답변을 더 남기면 근거가 늘어납니다.</p>';
+  const d = (r.dimensions || []).find((x) => x.id === a.dimension_id);
+  const quote = d?.evidence?.[0]?.quote;
+  return `<section class="hero-card">
+    <p class="eyebrow">가장 먼저 바꿀 것 1개 · ${esc(dimLabel(a.dimension_id))}</p>
+    <p class="hero-row"><strong>실제로 한 말</strong> ${quote ? `<q>${esc(quote)}</q>` : '<span class="fine">인용할 발언이 없습니다.</span>'}</p>
+    <p class="hero-row"><strong>부족한 부분</strong> ${esc(d?.observation || '')}</p>
+    <p class="hero-row"><strong>다음 행동 1개</strong> ${esc(a.action)}</p>
+    <button class="primary" type="button" data-practice="${esc(a.dimension_id)}">이 역량으로 새 질문 재연습</button>
+  </section>`;
+}
+
 export function renderClaimLinks(links) {
   if (!links?.length) return '';
-  const rows = links.map((l) => `<li><span class="val">“${esc(l.quote)}”</span><span class="tag user">지원서 주장</span><span class="meta">${l.answered ? `실제 답변: “${esc((l.answers?.[0]?.excerpt) || '')}”` : '이번 면접에서 이 주장은 질문되지 않았습니다.'}</span></li>`).join('');
+  const rows = links.map((l) => `<li><span class="val">“${esc(l.quote)}”</span><span class="tag user">지원서 주장</span><span class="meta">${l.answered ? `실제 답변: “${esc((l.answers?.[0]?.excerpt) || '')}”` : '이번 면접에서 질문되지 않았습니다.'}</span></li>`).join('');
   return `<section><h2>지원서 주장과 실제 답변</h2><p class="hint">지원서 문장과 면접 답변을 나란히 보여줄 뿐 사실 여부를 판정하지 않습니다.</p><ul class="claims">${rows}</ul></section>`;
 }
 

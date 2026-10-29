@@ -172,6 +172,7 @@ async function main() {
     check(/판단 보류|\/ 4/.test(reportText), '수준 또는 판단 보류 표시');
     const evidenceQuotes = await page.locator('#feedbackBody .evidence q').count();
     check(evidenceQuotes > 0, '실제 발언 인용', `${evidenceQuotes}개`);
+    check(/가장 먼저 바꿀 것/.test(reportText) && /사실 여부를 판정하지 않습니다/.test(reportText), '히어로 카드·판정 안 함 문구');
     await page.screenshot({ path: path.join(OUT, '04-feedback-1440.png'), fullPage: true });
 
     // ---------- 7. 재연습 비교 ----------

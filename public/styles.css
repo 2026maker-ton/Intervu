@@ -449,3 +449,13 @@ footer p { margin: 0; font-size: .78rem; color: var(--muted); }
 .mode-chip { display: inline-block; padding: 2px var(--sp-3); border-radius: 999px; font-size: var(--fs-sm); background: var(--state-neutral-bg); }
 .mode-chip[data-mode="live"], .mode-chip[data-mode="partial-live"] { background: var(--state-ok-bg); color: var(--state-ok); }
 .mode-chip[data-mode="error"] { background: var(--state-error-bg); color: var(--state-error); }
+
+/* WP-D6 feedback/repractice */
+.report-head { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .5rem; }
+.hero-card { border: 2px solid var(--accent, #2563eb); border-radius: 12px; padding: 1rem; margin: 1rem 0; }
+.hero-row { margin: .4rem 0; }
+.hero-row strong { display: block; font-size: .85rem; opacity: .8; }
+details.dim > summary { cursor: pointer; list-style: none; }
+details.dim > summary::-webkit-details-marker { display: none; }
+details.dim[open] > summary { margin-bottom: .4rem; }
+.comparison .actions { margin-top: .8rem; }

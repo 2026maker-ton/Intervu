@@ -368,8 +368,8 @@
 |---|---|---|
 | 런타임 | Node.js ≥20, **외부 의존성 0**(`package.json`에 dependencies 없음), 타입스크립트·린터·번들러 없음 | `package.json` |
 | 프런트엔드 | 순수 HTML/CSS/JS 단일 페이지, 해시 라우터 9화면(`#/dashboard`…`#/admin`). 같은 오리진 `/api/v1` 호출 | `public/index.html`(462줄), `public/app.js` 엔트리 + `public/core/*.js`·`public/screens/*.js` 네이티브 ES 모듈(WP-D1; 이전 단일 app.js), `public/ui/index.js` 컴포넌트 헬퍼·`core/copy.js` 고정 문구/금지 표현(WP-D2; 화면 적용은 후속 WP) |
-| 백엔드 | Node `http` 단일 프로세스 REST 서버(`createApp`), 정적 파일 서빙·CSP 헤더 포함 | `src/server.js`(1,697줄) |
-| 저장소 | **인메모리 `Map` 전부**(프로필·세션·턴·평가·전이작업·원장). 파일 영속은 월간 트렌드(`data/trends.json`, git 제외)만 | `src/store.js`, `src/domain/trends.js` |
+| 백엔드 | 플랫폼 중립 코어 `(Request, env, ctx)=>Response`(`src/app/router.js` + `handlers/*`, Web 표준 API·Web Crypto만) + Node `http` 어댑터(`src/node/server.js`: 변환·정적 서빙·CSP·.env 로딩). `src/server.js`는 호환 재수출. 쓰기 `Idempotency-Key` 24h 재생·세션별 쓰기 직렬화(WP-A1). Workers 어댑터는 `[TODO]`(A3) | `src/app/*`, `src/node/server.js`, `src/server.js` |
+| 저장소 | **인메모리 `Store`**(프로필·세션·턴·평가·티켓·내보내기·전이작업·멱등 기록·원장 상태를 `src/store/index.js` 계약 뒤로 이동, 구현 `memory.js`). 영속 `Store`는 `[TODO]`(A2). 파일 영속은 월간 트렌드(`data/trends.json`, git 제외)만 | `src/store/*`, `src/domain/trends.js` |
 | 공급자 | Mock(기본), Gemini(게이트 통과 시 꼬리질문·공고 추출), Groq Whisper(STT), 브라우저 SpeechSynthesis(TTS) | `src/providers/adapters.js` |
 | 배포 | **없음.** GitHub Pages·Cloudflare Workers 설정 없음. CI는 `project-guard.yml`(`check:project` + `npm test`)뿐 | `git ls-files`, `.github/workflows/` |
 | 환경변수 | `.env.example` 기준 Gemini/Groq/예산/킬스위치/`ADMIN_TOKEN`/`TRENDS_FILE`. DeepSeek·Claude·ElevenLabs 변수 없음 | `.env.example`, `src/config.js` |
@@ -647,6 +647,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 
 ## 17. 이번 점검의 변경 요약 (v1.0.0 → v1.1.0)
 
+- **2026-10-29 WP-A1 핸들러 추출·Store 인터페이스(동작 불변 리팩터링):** `src/server.js`를 `src/app/`(router·core·handlers/*·crypto(Web Crypto)·mutex·body)와 `src/node/server.js`(Node 어댑터), `src/store/`(계약 `index.js` + `memory.js`)로 분리. 전역 `Map`(티켓·내보내기·전이작업·원장 상태)을 Store로 이동, `Idempotency-Key` 24h 응답 재생(성공 응답만·같은 키·경로에 다른 본문은 409)·세션별 쓰기 직렬화·어댑터의 `process.env` 직접 조회 제거(`GEMINI_FREE_ONLY`는 config로 주입). 보안 불변 유지: 계정·세션 삭제 시 멱등 저장본도 소유자 단위로 파기. 부수 수정: 잘못된 JSON·초과 본문이 500이던 것을 400/413으로 정정. 신규 테스트 17건(`tests/api/a1-*.test.mjs`). 결과: `npm test` 94/94, E2E 54 ok, 기관 E2E 실행. **한계: Store 메서드는 동기식이며 events·commands·evaluations·appeals·attempts·deletions는 호환용 Map으로 직접 노출, 문서 추출은 `node:zlib`·`Buffer` 의존(A3).**
 - **2026-10-29 WP-A0 테스트 분리:** `tests/run.mjs`를 `tests/helpers/*`·`tests/api/*.test.mjs`·`tests/domain/*.test.mjs`로 동작 불변 분리(테스트 77개·이름 동일, 파일별 독립 앱). `npm test` = check-project + `node --test "tests/**/*.test.mjs"`. 결과: 77/77.
 - **2026-10-29 P0-6 코드 수정:** `src/config.js`(내장 기본 토큰 제거), `src/server.js`(`ADMIN_TOKEN` 미설정 시 관리 기능 꺼짐·헤더 전용 상수시간 비교, `/metrics`·`/diagnostics`는 관리자 전용, `/health`는 비인증 시 `selected`만, `/stt/status` 인증 필요, 시작 경고), `public/`(내장 토큰 제거·401 시 접속 토큰 입력, 관리자 비활성 안내), `README.md`·`.env.example`, 테스트 5건 추가(수정 전 5건 실패 확인)·영속 테스트 관리자 헤더 반영, E2E +2(토큰 입력). 결과: `npm test` 77/77, 브라우저 E2E 54 ok, 기관 E2E 14/14. **한계: 실제 로그인·역할·감사 기록 없음(P3), 단일 공유 비밀 토큰.**
 - **2026-10-29 P0-3 코드(1차):** 신규 `src/domain/claims.js`(문장 단위 주장·공백 추출, 근거 인용 질문 생성), `server.js`(`application_text` 입력·마스킹, 일반 면접 앞쪽 주장 질문 2개, 보고서 `claim_links`), `store.js`(저장·계정 삭제 시 파기), `public/`(지원서 입력란, 근거 확인 화면의 "지원서 주장·공백", 면접실 질문 근거 표시, 보고서 "지원서 주장과 실제 답변"), `tools/e2e-ui.mjs` 확인 5건 추가. 테스트 6건 추가(span·공백·인젝션 문장·새 수치 금지·세션/보고서 연결·마스킹/삭제/외부 전송 0건). 결과: `npm test` 72/72, 브라우저 E2E 52 ok, 기관 E2E 14/14. **한계: 규칙 기반이라 의미 이해·정확도 미검증, 모델 연결은 P0-4.**

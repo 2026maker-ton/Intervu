@@ -1,6 +1,6 @@
 // Document extraction: TXT direct, PDF/DOCX text pull with deflate support, no external calls.
 // PROJECT.md §2.1: 확장자·MIME·크기 검증, 추출 텍스트 미리보기, 실패 상태 표시, revision 분리.
-import { inflateRawSync, inflateSync } from 'node:zlib';
+// node:zlib 없음: inflate는 Web 표준 DecompressionStream(Node 18+·Workers 공통). Buffer는 nodejs_compat 필요 [UNVERIFIED].
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5MB
 const MAX_INFLATED = 10 * 1024 * 1024; // zip-bomb guard
@@ -29,7 +29,7 @@ export function validateDocument({ filename = '', mimeType = '', bytes = 0 }) {
   return { ok: true, ext };
 }
 
-export function extractDocumentText({ ext, buffer }) {
+export async function extractDocumentText({ ext, buffer }) {
   const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
   if (!buf.length) return { ok: false, code: 'empty_document', message: '빈 문서입니다.' };
   try {
@@ -38,12 +38,12 @@ export function extractDocumentText({ ext, buffer }) {
       return finishExtract(text, { encoding: 'utf8' });
     }
     if (ext === '.docx') {
-      const text = extractDocxText(buf);
+      const text = await extractDocxText(buf);
       if (!text) return { ok: false, code: 'non_extractable', message: 'DOCX에서 텍스트를 찾지 못했습니다. 텍스트를 직접 붙여넣으세요.' };
       return finishExtract(text, { container: 'docx' });
     }
     if (ext === '.pdf') {
-      const { text, cid } = extractPdfText(buf);
+      const { text, cid } = await extractPdfText(buf);
       if (!text && cid) {
         return {
           ok: false, code: 'unsupported_font_encoding',
@@ -80,7 +80,7 @@ function finishExtract(text, meta = {}) {
 
 // ---- DOCX: ZIP 로컬 헤더를 직접 파싱하고 deflate(raw)를 inflate한다 ----
 // 외부 의존성 없이 동작한다. 매크로·외부 참조는 실행하지 않고 word/document.xml의 <w:t>만 수집한다.
-function extractDocxText(buf) {
+async function extractDocxText(buf) {
   if (buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4b) return '';
   const files = new Map();
   let off = 0;
@@ -104,14 +104,14 @@ function extractDocxText(buf) {
       const next = findNextLocalHeader(buf, dataStart);
       dataEnd = next === -1 ? buf.length : next;
       const slice = buf.slice(dataStart, Math.min(dataEnd, dataStart + MAX_INFLATED));
-      data = tryInflate(slice);
+      data = await tryInflate(slice);
       off = dataEnd;
     } else {
       if (compSize > MAX_INFLATED) break;
       dataEnd = dataStart + compSize;
       if (dataEnd > buf.length) break;
       const slice = buf.slice(dataStart, dataEnd);
-      if (method === 8) data = tryInflate(slice);
+      if (method === 8) data = await tryInflate(slice);
       else if (method === 0) data = slice;
       else data = null;
       off = dataEnd;
@@ -136,20 +136,29 @@ function findNextLocalHeader(buf, from) {
   return -1;
 }
 
-function tryInflate(slice) {
-  if (!slice || !slice.length) return null;
-  try {
-    const out = inflateRawSync(slice, { windowBits: 15 });
-    if (out.length > MAX_INFLATED) return null;
-    return out;
-  } catch { /* raw 실패 → zlib wrapper 시도 */ }
-  try {
-    const out = inflateSync(slice);
-    if (out.length > MAX_INFLATED) return null;
-    return out;
-  } catch {
-    return null;
+async function inflateWith(format, slice) {
+  const ds = new DecompressionStream(format);
+  const w = ds.writable.getWriter();
+  w.write(slice).catch(() => {}); w.close().catch(() => {}); // 오류는 reader 쪽에서 잡는다
+  const reader = ds.readable.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_INFLATED) { await reader.cancel().catch(() => {}); return null; } // zip-bomb: 스트리밍 중 중단
+    chunks.push(value);
   }
+  return Buffer.concat(chunks);
+}
+
+async function tryInflate(slice) {
+  if (!slice || !slice.length) return null;
+  for (const fmt of ['deflate-raw', 'deflate']) { // raw 실패 → zlib wrapper 시도
+    try { const out = await inflateWith(fmt, slice); if (out) return out; } catch { /* next */ }
+  }
+  return null;
 }
 
 function extractWts(xml) {
@@ -172,10 +181,10 @@ function decodeEntities(s) {
 }
 
 // ---- PDF: 평문 Tj/TJ + FlateDecode 스트림 inflate + hex 문자열 ----
-function extractPdfText(buf) {
+async function extractPdfText(buf) {
   const head = buf.slice(0, 5).toString('latin1');
   if (head !== '%PDF-') return { text: '', cid: false };
-  const streams = inflatePdfStreams(buf).map((b) => b.toString('utf8'));
+  const streams = (await inflatePdfStreams(buf)).map((b) => b.toString('utf8'));
   const whole = buf.toString('utf8');
   // CID/Type0(Identity-H) 글꼴: 문자열이 글리프 ID라 ToUnicode CMap 없이는 글자가 아니다.
   // ponytail: ToUnicode CMap 파싱 미구현 → 있어도 명시적 실패. 필요하면 bfchar/bfrange 파서 추가.
@@ -194,7 +203,7 @@ function extractPdfText(buf) {
   return { text, cid: false };
 }
 
-function inflatePdfStreams(buf) {
+async function inflatePdfStreams(buf) {
   const out = [];
   const streamMark = Buffer.from('stream');
   const endMark = Buffer.from('endstream');
@@ -220,7 +229,7 @@ function inflatePdfStreams(buf) {
     if (dataEnd > dataStart && buf[dataEnd - 1] === 0x0d) dataEnd -= 1;
     const slice = buf.slice(dataStart, dataEnd);
     if (isFlate && slice.length && slice.length < MAX_INFLATED) {
-      const inflated = tryInflate(slice);
+      const inflated = await tryInflate(slice);
       if (inflated) out.push(inflated);
     }
     pos = eIdx + 9;

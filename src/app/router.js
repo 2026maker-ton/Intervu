@@ -147,7 +147,7 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
       if (pth === '/api/v1/transfer-comparisons' && mth === 'POST') return send(h.transfer.createTransferComparison(owner, body));
       if ((mm = /^\/api\/v1\/transfer-comparisons\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.transfer.getTransferJob(owner, id1()));
       // P1 문서 추출: TXT 직접 + PDF/DOCX 최소 안전 추출 (외부 전송 없음)
-      if (pth === '/api/v1/documents/extract' && mth === 'POST') return send(h.documents.extractDocument(owner, body));
+      if (pth === '/api/v1/documents/extract' && mth === 'POST') return send(await h.documents.extractDocument(owner, body));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/documents$/.exec(pth)) && mth === 'POST') return send(await h.documents.uploadDocument(owner, id1(), body));
       if ((mm = /^\/api\/v1\/documents\/([^/]+)$/.exec(pth)) && mth === 'PATCH') return send(h.documents.editDocument(owner, id1(), body));
       if ((mm = /^\/api\/v1\/documents\/([^/]+)\/revisions$/.exec(pth)) && mth === 'GET') return send(h.documents.listRevisions(owner, id1()));

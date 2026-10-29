@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config.js';
 import { loadDotEnv } from '../env.js';
-import { createTrendStore } from '../domain/trends.js';
+import { createFileTrendStore } from './trends-file.js';
 import { createFileStore } from '../store/file.js';
 import { createCore } from '../app/core.js';
 import { randomUUID } from '../app/crypto.js';
@@ -36,7 +36,7 @@ export function createApp(overrides = {}) {
   const config = loadConfig(env);
   // 트렌드 스토어: 영속 파일(TRENDS_FILE) 기반. 저장 실패 시 메모리로만 동작.
   const trendsFilePath = overrides.trendsFile || (config.trendsFile ? path.resolve(root, config.trendsFile) : '');
-  const trends = overrides.trends || createTrendStore({ filePath: trendsFilePath });
+  const trends = overrides.trends || createFileTrendStore({ filePath: trendsFilePath });
   // STORE=file → 파일 영속(DATA_DIR, 단일 프로세스 가정). 기본은 memory.
   const store = overrides.store || (env.STORE === 'file'
     ? createFileStore({ dir: path.resolve(root, env.DATA_DIR || 'data/store'), ttlDays: config.limits.dataTtlDaysDefault })

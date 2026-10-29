@@ -5,7 +5,7 @@ import { validateDocument, extractDocumentText } from '../../domain/documents.js
 
 export function createDocumentHandlers(d) {
   const { err, store, checkRate } = d;
-  function extractDocument(owner, body) {
+  async function extractDocument(owner, body) {
     const limited = checkRate(owner, 'documents');
     if (limited) return limited;
     const filename = String(body.filename || '');
@@ -20,7 +20,7 @@ export function createDocumentHandlers(d) {
     }
     const v = validateDocument({ filename, mimeType, bytes: buffer.length });
     if (!v.ok) return err(v.code === 'oversized_document' ? 'payload_too_large' : 'validation_error', v.message, v.code === 'oversized_document' ? 413 : 422);
-    const out = extractDocumentText({ ext: v.ext, buffer });
+    const out = await extractDocumentText({ ext: v.ext, buffer });
     if (!out.ok) return err('validation_error', out.message, 422, { details: { code: out.code } });
     return { status: 200, body: { filename: filename.slice(0, 100), ext: v.ext, char_count: out.char_count, truncated: out.truncated, warnings: out.warnings, text: out.text, note: '서버에서 추출한 텍스트입니다. 제출 전 확인·수정하세요. 원문 파일은 저장하지 않습니다.' } };
   }
@@ -43,7 +43,7 @@ export function createDocumentHandlers(d) {
     const v = validateDocument({ filename, mimeType: String(body.mime_type || ''), bytes: buffer.length });
     if (!v.ok) return err(v.code === 'oversized_document' ? 'payload_too_large' : 'validation_error', v.message, v.code === 'oversized_document' ? 413 : 422, { details: { code: v.code } });
     const sha256 = await sha256Hex(new Uint8Array(buffer));
-    const out = extractDocumentText({ ext: v.ext, buffer });
+    const out = await extractDocumentText({ ext: v.ext, buffer });
     const doc = store.createDocument(owner, {
       profile_id: profileId, kind, filename, sha256,
       extract_status: out.ok ? 'ok' : (STATUS[out.code] || 'failed'), failure_code: out.ok ? null : out.code,

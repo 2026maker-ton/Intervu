@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createApp } from '../../src/server.js';
-import { createTrendStore } from '../../src/domain/trends.js';
+import { createFileTrendStore as createTrendStore } from '../../src/node/trends-file.js';
 import { ensureConsent } from '../helpers/app.mjs';
 
 const A = 'dev-user-a-token';

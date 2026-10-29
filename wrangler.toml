@@ -1,0 +1,28 @@
+# Cloudflare Workers 설정(WP-A3, DG-1 A안: Pages 정적 UI + Workers API + Durable Object).
+# 런타임 미검증 — 모든 키·값은 [UNVERIFIED — docs not checked]. 배포 전 docs/deploy-workers.md의 확인 목록을 따른다.
+# 이 파일에 비밀값을 쓰지 않는다.
+name = "intervu-api"
+main = "src/worker/index.js"
+# compatibility_date = "YYYY-MM-DD"   # 배포일 기준 날짜를 개발자가 채운다(wrangler 필수 항목)
+compatibility_flags = ["nodejs_compat"]   # documents.js가 Buffer를 쓴다 [UNVERIFIED: 범위 확인 필요]
+
+[[durable_objects.bindings]]
+name = "SESSION_DO"
+class_name = "SessionDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SessionDO"]   # [UNVERIFIED] SQLite 백엔드 DO 선언 키
+
+# 비밀이 아닌 설정만. (공개 배포에서는 값을 명시적으로 검토)
+[vars]
+GEMINI_FREE_ONLY = "true"
+TRENDS_FILE = ""          # Workers에는 파일 영속 없음(트렌드는 DO 스냅샷)
+# ROUTE_* / *_BASE_URL / *_MODEL 은 DG-2에 따라 개발자가 확인한 값만 추가한다(기본값 없음).
+
+# 비밀값(저장소·vars에 두지 않는다). 각각 `wrangler secret put <NAME>`:
+#   DEV_TOKEN_A, DEV_TOKEN_B     접속 토큰(무작위 긴 값)
+#   ADMIN_TOKEN                  관리자 토큰(없으면 관리 기능 꺼짐)
+#   GEMINI_API_KEY               (선택) 무료 전용 모드 Gemini
+#   GROQ_API_KEY                 (선택) STT
+#   CLAUDE_API_KEY, DEEPSEEK_API_KEY   (선택) 목표 구성 공급자

@@ -290,7 +290,7 @@
 | 4 | API 키 서버 전용 | `[DONE]` 번들·추적 파일에 키 없음(코드 검토). `/health` 설정 노출은 BUG-4 | §10 |
 | 5 | 웹 수집 SSRF 방어 | `[PARTIAL]` 수집기가 없어 현재 위험 없음, 호스트 문자열 검사만 | DEBT-9 |
 | 6 | 문서·모델 출력 비신뢰, 프롬프트 인젝션 방어 | `[PARTIAL]` 평가가 결정적이라 인젝션 영향 없음(test 264). LLM 경로의 인젝션 방어는 프롬프트 지시문뿐이며 미시험 | `adapters.js` |
-| 7 | PII 마스킹 오탐/누락 검증 | `[PARTIAL]` 오탐 회귀(test 852). 이름·학교 미탐지 | DEBT-7 |
+| 7 | PII 마스킹 오탐/누락 검증 | `[PARTIAL]` 오탐 회귀(test 852) + C5 코퍼스. 이름·학교·주소 휴리스틱 탐지, 누락 가능 | DEBT-7 |
 | 8 | 429·장애 시 유료 자동 승격 금지, 예산·킬 스위치 | `[PARTIAL]` 무료 허용 목록·킬 스위치·세션/월 상한(test 330). 원장 인메모리, 429 시 세션 종료 | BUG-8 |
 | 9 | 음성 의사 없는 전송·장기 저장 금지 | `[PARTIAL]` 원음 전사 후 폐기 코드. 실동작 미검증 | `[UNVERIFIED]` |
 | 10 | 보관·내보내기·삭제와 UI 설명 일치 | `[PARTIAL]` 세션·계정 삭제가 전이 작업·내보내기 캐시·재작성 연습·이의 제기를 파기(P0-2 수정, tests/run.mjs 말미 P0-2 테스트). 인메모리 한정이며 백업·영속 저장소의 삭제 보장은 해당 없음/`[TODO]` | BUG-2 수정, DEBT-1 |
@@ -405,7 +405,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 답변 수정 이력 | `[DONE]` | `addRevision`(stt_correction은 새 revision, content_rewrite는 새 연습), test 301·313 | — |
 | 결과 저장·기록 | `[PARTIAL]` | `GET /sessions`, `loadHistory`, test 380 | 서버 재시작 시 전부 소실. 사용자별 장기 추이 저장 없음 |
 | 내보내기·삭제 | `[DONE]`(인메모리 한정) | `POST /exports`(JSON, 10분), `DELETE /sessions/:id`, `DELETE /account`, test 287·380·P0-2 신규 4건 | 삭제 시 `transferJobs`·`exports`·재작성 연습·이의 제기 파기(`purgeOwnedCaches`, P0-2 수정). 내보내기는 JSON 10분 캐시뿐, 영속 저장·백업 삭제 절차 없음 |
-| 개인정보 처리 | `[PARTIAL]` | `detectPii`(이메일·전화·주민번호만), `maskPii`, 블라인드 마스킹, test 852 | **이름·학교·주소는 탐지하지 않음.** 블라인드는 휴리스틱(UI도 "완전하지 않을 수 있음" 고지) |
+| 개인정보 처리 | `[PARTIAL]` | `detectPii`(이메일·전화·주민번호 + 휴리스틱 이름·학교·주소·학번/사번), `maskPii`, 블라인드 마스킹, test 852, c5-pii-corpus(오탐 66·정탐 36) | **이름·학교·주소 탐지는 표지어·접미어 기반 휴리스틱이라 누락·오탐이 있으며 완전 익명화가 아님.** 블라인드도 휴리스틱(UI도 "완전하지 않을 수 있음" 고지) |
 | 연령·미성년자 보호 | `[PARTIAL]` | 서버: `highschool` Mock 강제(test 520). UI: "만 19세 이상" 정적 문구 | 연령 확인 **절차** 없음(Figma 6단계 `[TODO]`). 고교 경로가 UI에는 없음 |
 | 오류 복구 | `[PARTIAL]` | 공급자 실패→정적 꼬리질문 폴백+`degraded_reason`, STT 실패→텍스트 안내, 평가 실패 상태, 보고서 폴링 | 대화 중 429는 **정적 폴백으로 계속하지 않고 세션을 즉시 종료**(`server.js:807~813`). 클라이언트 자동 재시도·세션 복구 없음 |
 | API 사용량·예산 | `[PARTIAL]` | `ledger.js`(예약→정산), 세션 $0.08·월 $30 상한, 프로필 분당2/일10 제한, 킬 스위치, test 330·356 | 원장이 **인메모리**(재시작 시 0). 월 경계 리셋 없음. 단가표는 Gemini 전용. 프로필 외 엔드포인트(문서 추출·STT·턴) 사용자별 속도 제한 없음. `config.registry`는 서버가 읽지 않음 |
@@ -500,7 +500,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | DEBT-4 | P1 | `Idempotency-Key`는 필수 헤더지만 저장·재생하지 않음(`idempotency` Map 미사용). 명령은 `command_id`로 별도 보호 | `server.js:66,1477` |
 | DEBT-5 | P1 | `server.js` 1,700줄 단일 파일, UI `app.js` 1,780줄 — Workers 이전·테스트 분리 부담 | — |
 | DEBT-6 | P1 | 사용자별 속도 제한이 프로필 생성에만 있음(문서 추출·STT·턴 없음) | `store.recordProfileCall` |
-| DEBT-7 | P1 | 이름·학교·주소 PII 탐지 없음, 블라인드 마스킹은 휴리스틱 | `pii.js` |
+| DEBT-7 | P1 | 이름·학교·주소 PII는 휴리스틱 탐지(C5 부분 해소, 표지어 없는 이름 등 누락 가능), 블라인드 마스킹도 휴리스틱 | `pii.js` |
 | DEBT-8 | P2 | 6개 면접 유형이 기본 설정 화면에 노출(§3과 충돌) | `index.html:237` |
 | DEBT-9 | P2 | SSRF 검사는 호스트 문자열 기반 — **수집기를 만들 때 DNS 해석·리디렉션 재검사 필수** | `sources.js` |
 | DEBT-10 | P2 | 새 질문 비교가 1~2개 답변의 키워드 규칙 점수 차이에 의존 | `compareTransfer`, `mock-eval.js scoreHeuristic` |

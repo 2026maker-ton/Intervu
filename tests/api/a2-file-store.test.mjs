@@ -133,3 +133,28 @@ test('A2 default: memory store stays the default and is a valid contract', () =>
   const app = createApp({ env: { GEMINI_API_KEY: '', DEV_TOKEN_A: A, TRENDS_FILE: '' } });
   assert.equal(app.store.flush, undefined);
 });
+
+test('A2: consents, documents and revisions survive a restart (file store)', async () => {
+  const os = await import('node:os'); const path = await import('node:path'); const fs = await import('node:fs');
+  const { createApp } = await import('../../src/server.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'intervu-a2c-'));
+  const env = { GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', DEV_TOKEN_A: 'tok-a-123456789', ADMIN_TOKEN: '', TRENDS_FILE: '', STORE: 'file', DATA_DIR: dir, PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100' };
+  const mk = async () => { const a = createApp({ env }); await new Promise((r) => a.server.listen(0, r)); return { a, base: `http://127.0.0.1:${a.server.address().port}` }; };
+  const call = async (base, p, method = 'GET', body) => { const h = { Authorization: 'Bearer tok-a-123456789', 'Content-Type': 'application/json' }; if (method !== 'GET') h['Idempotency-Key'] = crypto.randomUUID(); const r = await fetch(base + p, { method, headers: h, body: body && JSON.stringify(body) }); return { status: r.status, data: await r.json().catch(() => ({})) }; };
+  const s1 = await mk();
+  try {
+    assert.equal((await call(s1.base, '/api/v1/consents', 'POST', { age_19_confirmed: true, notice_version: 'v1' })).status, 201);
+    const pr = await call(s1.base, '/api/v1/profiles', 'POST', { org_type: 'company', role: '기획', source_text: '문제 해결' });
+    assert.equal(pr.status, 201);
+    const doc = await call(s1.base, `/api/v1/profiles/${pr.data.id}/documents`, 'POST', { kind: 'cover_letter', filename: 'a.txt', mime_type: 'text/plain', content_base64: Buffer.from('저는 동아리 회장을 맡아 행사를 운영했습니다.').toString('base64') });
+    assert.equal(doc.status, 201);
+    s1.a.store.flush(); s1.a.store.close(); await new Promise((r) => s1.a.server.close(r));
+    var ids = { profile: pr.data.id, doc: doc.data.id };
+  } catch (e) { s1.a.server.close(); throw e; }
+  const s2 = await mk();
+  try {
+    assert.equal((await call(s2.base, `/api/v1/documents/${ids.doc}/revisions`)).status, 200, 'document revisions restored');
+    const pr2 = await call(s2.base, '/api/v1/profiles', 'POST', { org_type: 'company', role: '기획', source_text: '협업' });
+    assert.equal(pr2.status, 201, 'consent restored (no 428 after restart)');
+  } finally { s2.a.store.close(); s2.a.server.close(); }
+});

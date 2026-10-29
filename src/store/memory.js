@@ -301,7 +301,7 @@ export function createStore({ ttlDays = 30 } = {}) {
       return removed;
     },
     // WP-A2: 영속용 내부 맵(내보내기·티켓 제외 — 메모리 전용 TTL).
-    _maps: { profiles, profileVersions, sessions, turns, revisions, events, commands, evaluations, appeals, attempts, deletions, profileCalls, instSources, institutions, transferJobs, idempotency },
+    _maps: { profiles, profileVersions, sessions, turns, revisions, events, commands, evaluations, appeals, attempts, deletions, profileCalls, instSources, institutions, transferJobs, idempotency, consents, documents, docRevisions },
 
     // 호환: 컬렉션 맵을 직접 노출(테스트·삭제 경로가 사용). 새 코드는 메서드를 우선한다.
     events, pushEvent, commands, evaluations, appeals, attempts, deletions,

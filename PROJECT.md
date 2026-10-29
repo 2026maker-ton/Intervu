@@ -216,7 +216,7 @@
 
 | 역할 | 목표 서비스 | 현재 저장소 상태 | 근거 |
 |---|---|---|---|
-| 실시간 AI 면접관·꼬리질문 | DeepSeek API | `[TODO]` 어댑터 없음. 현재는 Gemini(조건부)·Mock | `src/providers/adapters.js`에 `deepseek` 없음 |
+| 실시간 AI 면접관·꼬리질문 | DeepSeek API | `[PARTIAL]` 어댑터·프롬프트·검증기 구현(WP-B2, 스텁 테스트만). `LLM_DIALOGUE_PROVIDER=deepseek`+키·BASE_URL·MODEL·`DEEPSEEK_LIVE_ACK` 모두 있어야 합성 데이터에 한해 호출. 요청 형태(OpenAI 호환 chat-completions)는 `[UNVERIFIED]`, 실호출 미실행 | `src/providers/adapters/deepseek.js`, `prompts/followup.js`, `tools/deepseek-smoke.mjs`(수동) |
 | 이력서 분석·질문 설계·종합 평가 | Claude Sonnet API | `[TODO]` 어댑터 없음. 분석=키워드 휴리스틱(`extractClaims`)/Gemini 공고 키워드 추출, 평가=규칙 기반(Gemini `evaluate`는 501) | `src/domain/pii.js`, `adapters.js:192` |
 | 지원자 음성 인식 | Groq Whisper | `[UNVERIFIED]` 어댑터·엔드포인트·브라우저 녹음 UI 있음. 실키 호출은 이번 점검에서 실행하지 않음 | `createGroqWhisperAdapter`, `POST /sessions/:id/transcriptions`, `public/app.js:921~1040` |
 | 면접관 음성 합성 | ElevenLabs | `[TODO]` 없음. 현재는 브라우저 `SpeechSynthesis`만 | `public/app.js:831` |
@@ -372,7 +372,7 @@
 | 저장소 | **인메모리 `Store`**(프로필·세션·턴·평가·티켓·내보내기·전이작업·멱등 기록·원장 상태를 `src/store/index.js` 계약 뒤로 이동, 구현 `memory.js`). 파일 영속 `Store`(`file.js`, `STORE=file`, 원자적 쓰기·만료 정리·삭제 즉시 반영, 단일 프로세스 가정)는 WP-A2로 추가, Workers/DO는 `[TODO]`(A3). 파일 영속은 월간 트렌드(`data/trends.json`, git 제외)만 | `src/store/*`, `src/domain/trends.js` |
 | 공급자 | Mock(기본), Gemini(게이트 통과 시 꼬리질문·공고 추출), Groq Whisper(STT), 브라우저 SpeechSynthesis(TTS) | `src/providers/adapters.js` |
 | 배포 | **없음.** GitHub Pages·Cloudflare Workers 설정 없음. CI는 `project-guard.yml`(`check:project` + `npm test`)뿐 | `git ls-files`, `.github/workflows/` |
-| 환경변수 | `.env.example` 기준 Gemini/Groq/예산/킬스위치/`ADMIN_TOKEN`/`TRENDS_FILE`. DeepSeek·Claude·ElevenLabs 변수 없음 | `.env.example`, `src/config.js` |
+| 환경변수 | `.env.example` 기준 Gemini/Groq/예산/킬스위치/`ADMIN_TOKEN`/`TRENDS_FILE`. `DEEPSEEK_*`(키·BASE_URL·MODEL·LIVE_ACK·REAL_DATA_ACK·월 상한·호출 수 상한, 기본값 없음)·`LLM_DIALOGUE_PROVIDER` 추가. Claude·ElevenLabs 변수 없음 | `.env.example`, `src/config.js` |
 | 로컬 `.env` 상태 | Gemini·Groq 키 **존재**(값은 기록하지 않음), `GEMINI_ALLOW_UNPAID=true`, `GEMINI_PAID_ACK=false`, `GEMINI_FREE_ONLY=true`, `ADMIN_TOKEN` 없음. `.env`는 `.gitignore` 대상이며 Git 이력에 커밋된 적 없고 추적 파일에서 키 패턴도 발견되지 않음 | `git log -- .env` 빈 결과, `git grep` |
 
 ### 7.2 기능별 구현 상태
@@ -413,8 +413,9 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 관리자 화면 | `[PARTIAL]` | `ADMIN_TOKEN` **필수**: 미설정이면 관리 기능·`/metrics`·`/diagnostics` 전체가 꺼짐(403 `admin_disabled`), 토큰은 `x-admin-token` 헤더로만 수신하고 상수시간 비교(`checkAdmin`), E2E·P0-6 테스트 | 역할 모델·감사 기록·토큰 교체 절차 없음(단일 공유 비밀). 출처 없는 트렌드 공개 허용은 BUG-5로 남음 |
 | 공급자 게이트(실데이터 외부 전송 차단) | `[DONE]`(2026-10-29 P0-1 수정, 스텁 fetch 시험) | `providers/gate.js`(키·BASE_URL·MODEL·`<P>_LIVE_ACK`·데이터 등급·킬 스위치)+`providers/call.js`(WP-B1 일반화), 테스트 `P0 gate:*`·`b1-gate`(조건별 외부 호출 0건)·`GET /providers/status`, 오프라인 프로브 재실행 | 요청 본문의 `synthetic`·`free_test`는 전송 근거가 아님. 합성 전용 인스턴스는 `createApp({syntheticTraffic:true})` 코드 호출로만 켜짐. **실키·유료 경로(`paidAck=true`)는 실제 호출하지 않아 `[UNVERIFIED]`**. 요청별 동의·연령 게이트는 규칙만 구현(`ctx.consent/age19`, 동의 API 전에는 항상 false → `<P>_REAL_DATA_ACK` 경로는 `consent_missing`으로 차단). 구 `GEMINI_PAID_ACK`는 호환 경로(deprecated). Groq STT는 이제 `GROQ_LIVE_ACK`+합성/동의 필요. 합성 판정 fixture 해시는 WP-C6 `[TODO]` |
 | 보고서 공급자 표기 | `[DONE]`(2026-10-29 WP-B1, BUG-6 수정) | `commands.js`(평가 `evaluator`·`provider_trace`), 테스트 `b1-call` labels | 규칙 기반 평가 보고서는 `provider:'mock'`·`model_version:'mock-model-v1'`·`evaluator.kind:'rule_based'`로 고정(`paidAck`와 무관), 응답·세션·보고서에 `provider_trace[]`(실제 호출과 일치, 모델 ID 비노출) |
-| DeepSeek / ElevenLabs | `[TODO]` | 코드·환경변수 없음 | §4.2 |
+| DeepSeek | `[PARTIAL]` 꼬리질문 어댑터(스텁 테스트만, 실호출·약관·모델 ID 미확인 `[UNVERIFIED]`) | `src/providers/adapters/deepseek.js` | §4.2 |
 | Claude (지원서 주장 추출) | `[PARTIAL]` 스텁 계약 테스트만 | `src/providers/adapters/claude.js`(요청 형태 `[UNVERIFIED]`, 실호출 미실행), 기본 라우팅 아님(`LLM_ANALYSIS_PROVIDER=claude`), 합성 데이터만 | §4.2 |
+| ElevenLabs | `[TODO]` | 코드·환경변수 없음 | §4.2 |
 | GitHub Pages / Cloudflare Workers | `[TODO]` | 설정 파일 없음 | §4.2, §12 P0-5 |
 
 ### 7.3 단계별 진행도(P0~P5, §6 표 기준)
@@ -648,6 +649,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 
 ## 17. 이번 점검의 변경 요약 (v1.0.0 → v1.1.0)
 
+- **2026-10-29 WP-B2 DeepSeek 꼬리질문 어댑터:** 신규 `src/providers/adapters/deepseek.js`(fetch, 키·BASE_URL·MODEL·타임아웃은 `DEEPSEEK_*` 환경변수만, 미설정이면 mock/`not_configured`)·`prompts/followup.js`(`followup-v1`, 비신뢰 데이터 블록·구분자 위조 방지)·`validateFollowupOutput`(≤240자·물음표 정확히 1개·점수/모범답안 어휘 금지·새 숫자 금지·직전 질문+답변과 2글자 조각 2개 이상 공유하는 어휘 중첩 규칙). `LLM_DIALOGUE_PROVIDER=deepseek`일 때만 `dialogue.next`가 DeepSeek로 라우팅되고 게이트·폴백·라벨은 B1 래퍼를 쓴다. 래퍼에 공급자별 월 호출 수·USD 상한(`DEEPSEEK_MONTHLY_CALL_CAP` 기본 500, `DEEPSEEK_MONTHLY_CAP_USD`)을 추가했다(인메모리, 재시작 시 0). `tools/deepseek-smoke.mjs`는 수동 합성 전용이며 실행하지 않았다. 테스트 11건(`tests/api/b2-deepseek.test.mjs`, 스텁 fetch·가짜 키). **한계: OpenAI 호환 요청 형태·모델 ID·가격·약관은 `[UNVERIFIED]`, 실호출 미실행, 월 상한은 영속되지 않음.**
 - **2026-10-29 WP-B1 공급자 라우팅·게이트·호출 래퍼:** 신규 `src/providers/{registry,gate,call,validate}.js`. `config.registry`가 operation별 라우팅(`ROUTE_<OP>` 환경변수로 조정)을 결정하고, 게이트는 키·BASE_URL·MODEL·`<P>_LIVE_ACK`·데이터 등급(합성=서버 판정 `ctx.synthetic` 훅/실데이터=`REAL_DATA_ACK`+동의+만 19세)·킬 스위치·예산을 모두 요구한다. 공통 래퍼는 타임아웃·1회 재시도·429/5xx/타임아웃/잘못된 출력 시 정적 폴백(세션 계속, 원장 예약 정산)을 처리한다. 응답·세션·보고서에 `provider_trace[]`, `GET /api/v1/providers/status`, 보고서 `evaluator`(`badge` 제거), 문서 추출·STT·턴 속도 제한을 추가했다. 신규 테스트 17건(`tests/api/b1-*.test.mjs`, 스텁 fetch·가짜 키). **한계: 새 벤더 어댑터 없음(B2·B3), 동의 API 없음, 공급자별 월 상한·TTS 엔드포인트 미구현, 실호출 미실행.**
 - **2026-10-29 WP-B3 Claude 지원서 주장 추출 어댑터:** 신규 `src/providers/adapters/claude.js`·`prompts/claims.js`, `claims.js mergeModelClaims`, `tools/claude-smoke.mjs`(수동·합성 전용·미실행). `LLM_ANALYSIS_PROVIDER=claude`(또는 `ROUTE_CLAIMS_EXTRACT=claude`)일 때만 지원서 **마스킹본**을 전송하고, 모델 인용은 마스킹 원문의 그대로인 부분 문자열일 때만 채택(위치·공백은 서버 규칙 재계산), 규칙 결과가 하한선(합집합, 최대 20, 겹침 제거), 실패 시 규칙만+`provider_trace` 폴백. 모델 ID·URL은 설정으로만 받는다. 테스트 `tests/api/b3-claude-claims.test.mjs` 7건(스텁 fetch). **한계: 요청 형태 `[UNVERIFIED]`·실호출 미실행, `CLAUDE_MONTHLY_CAP_USD` 미강제, 단가 미설정 시 0 정산, 공고 키워드는 Claude 라우팅 시 규칙 기반.**
 - **2026-10-29 WP-A1 핸들러 추출·Store 인터페이스(동작 불변 리팩터링):** `src/server.js`를 `src/app/`(router·core·handlers/*·crypto(Web Crypto)·mutex·body)와 `src/node/server.js`(Node 어댑터), `src/store/`(계약 `index.js` + `memory.js`)로 분리. 전역 `Map`(티켓·내보내기·전이작업·원장 상태)을 Store로 이동, `Idempotency-Key` 24h 응답 재생(성공 응답만·같은 키·경로에 다른 본문은 409)·세션별 쓰기 직렬화·어댑터의 `process.env` 직접 조회 제거(`GEMINI_FREE_ONLY`는 config로 주입). 보안 불변 유지: 계정·세션 삭제 시 멱등 저장본도 소유자 단위로 파기. 부수 수정: 잘못된 JSON·초과 본문이 500이던 것을 400/413으로 정정. 신규 테스트 17건(`tests/api/a1-*.test.mjs`). 결과: `npm test` 94/94, E2E 54 ok, 기관 E2E 실행. **한계: Store 메서드는 동기식이며 events·commands·evaluations·appeals·attempts·deletions는 호환용 Map으로 직접 노출, 문서 추출은 `node:zlib`·`Buffer` 의존(A3).**

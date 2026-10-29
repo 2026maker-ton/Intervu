@@ -5,6 +5,7 @@ import { createStore } from '../store/index.js';
 import { createLedger } from '../domain/ledger.js';
 import { createMockAdapter, createGeminiAdapter, createGroqWhisperAdapter } from '../providers/adapters.js';
 import { createClaudeAdapter } from '../providers/adapters/claude.js';
+import { createDeepseekAdapter } from '../providers/adapters/deepseek.js';
 import { createRegistry } from '../providers/registry.js';
 import { createCaller } from '../providers/call.js';
 import { err, now } from './util.js';
@@ -33,6 +34,8 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const groq = config.groq.apiKey ? createGroqWhisperAdapter({ apiKey: config.groq.apiKey, model: config.groq.model, timeoutMs: config.groq.timeoutMs, maxAudioBytes: config.groq.maxAudioBytes, baseUrl: config.providerGate.groq.baseUrl }) : null;
   const cg = config.providerGate.claude;
   const claude = cg.apiKey && cg.baseUrl && cg.model ? createClaudeAdapter({ apiKey: cg.apiKey, baseUrl: cg.baseUrl, model: cg.model, timeoutMs: config.claude.timeoutMs, apiVersion: config.claude.apiVersion }) : null;
+  const dg = config.providerGate.deepseek;
+  const deepseek = dg.apiKey && dg.baseUrl && dg.model ? createDeepseekAdapter({ apiKey: dg.apiKey, baseUrl: dg.baseUrl, model: dg.model, timeoutMs: config.deepseek.timeoutMs }) : null;
   const killList = String(config.killSwitch || '').split(/[,\s]+/);
   const killed = killList.includes('gemini');
   const killedGroq = killList.includes('groq');
@@ -41,8 +44,8 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const registry = createRegistry(config);
   const caller = createCaller({
     registry, gates: config.providerGate, ledger, priceOf: (model, usage) => priceOf(model, usage),
-    killed: new Set(killList), adapters: { mock, gemini, groq, claude },
-    timeouts: { gemini: config.gemini.timeoutMs, groq: config.groq.timeoutMs, claude: config.claude.timeoutMs },
+    killed: new Set(killList), adapters: { mock, gemini, groq, claude, deepseek }, caps: config.providerCaps,
+    timeouts: { gemini: config.gemini.timeoutMs, groq: config.groq.timeoutMs, claude: config.claude.timeoutMs, deepseek: config.deepseek.timeoutMs },
   });
   // 요청 컨텍스트: synthetic은 서버가 코드로 켠 인스턴스이거나 서버 판정 훅(extra.synthetic, WP-C6 fixture 해시)일 때만 true.
   // consent/age19는 Store의 동의 기록에서만 온다(동의 API 전에는 항상 false).
@@ -73,6 +76,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   };
   const priceOf = (model, usage) => {
     if (model && model === cg.model) return ((usage.input || 0) * config.claude.price.input + (usage.output || 0) * config.claude.price.output) / 1e6;
+    if (model && model === dg.model) return ((usage.input || 0) * config.deepseek.priceIn + (usage.output || 0) * config.deepseek.priceOut) / 1e6;
     const p = config.geminiPricing[model];
     if (!p) return 0;
     if (p.perMinute) return ((usage.billedSeconds || 0) / 60) * p.perMinute;

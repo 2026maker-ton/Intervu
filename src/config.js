@@ -8,7 +8,7 @@ export function loadConfig(env = process.env) {
   const bool = (v) => String(v || 'false').toLowerCase() === 'true';
   const route = (op, d) => {
     const v = String(env[`ROUTE_${op}`] || d).toLowerCase();
-    return ['mock', 'gemini', 'groq', 'claude'].includes(v) ? v : 'mock';
+    return ['mock', 'gemini', 'groq', 'claude', 'deepseek'].includes(v) ? v : 'mock';
   };
   const paidAck = bool(env.GEMINI_PAID_ACK);
   const allowUnpaid = bool(env.GEMINI_ALLOW_UNPAID);
@@ -50,7 +50,7 @@ export function loadConfig(env = process.env) {
     // 환경변수 ROUTE_<OP>(예: ROUTE_DIALOGUE_NEXT=mock)로 공급자를 바꾼다. 알 수 없는 값은 mock으로 처리한다.
     // 모델 ID는 공급자 블록(gemini.textModel 등)에만 있고, 외부(응답·상태 API)에는 alias만 노출한다.
     registry: {
-      'dialogue.next': { provider: route('DIALOGUE_NEXT', 'gemini'), alias: 'gemini-text', maxOutputTokens: 500 },
+      'dialogue.next': { provider: route('DIALOGUE_NEXT', String(env.LLM_DIALOGUE_PROVIDER || 'gemini').toLowerCase()), alias: 'dialogue-text', maxOutputTokens: 500 },
       'claims.extract': { provider: route('CLAIMS_EXTRACT', env.LLM_ANALYSIS_PROVIDER || 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },
       // 평가는 규칙 기반이 기본(Gemini 평가는 사람 평가 검증 후, DG-8)
       'evaluation.generate': { provider: route('EVALUATION_GENERATE', 'mock'), alias: 'rule-based', maxOutputTokens: 2500 },
@@ -60,6 +60,16 @@ export function loadConfig(env = process.env) {
     // 공급자 게이트 입력(04 §2): 키·BASE_URL·MODEL·LIVE_ACK·REAL_DATA_ACK. 비밀값은 여기에만 있고 응답으로 나가지 않는다.
     // GEMINI_PAID_ACK는 구 설정(유료 확인=약관·데이터 처리 확인)이라 LIVE_ACK+실데이터 허용으로 취급한다(deprecated).
     providerGate: {
+      // DeepSeek(WP-B2): 모델·URL은 환경변수에서만 온다(기본값 없음 → 미설정이면 mock, not_configured). 실데이터는 REAL_DATA_ACK+동의+만 19세가 모두 필요.
+      deepseek: {
+        apiKey: env.DEEPSEEK_API_KEY || '',
+        baseUrl: env.DEEPSEEK_BASE_URL || '',
+        model: env.DEEPSEEK_MODEL || '',
+        liveAck: bool(env.DEEPSEEK_LIVE_ACK),
+        realDataAck: bool(env.DEEPSEEK_REAL_DATA_ACK),
+        legacyRealData: false,
+        syntheticOnly: !bool(env.DEEPSEEK_REAL_DATA_ACK),
+      },
       gemini: {
         apiKey: env.GEMINI_API_KEY || '',
         baseUrl: env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta',
@@ -88,6 +98,16 @@ export function loadConfig(env = process.env) {
         legacyRealData: false,
         syntheticOnly: true,
       },
+    },
+    deepseek: {
+      timeoutMs: num('DEEPSEEK_TIMEOUT_MS', 12000),
+      // 단가가 비어 있으면 0(달러 환산 안 함) → 호출 수 상한으로만 방어한다(04 §5).
+      priceIn: num('DEEPSEEK_PRICE_IN', 0),
+      priceOut: num('DEEPSEEK_PRICE_OUT', 0),
+    },
+    // 공급자별 월 상한(04 §5). usd: <P>_MONTHLY_CAP_USD(비우면 달러 상한 없음), calls: <P>_MONTHLY_CALL_CAP(기본 500). 호출 래퍼가 인메모리로 집행한다.
+    providerCaps: {
+      deepseek: { usd: env.DEEPSEEK_MONTHLY_CAP_USD ? num('DEEPSEEK_MONTHLY_CAP_USD', 0) : null, calls: num('DEEPSEEK_MONTHLY_CALL_CAP', 500) },
     },
     // Gemini 유료 단가 (USD/1M, 2026-10 공식 가격표 기준)
     geminiPricing: {

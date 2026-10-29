@@ -11,7 +11,7 @@ import { rubricForInterviewType, getRubric } from '../../domain/rubrics.js';
 import { buildTypedEvaluation } from '../../domain/mock-eval-typed.js';
 import { validateEvaluationGeneric } from '../../domain/evaluation-generic.js';
 import { nextAiUtterance, moderatorLine, recordDiscussionTurn } from '../../domain/discussion.js';
-import { validateDialogueOutput } from '../../providers/validate.js';
+import { validateDialogueOutput, validateFollowupOutput } from '../../providers/validate.js';
 
 export function createCommandHandlers(d) {
   const { config, store, err, now, caller, mock, requestContext, checkRate, publicSession } = d;
@@ -291,7 +291,7 @@ export function createCommandHandlers(d) {
         mock: () => mock.next(dialogueInput),
         // 429·타임아웃·잘못된 출력 등 장애: 검증된 정적 후속 문장으로 세션을 계속한다(BUG-8). 다른 공급자로 승격하지 않는다.
         fallback: async () => ({ utterance: staticFollowup() }),
-        validate: (o) => validateDialogueOutput(o, contextText),
+        validate: (o, prov) => (prov === 'deepseek' ? validateFollowupOutput(o, contextText, dialogueInput.questionText + ' ' + text) : validateDialogueOutput(o, contextText)),
       });
       trace = res.trace;
       pushTrace(s, trace);

@@ -220,7 +220,7 @@
 | 이력서 분석·질문 설계·종합 평가 | Claude Sonnet API | `[TODO]` 어댑터 없음. 분석=키워드 휴리스틱(`extractClaims`)/Gemini 공고 키워드 추출, 평가=규칙 기반(Gemini `evaluate`는 501) | `src/domain/pii.js`, `adapters.js:192` |
 | 지원자 음성 인식 | Groq Whisper | `[UNVERIFIED]` 어댑터·엔드포인트·브라우저 녹음 UI 있음. 실키 호출은 이번 점검에서 실행하지 않음 | `createGroqWhisperAdapter`, `POST /sessions/:id/transcriptions`, `public/app.js:921~1040` |
 | 면접관 음성 합성 | ElevenLabs | `[TODO]` 없음. 현재는 브라우저 `SpeechSynthesis`만 | `public/app.js:831` |
-| 정적 프런트엔드 | GitHub Pages | `[TODO]` 배포 설정 없음. UI는 같은 오리진의 `/api/v1` 상대경로를 호출 | `app.js:61`, `.github/workflows`는 `project-guard.yml`뿐 |
+| 정적 프런트엔드 | GitHub Pages | `[PARTIAL]` WP-A4: `public/config.js` API_BASE·CORS 허용 목록·`pages.yml`·비밀 스캔 구현(실제 배포 미실행, 개발자가 Pages 활성화 필요). 기본은 같은 오리진 | `app.js:61`, `.github/workflows`는 `project-guard.yml`뿐 |
 | API 키 보호·서버리스 프록시 | Cloudflare Workers | `[TODO]` `wrangler` 설정·Worker 코드 없음. 현재 백엔드는 Node `http` 단일 프로세스·인메모리 저장 | `git ls-files` 확인, `src/server.js` |
 
 **현재 구현된 공급자:** Gemini(`gemini-3.5-flash-lite`, 대체 `gemini-3.6-flash`, 환경설정 기준; 실제 응답 가능 여부는 이번에 호출하지 않아 `[UNVERIFIED]`), Groq Whisper, Mock, 브라우저 SpeechSynthesis. 앞의 `Groq GPT-OSS 120B 비교 후보`는 개발자의 목표 구성에서 제외되었으므로 **현재 목표가 아니다**(이력으로만 유지).
@@ -416,7 +416,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | DeepSeek | `[PARTIAL]` 꼬리질문 어댑터(스텁 테스트만, 실호출·약관·모델 ID 미확인 `[UNVERIFIED]`) | `src/providers/adapters/deepseek.js` | §4.2 |
 | Claude (지원서 주장 추출) | `[PARTIAL]` 스텁 계약 테스트만 | `src/providers/adapters/claude.js`(요청 형태 `[UNVERIFIED]`, 실호출 미실행), 기본 라우팅 아님(`LLM_ANALYSIS_PROVIDER=claude`), 합성 데이터만 | §4.2 |
 | ElevenLabs | `[TODO]` | 코드·환경변수 없음 | §4.2 |
-| GitHub Pages / Cloudflare Workers | `[TODO]` | 설정 파일 없음 | §4.2, §12 P0-5 |
+| GitHub Pages / Cloudflare Workers | `[PARTIAL]` | Pages 워크플로·CORS 구현(WP-A4, 배포 미실행), Workers 없음 | §4.2, §12 P0-5 |
 
 ### 7.3 단계별 진행도(P0~P5, §6 표 기준)
 

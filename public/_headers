@@ -1,0 +1,5 @@
+# Cloudflare Pages / Netlify 형식 헤더 파일 (GitHub Pages는 커스텀 헤더를 지원하지 않으므로 meta CSP 또는 Cloudflare Pages 사용).
+# connect-src의 https://API_ORIGIN.example 을 실제 API 오리진(config.js의 API_BASE와 동일)으로 바꾼다. 비우면 'self'만 허용.
+/*
+  Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self' https://API_ORIGIN.example
+  X-Content-Type-Options: nosniff

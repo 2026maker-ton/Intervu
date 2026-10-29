@@ -1,7 +1,7 @@
 import { $, esc, setError, uuid } from '../core/format.js';
 import { typeLabel, FIXED, reasonCopy } from '../core/copy.js';
 import { toast } from '../core/toast.js';
-import { api } from '../core/api.js';
+import { api, apiUrl } from '../core/api.js';
 import { state } from '../core/state.js';
 import { go } from '../core/router.js';
 import { askConfirm } from '../core/dialog.js';
@@ -374,7 +374,7 @@ async function serverTts(text) {
   const op = state.providerStatus?.operations?.['speech.synthesize'];
   if (!op || op.mode !== 'live' || !state.session) return false;
   try {
-    const res = await fetch(`/api/v1/sessions/${state.session.id}/tts`, {
+    const res = await fetch(apiUrl(`/sessions/${state.session.id}/tts`), {
       method: 'POST', headers: { Authorization: `Bearer ${state.token}`, 'Content-Type': 'application/json', 'Idempotency-Key': uuid() }, body: JSON.stringify({ text }),
     });
     if (!res.ok || !/^audio\//.test(res.headers.get('content-type') || '')) return false;
@@ -575,7 +575,7 @@ export async function transcribeRecording() {
     const ext = /mp4/i.test(recMime) ? 'm4a' : /ogg/i.test(recMime) ? 'ogg' : 'webm';
     fd.append('file', recBlob, `answer.${ext}`);
     const headers = { Authorization: `Bearer ${state.token}`, 'Idempotency-Key': uuid() };
-    const res = await fetch(`/api/v1/sessions/${state.session.id}/transcriptions`, { method: 'POST', headers, body: fd });
+    const res = await fetch(apiUrl(`/sessions/${state.session.id}/transcriptions`), { method: 'POST', headers, body: fd });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(data?.error?.message || `전사에 실패했습니다 (${res.status})`), { status: res.status });
     if (!data.text) { recBlob = null; setVoice('error', data.note || '전사 결과가 비어 있습니다. 다시 녹음하거나 텍스트로 답해 주세요.'); return; }

@@ -11,6 +11,7 @@ import { createTrendStore } from '../domain/trends.js';
 import { createFileStore } from '../store/file.js';
 import { createCore } from '../app/core.js';
 import { randomUUID } from '../app/crypto.js';
+import { withCors } from '../app/cors.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const staticDir = path.join(root, 'public');
@@ -43,10 +44,15 @@ export function createApp(overrides = {}) {
     : undefined);
   const core = createCore({ env, store, ledger: overrides.ledger, trends, syntheticTraffic: overrides.syntheticTraffic === true });
 
-  const fetchApp = async (request, e, ctx) => {
+  const coreFetch = async (request, e, ctx) => {
     const del = request.method === 'DELETE';
     try { return await core.fetch(request, e, ctx); } finally { core.store.afterRequest?.(del); }
   };
+  const fetchApp = withCors(coreFetch, env); // CORS_ALLOW_ORIGINS 미설정이면 그대로(같은 오리진만)
+  // 정적 페이지 CSP: connect-src는 'self' + API_BASE의 오리진(있을 때만)
+  let apiOrigin = '';
+  try { if (env.API_BASE) apiOrigin = new URL(env.API_BASE).origin; } catch { /* 잘못된 값은 무시 */ }
+  const csp = `default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'${apiOrigin ? ' ' + apiOrigin : ''}`;
   const server = http.createServer(async (req, res) => {
     try {
       const p = new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname;
@@ -57,7 +63,7 @@ export function createApp(overrides = {}) {
         if (!file.startsWith(staticDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
           return sendJson(res, 404, { error: { code: 'not_found', message: 'Not found', retryable: false, request_id: randomUUID(), details: null } });
         }
-        res.writeHead(200, { 'Content-Type': STATIC_TYPES[path.extname(file)] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'" });
+        res.writeHead(200, { 'Content-Type': STATIC_TYPES[path.extname(file)] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': csp });
         return fs.createReadStream(file).pipe(res);
       }
       // 본문을 다 읽지 않고 응답한 경우(예: 413): 남은 본문을 버리며 흘려보내고, 끝나지 않으면 2초 뒤 연결을 끊는다.

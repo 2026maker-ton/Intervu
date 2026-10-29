@@ -1,0 +1,53 @@
+name: Pages (static UI)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
+      - name: Build static artifact
+        env:
+          API_BASE: ${{ vars.PAGES_API_BASE }}
+        run: |
+          rm -rf dist && mkdir dist
+          cp -r public/. dist/
+          rm -f dist/_headers
+          node -e "require('fs').writeFileSync('dist/config.js','window.__INTERVU__ = '+JSON.stringify({API_BASE:process.env.API_BASE||''})+';\n')"
+      - name: Scan bundle for secrets
+        run: node tools/check-bundle-secrets.mjs dist
+      - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: dist
+
+  deploy:
+    # 개발자가 저장소 Settings > Pages > Source = "GitHub Actions"를 켠 뒤에만 성공한다.
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -549,7 +549,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 - 관리자 화면: 월간 후보 AI 추출 보조, 출처·신선도 검토 UI, 공개 중단 — `trends.js`, `app.js` / M.
 - 연령 확인 단계 UI(Figma 6단계)와 합성 예제 모드 안내 — `index.html`, `server.js` / M.
 - `server.js`·`app.js` 모듈 분리(DEBT-5), `Idempotency-Key` 재생(DEBT-4) / M~L.
-- 접근성·다른 브라우저(Safari/Firefox)·모바일 실기기 점검, 문서 재정비(§7.5) / M.
+- 접근성·다른 브라우저(Safari/Firefox)·모바일 실기기 점검, 문서 재정비(§7.5) / M. (WP-D8: Chromium 자동 점검·결함 수정 완료, 스크린리더·Safari/Firefox·실기기는 **미실행** — `docs/a11y-checklist.md`)
 
 ### P3 — 상용화·확장성·장기 운영
 
@@ -653,6 +653,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 ## 17. 이번 점검의 변경 요약 (v1.0.0 → v1.1.0)
 
 - **2026-10-29 WP-E3 데모 리허설(API 수준):** 신규 `tools/rehearsal.mjs`(`npm run rehearsal`: 임시 `STORE=file` 앱에서 fixture로 기업·대학 12단계 + 재시작 + 공급자 다운(500/429) 폴백을 Mock·스텁으로 실행), `tests/api/e3-rehearsal.test.mjs`(npm test 포함), `docs/rehearsal.md`(대본·장애 대응·체크리스트·실행 로그). **브라우저/실기기/마이크/모바일/수동 항목은 미실행**이며 이 리허설은 UI 클릭 리허설을 대체하지 않는다. `src/` 변경 없음.
+- **2026-10-29 WP-D8 접근성·반응형·카피 QA:** `tools/e2e-ui.mjs`에 [12]·[12b] 추가(9화면×1440/768/390 오버플로, 입력·버튼 접근 이름, computed-style 대비 4.5:1, 390px 터치 ≥44px, 금지 표현 스캔, h1 포커스, 대화상자 트랩·ESC·포커스 반환, 키보드 전용 순회·포커스 링). 발견·수정: `--muted` 대비 3.67→4.5↑, `type` 없는 input 스타일 누락, 입력 포커스 링 제거, 모바일 터치 영역, 금지어 린트 오탐 문구 2건(`styles.css`·`index.html`·`screens/evidence.js`). 수동 점검표 `docs/a11y-checklist.md`. **한계: 스크린리더·Safari/Firefox·실기기·200% 확대·reduced-motion/contrast 에뮬레이션·전 흐름 키보드 완주는 미실행.**
 - **2026-10-29 WP-B6 TTS 프록시·ElevenLabs 어댑터:** `POST /api/v1/sessions/:id/tts {target:'current_question'|'last_utterance'}` 추가. 합성 문장은 세션에서만 선택(요청의 text 등은 무시), 소유자·삭제 세션 404, 사용자별 속도 제한(`TTS_RATE_PER_MINUTE/DAY`), `speech.synthesize`를 B1 래퍼(게이트·월 호출/USD 상한·글자 상한)로 호출. 성공은 오디오 바이트(저장 없음, 크기 상한), 차단·실패·미설정은 204+`X-TTS-Fallback: browser`(+`X-Provider-Trace`). 오디오 응답이라 멱등 재생 대상에서 제외. `room.js serverTts`는 `{target}` 전송·204 폴백 처리. `tools/elevenlabs-smoke.mjs`는 수동 합성 전용이며 실행하지 않았다. 테스트 9건(`tests/api/b6-tts.test.mjs`). **한계: 요청 형태·모델/음성 ID·가격·약관 `[UNVERIFIED]`, 실호출 미실행, 월 상한 비영속, 실제 브라우저 재생 미확인.**
 - **2026-10-29 WP-B2 DeepSeek 꼬리질문 어댑터:** 신규 `src/providers/adapters/deepseek.js`(fetch, 키·BASE_URL·MODEL·타임아웃은 `DEEPSEEK_*` 환경변수만, 미설정이면 mock/`not_configured`)·`prompts/followup.js`(`followup-v1`, 비신뢰 데이터 블록·구분자 위조 방지)·`validateFollowupOutput`(≤240자·물음표 정확히 1개·점수/모범답안 어휘 금지·새 숫자 금지·직전 질문+답변과 2글자 조각 2개 이상 공유하는 어휘 중첩 규칙). `LLM_DIALOGUE_PROVIDER=deepseek`일 때만 `dialogue.next`가 DeepSeek로 라우팅되고 게이트·폴백·라벨은 B1 래퍼를 쓴다. 래퍼에 공급자별 월 호출 수·USD 상한(`DEEPSEEK_MONTHLY_CALL_CAP` 기본 500, `DEEPSEEK_MONTHLY_CAP_USD`)을 추가했다(인메모리, 재시작 시 0). `tools/deepseek-smoke.mjs`는 수동 합성 전용이며 실행하지 않았다. 테스트 11건(`tests/api/b2-deepseek.test.mjs`, 스텁 fetch·가짜 키). **한계: OpenAI 호환 요청 형태·모델 ID·가격·약관은 `[UNVERIFIED]`, 실호출 미실행, 월 상한은 영속되지 않음.**
 - **2026-10-29 WP-D5 설정·면접실 UI:** `public/screens/{setup,room}.js`, `core/providers.js`(신규), `index.html`·`styles.css`·`core/dialog.js`. 설정: operation별 Mock/실모델 + 한국어 차단 사유 요약(`/providers/status`), 고급(실험) 접힘(DEBT-8), TTS 토글, 불가 입력 방식 비활성+이유. 면접실: 근거 칩·폴백 배너(`provider_trace`/`degraded_reason`)·제출 중 상태·일시정지 오버레이·종료 확인 다이얼로그(기본 포커스 취소)·임박 타이머(낭독 1분/10초)·모바일 하단 행동 바·새로고침 복원(`GET /sessions/:id`, 재연습·토론 로그는 복원 제외)·음성 상태 머신. 앱바 칩 문구는 설정·면접실 진입 시 `/providers/status` 기준으로 갱신(대시보드 칩 갱신은 D9). 실키·실기기 마이크·TTS는 미검증.

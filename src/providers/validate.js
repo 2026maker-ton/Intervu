@@ -11,3 +11,15 @@ export function validateDialogueOutput(out, contextText = '') {
   for (const tok of u.match(/\d+(?:[.,]\d+)*/g) || []) if (!ctx.includes(tok)) return false;
   return true;
 }
+
+// DeepSeek 꼬리질문 검증(04 §1): validateDialogueOutput + 물음표 정확히 1개 + 어휘 중첩 규칙.
+// 어휘 중첩: 직전 질문·답변(anchorText)과 글자 2개 조각(bigram)을 2개 이상 공유해야 한다. 무관한 새 주제 차단용 휴리스틱(의미 검증 아님).
+const bigrams = (t) => { const c = [...String(t).replace(/[^\p{L}\p{N}]/gu, '')]; const s = new Set(); for (let i = 0; i + 1 < c.length; i++) s.add(c[i] + c[i + 1]); return s; };
+export function validateFollowupOutput(out, contextText = '', anchorText = '') {
+  if (!validateDialogueOutput(out, contextText)) return false;
+  if ((out.utterance.match(/[?？]/g) || []).length !== 1) return false;
+  const a = bigrams(anchorText);
+  let n = 0;
+  for (const g of bigrams(out.utterance)) if (a.has(g) && ++n >= 2) return true;
+  return false;
+}

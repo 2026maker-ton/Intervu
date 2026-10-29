@@ -2,7 +2,7 @@
 // Web 표준만 사용한다(Workers 이식).
 export const OPERATIONS = ['dialogue.next', 'claims.extract', 'evaluation.generate', 'speech.transcribe', 'speech.synthesize'];
 // 공급자가 실제로 구현한 operation. 여기에 없는 조합은 호출하지 않고 mock으로 처리한다.
-export const SUPPORTED = { gemini: ['dialogue.next', 'claims.extract'], groq: ['speech.transcribe'], mock: OPERATIONS };
+export const SUPPORTED = { gemini: ['dialogue.next', 'claims.extract'], deepseek: ['dialogue.next'], groq: ['speech.transcribe'], mock: OPERATIONS };
 
 export function createRegistry(config) {
   const routes = {};

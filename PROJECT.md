@@ -361,7 +361,7 @@
 - **기준 커밋:** 최초 점검은 `79e803c`(main). WP-E4 정합은 `fix/p0-1-provider-gate` 브랜치 `aa6d0cc`(WP-A0~A4, B1~B3, B5~B7, C1~C8, D1~D7, D9, E1 병합 후)에서 수행했다. 코드·설정·테스트·Git 이력을 직접 읽고 `npm test`·`npm run check:project`·`npm run e2e`·`node tools/e2e-institution.mjs`·`node tools/verify-design.mjs`를 새로 실행해 §10을 갱신했다. 외부 API 호출은 하지 않았다.
 - **코드와 실제 동작이 우선**이다. 아래 표의 상태는 코드 경로·자동 테스트가 있는 것만 올렸고, 스텁 `fetch`·가짜 키 시험은 "스텁 시험만"으로 명시한다.
 - **확인하지 않은 것:** 실키 호출(Gemini·Groq·DeepSeek·Claude·ElevenLabs), 실제 한국어 PDF/DOCX, 실기기 마이크·TTS, Safari/Firefox, 모바일 실기기, Pages·Workers 실배포, Workers 런타임 동작(§10).
-- **미착수 WP:** B4(Claude 평가), D8(접근성·카피 QA 전수), E2(사람 평가 *실험*, 양식·프로토콜만 B7에서 준비), E3(데모 리허설) — §12.
+- **미착수 WP:** B4(Claude 평가), E2의 실험 수행(양식·프로토콜만 B7에서 준비). D8(자동 접근성·반응형·카피 QA, `c400e20`)과 E3(API 수준 데모 리허설, `2fdad8e`)는 **부분 완료**(수동·실기기 점검은 미실행) — §12.
 
 ### 7.1 현재 시스템 구조
 
@@ -471,7 +471,7 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 | 검사 | 실행한 것 | 결과 |
 |---|---|---|
 | 문서·UI 구조 가드 | `npm run check:project` | PASS 4/4(PROJECT.md 헤딩·AGENTS.md·package 스크립트·UI 9화면/금지 패턴). **문서 구조 검사일 뿐 제품 적합성을 증명하지 않는다** |
-| 통합 테스트 | `npm test`(= 가드 + `node --test "tests/**/*.test.mjs"`) | **251 pass / 0 fail / 0 cancelled / 0 skipped**, 약 6.6초. 테스트 서버는 키를 비우고 Mock·스텁 fetch로만 동작(외부 호출 0) |
+| 통합 테스트 | `npm test`(= 가드 + `node --test "tests/**/*.test.mjs"`) | **252 pass / 0 fail / 0 cancelled / 0 skipped**, 약 6.6초. 테스트 서버는 키를 비우고 Mock·스텁 fetch로만 동작(외부 호출 0) |
 | 기관 맞춤 E2E(HTTP) | `node tools/e2e-institution.mjs` | 14 pass / 0 fail (Mock) |
 | 브라우저 E2E | `npm run e2e`(`tools/run-e2e.mjs` → `tools/e2e-ui.mjs`) | **99개 체크 ok**, 실패 0, "E2E 통과"(9화면 경로, 1440/768/390px 가로 오버플로 없음, 콘솔 오류·페이지 예외 0, 의도된 관리자 403·동의 428 각 1회). 헤드리스 Chromium 1종·Mock 전용. 마이크·SpeechSynthesis 실장치 미포함 |
 | 설계 fixture 검사 | `node tools/verify-design.mjs` | PASS (문서 fixture·원가 산식 검사. 제품 품질·보안 검증 아님) |
@@ -483,7 +483,7 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 | 다른 브라우저·모바일 실기기 | **미실행** | Safari/Firefox, 실기기 마이크·TTS·브라우저별 한국어 음성 미확인. 390px 폭 에뮬레이션 레이아웃만 확인 |
 | 비용 모델(`npm run cost*`) | **미실행** | Gemini 가정 산식이며 목표 구성과 무관 |
 | 사람 평가·STT 오류율 실측 | **미실행** | `docs/eval/` 프로토콜·템플릿만 존재, 결과 없음 |
-| 데모 리허설·접근성 전수 점검 | **미실행** | WP-E3·WP-D8 미착수. 스크린리더·키보드 수동 점검 기록 없음 |
+| 데모 리허설·접근성 점검 | **부분 실행** | `npm run rehearsal` 26/26 PASS(API 수준, Mock·스텁, 기업·대학·재시작·공급자 장애) — `docs/rehearsal.md`. 브라우저 E2E에 접근성·대비·터치·포커스·금지표현 자동 검사 포함(`docs/a11y-checklist.md`). **미실행:** 스크린리더, 실기기, Safari/Firefox, 200% 확대, UI 수동 12단계 완주 |
 | API 키 클라이언트 노출 | 자동 시험+코드 검토 | `public/`에 키 참조 없음(`tools/check-bundle-secrets.mjs`, `tests/domain/a4-secrets-scan.test.mjs`), `/stt/status` 키 비노출. `/health`는 비인증 시 `selected`만 |
 
 **상위 결론:** 위 PASS는 Mock·합성 데이터·스텁 fetch·문서 구조에 대한 것이다. 실모델 품질, 실제 한국어 문서/음성, 배포 환경, 보안 침투 시험은 검증되지 않았다.
@@ -557,7 +557,7 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 - `[PARTIAL]` 관리자 화면: 편집기·검토 체크리스트·공개 중단·미리보기 구현(WP-D7 `e73aac7`); 월간 후보 AI 추출 보조·편향 검수는 `[TODO]`.
 - `[PARTIAL]` 연령 확인·합성 예제 모드: 동의 API(WP-C6 `e2e6f7e`)+안내 대화상자(WP-D3 `f863841`), 자기 신고 방식.
 - `[DONE]` `server.js`·`app.js` 모듈 분리(DEBT-5)·`Idempotency-Key` 재생(DEBT-4) — WP-A1 `559dc98`, WP-D1 `c4a859f`.
-- `[TODO]` 접근성·다른 브라우저(Safari/Firefox)·모바일 실기기 점검(WP-D8 미착수). 문서 재정비는 WP-E4(이 변경)로 수행했고 `docs/` 과거 문서는 이력으로 남김(§7.5).
+- `[PARTIAL]` 접근성: 자동 검사(대비·라벨·터치·포커스·오버플로 9화면×3폭)는 E2E에 있음(WP-D8). 스크린리더·다른 브라우저(Safari/Firefox)·모바일 실기기는 미실행. 문서 재정비는 WP-E4(이 변경)로 수행했고 `docs/` 과거 문서는 이력으로 남김(§7.5).
 
 ### 12.1 WP 진행 현황 (`docs/plan/07-work-packages.md` 기준, `aa6d0cc`)
 
@@ -565,7 +565,8 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 |---|---|
 | `[DONE]`(Mock·스텁 시험 범위) | A0 `e417484` · A1 `559dc98` · A2 `4881568`(+`62d2812`) · B1 `cf95781`(+`adf2a02`) · B7 `6ae151b` · C1 `4f4c23a` · C3 `91318cf` · C4 `047d0d3` · C5 `f1e86e8`(휴리스틱) · C6 `e2e6f7e` · C8 `b3fccf5` · D1 `c4a859f` · D2 `aa11c0c` · D3 `f863841` · D4 `f06e922` · D5 `ee178e4` · D6 `1c03f7b` · D7 `e73aac7` · D9 `056a73a` · E1 `8a09a70` · E4(이 변경) |
 | `[PARTIAL]`(코드+스텁/계약 시험, 실동작 `[UNVERIFIED]`) | A3 `f0a9058`(Workers 미실행) · A4 `fe06d70`(배포 미실행) · B2 `d585161` · B3 `f76491a` · B5 `6ae151b`(계약 시험만, 실측 미실행) · B6 `202a8b8` · C2 `adf8c3c`(실수집 미실행) · C7 `ea43252`(합성 코퍼스 한정) · E2(프로토콜·템플릿만, 실험 미실행) |
-| `[TODO]`(미착수) | B4(Claude 평가) · D8(접근성·반응형·카피 전수 QA) · E3(데모 리허설) |
+| `[TODO]`(미착수) | B4(Claude 평가) |
+| `[PARTIAL]` | D8(자동 QA 완료·수동 미실행) · E3(API 리허설 26/26, UI·실기기 미실행) |
 
 
 ### P3 — 상용화·확장성·장기 운영
@@ -680,7 +681,7 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 - **Track C 제품 로직:** C1 `4f4c23a` 문서 종류·revision·BUG-9·CID PDF 명시 실패 · C2 `adf8c3c` 공식 자료 수집기(기본 꺼짐, 주입 fetch/dns 시험만) · C3 `91318cf` 트렌드 규칙(BUG-5)·공개 중단·트렌드 보조 질문 · C4 `047d0d3` 전이 질문 은행 15개(BUG-7) · C5 `f1e86e8` 이름·학교·주소 PII 휴리스틱 · C6 `e2e6f7e` 합성 fixture·`POST /consents`·428 `consent_required` · C7 `ea43252` 문서 기반 주장·panel/technical 주장 질문·정확도 코퍼스 · C8 `b3fccf5` `GET /profiles/:id/plan`·`PATCH /profiles/:id/claims/:claimId` 제외(승인 시 동결).
 - **Track D UI:** D1 `c4a859f` `public/app.js` ES 모듈 분리 · D2 `aa11c0c` 토큰·컴포넌트·`core/copy.js` 금지 표현 린트 · D3 `f863841` 지원 정보 · D4 `f06e922` 근거 확인 · D5 `ee178e4` 설정·면접실(provider 요약·복원·음성 상태 머신) · D6 `1c03f7b` 보고서·재연습 · D7 `e73aac7` 기록·관리자 · D9 `056a73a` 대시보드·라우트 가드·복원. 실키·실기기 마이크·TTS 미검증.
 - **Track E:** E1 `8a09a70` `npm run e2e`(Playwright 자동 탐색·브라우저 빌드 불일치 폴백) · 기획서 `b329896`(`docs/plan`) · E4 이 변경.
-- **미착수:** B4(Claude 평가), D8(접근성·카피 전수 QA), E3(데모 리허설), E2의 실험 수행.
+- **미착수:** B4(Claude 평가), E2의 실험 수행. **부분:** D8·E3(위 §10 참조).
 
 **v1.1.0 점검 변경(이력).**
 

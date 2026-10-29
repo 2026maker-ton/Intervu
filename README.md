@@ -12,14 +12,14 @@
 npm install --ignore-scripts   # 의존성 없음(필요하면 생략 가능)
 copy .env.example .env         # 그리고 DEV_TOKEN_A 등 접속 토큰을 설정
 npm start                      # http://localhost:3000  (처음 접속 시 접속 토큰을 입력)
-npm test                       # 문서 가드 + 통합 테스트 251개 (외부 키·네트워크 불필요, Mock/스텁)
+npm test                       # 문서 가드 + 통합 테스트 252개 (외부 키·네트워크 불필요, Mock/스텁)
 npm run check:project          # 문서·UI 구조 가드(4개). 제품 적합성 증명 아님
 npm run e2e                    # 브라우저 E2E(Playwright 필요, Mock 전용) — docs/e2e.md
 node tools/e2e-institution.mjs # 기관 맞춤 HTTP E2E 14개
 node tools/verify-design.mjs   # 설계 fixture 검사
 ```
 
-`npm run rehearsal`은 **없다**(데모 리허설 WP-E3 미착수). 수동 스모크 도구(`tools/*-smoke.mjs`, `stt-smoke`, `gemini-e2e`)는 **실호출이므로 개발자가 승인한 합성 데이터로만** 직접 실행하며, 저장소의 어떤 자동 검사도 이를 실행하지 않는다.
+`npm run rehearsal`은 API 수준 데모 리허설 26단계를 Mock으로 실행한다(`docs/rehearsal.md`). 수동 스모크 도구(`tools/*-smoke.mjs`, `stt-smoke`, `gemini-e2e`)는 **실호출이므로 개발자가 승인한 합성 데이터로만** 직접 실행하며, 저장소의 어떤 자동 검사도 이를 실행하지 않는다.
 
 ## 환경 변수(이름만; 전체는 `.env.example`)
 

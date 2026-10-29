@@ -4,8 +4,8 @@ _갱신: 2026-10-29, WP-E4, 기준 커밋 `aa6d0cc`(`fix/p0-1-provider-gate`). �
 
 ## 검증 기준선 (새로 실행)
 - `npm run check:project`: PASS 4/4 (문서 구조 검사일 뿐)
-- `npm test`: **251 pass / 0 fail / 0 skipped** (Mock·스텁 fetch, 외부 호출 0)
-- `npm run e2e`: **99 ok**, "E2E 통과" (헤드리스 Chromium 1종, Mock 전용)
+- `npm test`: **252 pass / 0 fail / 0 skipped** (Mock·스텁 fetch, 외부 호출 0)
+- `npm run e2e`: **155 ok**, "E2E 통과" (헤드리스 Chromium 1종, Mock 전용)
 - `node tools/e2e-institution.mjs`: 14 pass / 0 fail
 - **미실행:** 실키 공급자 호출 전부, Safari/Firefox, 실기기 마이크·TTS, Pages·Workers 실배포, 공식 사이트 실수집, 사람 평가·STT 오류율 실측, 데모 리허설
 

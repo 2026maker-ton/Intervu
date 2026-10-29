@@ -4,7 +4,7 @@
  * Structural checks only — cannot prove code/UX compliance with PROJECT.md.
  * Standalone Node.js script; no external network requests or API keys.
  */
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -44,7 +44,8 @@ try {
 // UI structure guard: 9 screens, journey-only entry, no prompt()/confirm().
 try {
   const html = await readFile(resolve(root, 'public/index.html'), 'utf8');
-  const js = await readFile(resolve(root, 'public/app.js'), 'utf8');
+  const jsFiles = (await readdir(resolve(root, 'public'), { recursive: true })).filter((f) => f.endsWith('.js'));
+  const js = (await Promise.all(jsFiles.map((f) => readFile(resolve(root, 'public', f), 'utf8')))).join('\n');
   const screens = [...html.matchAll(/data-screen="([a-z]+)"/g)].map((m) => m[1]);
   const want = ['dashboard', 'application', 'evidence', 'setup', 'room', 'feedback', 'repractice', 'history', 'admin'];
   const problems = [];

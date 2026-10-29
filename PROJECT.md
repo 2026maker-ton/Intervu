@@ -367,7 +367,7 @@
 | 계층 | 현재 구현 | 근거 |
 |---|---|---|
 | 런타임 | Node.js ≥20, **외부 의존성 0**(`package.json`에 dependencies 없음), 타입스크립트·린터·번들러 없음 | `package.json` |
-| 프런트엔드 | 순수 HTML/CSS/JS 단일 페이지, 해시 라우터 9화면(`#/dashboard`…`#/admin`). 같은 오리진 `/api/v1` 호출 | `public/index.html`(462줄), `public/app.js`(1,780줄) |
+| 프런트엔드 | 순수 HTML/CSS/JS 단일 페이지, 해시 라우터 9화면(`#/dashboard`…`#/admin`). 같은 오리진 `/api/v1` 호출 | `public/index.html`(462줄), `public/app.js` 엔트리 + `public/core/*.js`·`public/screens/*.js` 네이티브 ES 모듈(WP-D1; 이전 단일 app.js) |
 | 백엔드 | Node `http` 단일 프로세스 REST 서버(`createApp`), 정적 파일 서빙·CSP 헤더 포함 | `src/server.js`(1,697줄) |
 | 저장소 | **인메모리 `Map` 전부**(프로필·세션·턴·평가·전이작업·원장). 파일 영속은 월간 트렌드(`data/trends.json`, git 제외)만 | `src/store.js`, `src/domain/trends.js` |
 | 공급자 | Mock(기본), Gemini(게이트 통과 시 꼬리질문·공고 추출), Groq Whisper(STT), 브라우저 SpeechSynthesis(TTS) | `src/providers/adapters.js` |

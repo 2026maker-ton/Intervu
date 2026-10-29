@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createApp } from '../../src/server.js';
 import { createTrendStore } from '../../src/domain/trends.js';
+import { ensureConsent } from '../helpers/app.mjs';
 
 const A = 'dev-user-a-token';
 const ADMIN = 'c3-admin';
@@ -19,6 +20,7 @@ async function withC3(fn, { file = '' } = {}) {
     const h = { Authorization: `Bearer ${A}`, 'Content-Type': 'application/json' };
     if (admin) h['x-admin-token'] = ADMIN;
     if (method !== 'GET') h['Idempotency-Key'] = crypto.randomUUID();
+    if (method === 'POST' && p === '/api/v1/profiles') await ensureConsent(base, A);
     const res = await fetch(base + p, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: res.status, data: await res.json().catch(() => ({})) };
   };

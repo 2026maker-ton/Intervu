@@ -36,7 +36,8 @@ export function dialog({ title, message = '', label = '', value = '', multiline 
     };
     cancel.onclick = (e) => { e.preventDefault(); done(null); };
     dlg.showModal();
-    setTimeout(() => { try { (multiline ? area : input).focus(); } catch { /* noop */ } }, 30);
+    // 입력이 없는 확인창은 기본 포커스를 취소에 둔다(위험 행동 오작동 방지, 06 오버레이 규칙).
+    setTimeout(() => { try { (!label ? cancel : multiline ? area : input).focus(); } catch { /* noop */ } }, 30);
   });
 }
 export const askConfirm = async (title, message, opts = {}) => (await dialog({ title, message, ...opts })) === 'ok';

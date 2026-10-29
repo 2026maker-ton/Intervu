@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Intervu — 지원서 주장 검증 · 근거 코칭 · 새 질문 전이 확인</title>
 <meta name="description" content="지원서의 주장을 확인하고, 내 발언 근거로 코칭을 받은 뒤, 처음 보는 다른 질문에서 개선 여부를 확인하는 한국어 면접 코치." />
 <link rel="stylesheet" href="/styles.css" />
@@ -217,10 +217,11 @@
       <p class="eyebrow">Setup</p>
       <h1 id="setupTitle">면접 설정</h1>
       <p class="hint">필요한 것만 고르세요. 기본값으로 바로 시작할 수 있습니다.</p>
+      <ol class="stepper" aria-label="진행 단계"><li class="done">지원 정보</li><li class="done">근거 확인</li><li class="current" aria-current="step">면접 설정 · 3/3</li></ol>
     </div>
 
     <form class="card form-card" id="setupForm" novalidate>
-      <p class="summary" id="setupSummary"></p>
+      <div class="summary" id="setupSummary" aria-live="polite"></div>
 
       <fieldset class="field-group">
         <legend>면접 시간</legend>
@@ -248,6 +249,7 @@
           <label><input type="radio" name="input_mode" value="voice" /><span>음성 인식</span></label>
           <label><input type="radio" name="input_mode" value="groq" /><span>녹음 전사</span></label>
         </div>
+        <p class="fine" id="inputModeUnavailable" role="note" hidden></p>
         <p class="fine" id="inputModeHint">텍스트는 그대로 전송됩니다. 음성 인식은 브라우저에서 텍스트로 바꾼 뒤 확인·수정합니다.</p>
       </fieldset>
 
@@ -255,10 +257,16 @@
         <input type="checkbox" name="blind" />
         <span>블라인드 모드 — 학교·출신·성별·연령 단서를 저장·평가에서 마스킹</span>
       </label>
-      <p class="fine" hidden id="blindNote">마스킹이 완전하지 않을 수 있습니다. 실명·학교명은 쓰지 마세요.</p>
+      <p class="fine" hidden id="blindNote" role="note">완전하지 않을 수 있습니다. 마스킹이 빠지는 단서가 있을 수 있으니 실명·학교명은 쓰지 마세요.</p>
+
+      <label class="check" id="ttsToggle">
+        <input type="checkbox" name="tts" />
+        <span>면접관 질문을 소리로 듣기 — 브라우저 합성 음성(사람 음성이 아닙니다). 켜지 않아도 “질문 듣기”를 눌러 들을 수 있습니다.</span>
+      </label>
 
       <details class="advanced" id="advancedBox">
-        <summary>고급 설정 (면접 유형·면접관 역할)</summary>
+        <summary>고급(실험) — 면접 유형·면접관 역할</summary>
+        <p class="fine">기본은 <strong>일반·인성</strong> 면접입니다. 토론·PT·상황·패널 등은 실험 기능이라 근거 연결과 평가가 덜 다듬어져 있습니다.</p>
         <div class="field-row">
           <label class="field">
             <span>면접 유형</span>
@@ -296,42 +304,63 @@
       <div class="room-bar">
         <div class="room-live"><span class="live-dot" aria-hidden="true"></span><span id="roomState">LIVE</span></div>
         <p class="room-meta" id="roomMeta">면접 진행 중</p>
-        <div class="room-clock"><span id="clock">00:00</span><small>남은 시간</small></div>
+        <div class="room-clock" id="roomClock"><span id="clock">00:00</span><small>남은 시간</small></div>
+        <span class="sr-only" id="clockAnnounce" role="status" aria-live="polite"></span>
       </div>
       <div class="progress" role="progressbar" aria-label="질문 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressWrap"><div id="progressBar"></div></div>
+      <div id="providerBanner" class="provider-banner warn" role="status" hidden></div>
 
-      <h1 id="roomTitle" class="question" tabindex="-1">질문을 불러오는 중…</h1>
-      <div id="roomContext" class="room-context" hidden></div>
-      <div id="phaseBar" class="phase-bar" hidden></div>
-      <div id="aiReply" class="ai-reply" hidden></div>
-      <div id="discussionLog" class="discussion-log" hidden aria-live="polite"></div>
+      <div class="room-body">
+        <div id="roomQA">
+          <p class="fine" id="roomProgressText" aria-hidden="true"></p>
+          <h1 id="roomTitle" class="question" tabindex="-1">질문을 불러오는 중…</h1>
+          <div id="roomHint" class="ev-chip" hidden></div>
+          <div id="roomContext" class="room-context" hidden></div>
+          <div id="phaseBar" class="phase-bar" hidden></div>
+          <div id="aiReply" class="ai-reply" hidden aria-live="polite"></div>
+          <div id="discussionLog" class="discussion-log" hidden aria-live="polite"></div>
 
-      <label class="sr-only" for="answerText">답변 입력</label>
-      <textarea id="answerText" rows="6" maxlength="4000" placeholder="답변을 입력하세요. (최대 4,000자)&#10;예: 제가 맡은 일 → 직접 한 행동 → 관찰된 결과"></textarea>
-      <div class="input-tools">
-        <div class="voice-row" id="voiceRow" hidden>
-          <button class="ghost small" id="voiceBtn" type="button" aria-pressed="false">말로 답하기</button>
-          <span id="voiceStatus" role="status" class="fine">브라우저에서 텍스트로 변환됩니다.</span>
+          <label class="sr-only" for="answerText">답변 입력</label>
+          <textarea id="answerText" rows="6" maxlength="4000" placeholder="답변을 입력하세요. (최대 4,000자)&#10;예: 제가 맡은 일 → 직접 한 행동 → 관찰된 결과"></textarea>
+          <div class="input-tools">
+            <div class="voice-box" id="voiceBox" data-state="idle" hidden>
+              <p class="fine" id="voiceNotice"></p>
+              <div class="voice-row" id="voiceRow" hidden>
+                <button class="ghost small" id="voiceBtn" type="button" aria-pressed="false">말로 답하기</button>
+              </div>
+              <div class="stt-row" id="sttRow" hidden>
+                <button class="ghost small" id="sttRecBtn" type="button" aria-pressed="false">녹음 시작</button>
+                <button class="ghost small" id="sttTranscribeBtn" type="button" hidden>다시 전사</button>
+              </div>
+              <span id="voiceStatus" role="status" class="fine"></span>
+            </div>
+            <span class="counter"><span id="charCount">0</span>/4000</span>
+          </div>
+          <p class="fine" id="roomBusy" role="status" hidden></p>
         </div>
-        <div class="stt-row" id="sttRow" hidden>
-          <button class="ghost small" id="sttRecBtn" type="button" aria-pressed="false">녹음 시작</button>
-          <button class="ghost small" id="sttTranscribeBtn" type="button" disabled>전사 요청</button>
-          <span id="sttStatus" role="status" class="fine">전사 상태를 확인하는 중…</span>
+        <div class="pause-overlay" id="pauseOverlay" role="group" aria-labelledby="pauseTitle" hidden>
+          <h2 id="pauseTitle">일시정지 중</h2>
+          <p>타이머가 멈췄습니다. 준비되면 이어서 진행하세요.</p>
+          <div class="actions">
+            <button class="primary" id="resumeBtn" type="button">면접 재개</button>
+            <button class="ghost" id="pauseFinishBtn" type="button">면접 종료</button>
+          </div>
         </div>
-        <span class="counter"><span id="charCount">0</span>/4000</span>
       </div>
 
-      <div class="actions">
+      <p class="fine" id="roomError" role="alert" hidden></p>
+      <div class="actions room-actions" id="roomActions">
         <button class="primary" id="answerBtn" type="button">답변 완료</button>
         <button class="ghost" id="pauseBtn" type="button">일시정지</button>
         <button class="ghost" id="finishBtn" type="button">면접 종료</button>
       </div>
       <div class="actions secondary">
         <button class="ghost small" id="ttsBtn" type="button">질문 듣기</button>
+        <button class="ghost small" id="ttsStopBtn" type="button" hidden>듣기 중지</button>
         <button class="ghost small" id="copyQBtn" type="button">질문 복사</button>
       </div>
-      <p class="fine" id="roomHint" role="status"></p>
-      <p class="fine" id="roomError" role="alert"></p>
+      <p class="fine" id="ttsNote" role="status"></p>
+      <p class="fine" id="roomStatus" role="status"></p>
     </div>
   </section>
 

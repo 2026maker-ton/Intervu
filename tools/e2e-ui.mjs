@@ -148,6 +148,15 @@ async function main() {
     await page.check('#setupForm input[name=input_mode][value=text]', { force: true });
     await page.check('#setupForm input[name=blind]');
     check(await page.locator('#setupSummary').innerText().then((t) => /근거 승인 완료/.test(t)), '승인 요약 표시');
+    await page.waitForFunction(() => /꼬리질문/.test(document.querySelector('#setupSummary')?.textContent || ''), null, { timeout: 5000 });
+    const sum = await page.locator('#setupSummary').innerText();
+    check(/꼬리질문\s*Mock/.test(sum) && /외부 AI가 설정되지 않아|Mock으로 동작/.test(sum), '설정 요약: operation별 Mock + 차단 사유(한국어)', sum.replace(/\s+/g, ' ').slice(0, 160));
+    check(/사용할 근거: 지원서 주장/.test(sum), '설정 요약: 사용할 근거 수');
+    check(await page.locator('#modeChip').innerText() === 'Mock 모드 · 외부 전송 없음', '앱바 모드 칩 문구(/providers/status 기반)');
+    check(!(await page.locator('#interviewTypeSelect').isVisible()), '면접 유형은 고급(실험) 접힘 안에 있음');
+    check(/고급\(실험\)/.test(await page.locator('#advancedBox summary').innerText()), '고급(실험) 라벨');
+    check(await page.locator('#interviewTypeSelect').inputValue() === 'general', '면접 유형 기본값 일반·인성');
+    check(await page.locator('#blindNote').isVisible(), '블라인드 고지 표시');
     await page.screenshot({ path: path.join(OUT, '03-setup-1440.png'), fullPage: true });
     await page.click('#startBtn');
     await page.waitForSelector('#screen-room:not([hidden])', { timeout: 15000 });
@@ -158,11 +167,46 @@ async function main() {
     check(/자기소개서에 “/.test(await page.locator('#roomTitle').innerText()), '첫 질문이 지원서 문장을 인용');
     check(/지원서 근거/.test(await page.locator('#roomHint').innerText()), '질문 근거(원문 위치) 표시');
     check(await page.locator('#clock').innerText().then((t) => /^\d{2}:\d{2}$/.test(t)), '타이머 표시');
-    // 일시정지/재개
+    check(await page.locator('#providerBanner').isHidden(), 'Mock 정상 동작 중에는 폴백 배너 없음');
+    check(await page.locator('#roomHint .ev-toggle').count() === 1, '근거 칩(펼침 버튼)');
+    await page.click('#roomHint .ev-toggle');
+    check(await page.locator('#roomHint blockquote q').isVisible(), '근거 칩 클릭 시 원문 인용 펼침');
+    check(await page.locator('#roomProgressText').innerText().then((t) => /^질문 1 \/ \d+$/.test(t)), '질문 진행 n/N');
+    // 새로고침 복원: 서버 상태에서 질문·남은 시간을 되살린다
+    const titleBefore = await page.locator('#roomTitle').innerText();
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('#screen-room:not([hidden])', { timeout: 10000 });
+    await page.waitForFunction((t) => document.querySelector('#roomTitle')?.textContent === t, titleBefore, { timeout: 10000 });
+    check(await page.locator('#clock').innerText().then((t) => /^0[0-5]:\d{2}$/.test(t)), '새로고침 후 세션·타이머 복원');
+    // 일시정지/재개 (오버레이)
     await page.click('#pauseBtn');
     await page.waitForFunction(() => document.querySelector('#roomState')?.textContent === '일시정지');
-    await page.click('#pauseBtn');
+    check(await page.locator('#pauseOverlay').isVisible(), '일시정지 오버레이');
+    await page.screenshot({ path: path.join(OUT, '03b-room-paused-1440.png'), fullPage: true });
+    await page.click('#resumeBtn');
     await page.waitForFunction(() => document.querySelector('#roomState')?.textContent === 'LIVE');
+    check(await page.locator('#pauseOverlay').isHidden(), '재개 시 오버레이 닫힘');
+    // 빈 답변 안내(입력 보존·행동 안내)
+    await page.fill('#answerText', '');
+    await page.click('#answerBtn');
+    check(/답변을 입력해 주세요/.test(await page.locator('#roomError').innerText()), '빈 답변 안내');
+    // 종료 확인 다이얼로그: 기본 포커스는 취소, 취소하면 면접 유지
+    await page.click('#finishBtn');
+    await page.waitForSelector('#confirmDialog[open]');
+    check(/지금까지의 답변으로 보고서를 만듭니다/.test(await page.locator('#confirmMessage').innerText()), '종료 확인 문구');
+    await page.waitForFunction(() => document.activeElement?.id === 'confirmCancel', null, { timeout: 2000 }).catch(() => {});
+    check(await page.evaluate(() => document.activeElement?.id) === 'confirmCancel', '종료 확인 기본 포커스는 취소');
+    await page.click('#confirmCancel');
+    check(await page.locator('#screen-room:not([hidden])').count() === 1, '종료 취소 시 면접 유지');
+    await page.screenshot({ path: path.join(OUT, '03c-room-1440.png'), fullPage: true });
+    // 모바일: 하단 고정 행동 바가 화면 안에 보이고 가로 오버플로가 없다
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.waitForTimeout(150);
+    const bar = await page.locator('#roomActions').boundingBox();
+    check(bar && bar.y + bar.height <= 700 + 1, '모바일 행동 바가 뷰포트 하단에 고정', JSON.stringify(bar));
+    check((await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 1, '면접실 가로 오버플로 없음 @390px');
+    await page.screenshot({ path: path.join(OUT, '03d-room-390.png') });
+    await page.setViewportSize({ width: 1440, height: 900 });
     let answered = 0;
     for (let i = 0; i < 10; i += 1) {
       if (await page.locator('#screen-feedback:not([hidden])').count()) break;
@@ -172,7 +216,7 @@ async function main() {
       await page.click('#answerBtn');
       await page.waitForTimeout(450);
     }
-    if (await page.locator('#screen-room:not([hidden])').count()) await page.click('#finishBtn');
+    if (await page.locator('#screen-room:not([hidden])').count()) { await page.click('#finishBtn'); await page.click('#confirmOk'); }
     await page.waitForSelector('#screen-feedback:not([hidden])', { timeout: 20000 });
     await page.waitForSelector('#feedbackBody .report', { timeout: 20000 });
     check(answered >= 2, '답변 제출', `${answered}회`);
@@ -207,6 +251,7 @@ async function main() {
       await page.click('#answerBtn');
       await page.waitForTimeout(600);
       await page.click('#finishBtn');
+      await page.click('#confirmOk');
       await page.waitForSelector('#comparisonBox .comparison', { timeout: 30000 });
       await page.waitForSelector('#screen-repractice:not([hidden])');
       const comparison = await page.locator('.comparison').innerText();

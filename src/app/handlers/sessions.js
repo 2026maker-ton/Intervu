@@ -12,7 +12,9 @@ import { PT_TASKS, SITUATION_SCENARIOS, TECHNICAL_QUESTIONS, PANEL_PRESETS } fro
 const LEGACY_TYPE_ALIASES = ['structured', 'discussion_beta', 'pt_beta', 'presentation'];
 
 export function createSessionHandlers(d) {
-  const { config, store, ledger, trends, err, now, provider, syntheticTraffic } = d;
+  const { config, store, ledger, trends, err, now, provider, syntheticTraffic, caller, requestContext } = d;
+  // 세션 생성 시점의 라우팅 예고(아직 호출 전): 실제 호출 결과는 명령 응답·보고서의 provider_trace가 알려 준다.
+  const planTrace = (p) => ({ operation: p.operation, provider: p.provider, mode: p.mode, reason: p.reason, model_alias: p.live ? p.route.alias : 'mock', latency_ms: null });
   function createSession(owner, body) {
     if (!body.profile_version_id) {
       if (body.profile_version_id === undefined) {
@@ -66,14 +68,14 @@ export function createSessionHandlers(d) {
     if (institution?.org_type === 'highschool' && provider.name === 'gemini') {
       return err('not_implemented', '고등학교 입학면접 연습은 Mock 검증 범위이며 Gemini 실호출을 사용하지 않습니다.', 422);
     }
-    try {
-      // 사전 확인만 수행(전액 예약은 다른 호출의 여유를 막음). 실제 예약은 호출 단위.
-      if (!ledger.canAfford(`session:${owner}`, config.budgets.sessionHardCap)) {
-        throw Object.assign(new Error('session budget exceeded'), { code: 429, retryable: true });
-      }
-    } catch (e) {
-      return err('quota_exceeded', '예산 한도를 초과했습니다.', 429, { retryable: true, details: { reason: e.message } });
-    }    const qCount = questionCountForDuration(duration_minutes);
+    // 사전 예산 확인(BUG-8): 세션 id가 생기기 전이므로 월 예산 잔여가 세션 상한을 감당하는지만 본다(과거 `session:${owner}` 가짜 키 제거).
+    // 실제 예약·정산은 호출 단위(providers/call.js)가 세션 키로 한다.
+    const sessionCtx = requestContext(owner, { forceMock: institution?.org_type === 'highschool' || !!body._forceMock });
+    const dialoguePlan = caller.plan('dialogue.next', sessionCtx);
+    if (ledger.monthlyAvailable() < config.budgets.sessionHardCap) {
+      return err('quota_exceeded', '예산 한도를 초과했습니다.', 429, { retryable: true, details: { reason: 'monthly budget exceeded' } });
+    }
+    const qCount = questionCountForDuration(duration_minutes);
     let questions = [];
     let coverage = null;
     let question_basis = 'general-template-v1';
@@ -191,11 +193,11 @@ export function createSessionHandlers(d) {
       questions,
       ...extra,
       highschool_mock: institution?.org_type === 'highschool' ? true : !!body._forceMock,
-      policy_snapshot: { provider: provider.name, model: config.gemini.textModel, rubric: rubric_version, pack: 'general-entry-ko@0.1.0-draft', budget_cap: config.budgets.sessionHardCap, interviewer_role: role, persona: body.persona || 'standard', question_basis, institution_approved: !!institution },
+      policy_snapshot: { provider: dialoguePlan.provider, model: config.gemini.textModel, rubric: rubric_version, pack: 'general-entry-ko@0.1.0-draft', budget_cap: config.budgets.sessionHardCap, interviewer_role: role, persona: body.persona || 'standard', question_basis, institution_approved: !!institution },
     });
     store.updateSession(s, { coverage, question_basis });
     store.pushEvent(s.id, 'session.snapshot', { state: 'ready', questions: s.questions.length, interviewer_role: role, question_basis });
-    return { status: 201, body: { id: s.id, state: s.state, version: s.version, interview_type, task_type: s.task_type, participant_layout: s.participant_layout, free_test: !!s.free_test, limits: { duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: provider.name, coverage, interviewer_role: role, role_label: ROLES[role].label, panel_roles: s.panel_roles || null, topic: s.topic_title ? { id: s.topic_id, title: s.topic_title, brief: s.topic_brief } : null, pt_task: s.pt_task_id ? { id: s.pt_task_id, title: s.pt_task_title, brief: s.pt_brief, prepare_seconds: s.pt_prepare_seconds, present_seconds: s.pt_present_seconds } : null, scenario: s.scenario_id ? { id: s.scenario_id, title: s.scenario_title } : null, rubric_version, question_basis } };
+    return { status: 201, body: { id: s.id, state: s.state, version: s.version, interview_type, task_type: s.task_type, participant_layout: s.participant_layout, free_test: !!s.free_test, limits: { duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: dialoguePlan.provider, provider_trace: [planTrace(dialoguePlan)], coverage, interviewer_role: role, role_label: ROLES[role].label, panel_roles: s.panel_roles || null, topic: s.topic_title ? { id: s.topic_id, title: s.topic_title, brief: s.topic_brief } : null, pt_task: s.pt_task_id ? { id: s.pt_task_id, title: s.pt_task_title, brief: s.pt_brief, prepare_seconds: s.pt_prepare_seconds, present_seconds: s.pt_present_seconds } : null, scenario: s.scenario_id ? { id: s.scenario_id, title: s.scenario_title } : null, rubric_version, question_basis } };
   }
 
   function getSession(owner, id) {
@@ -215,7 +217,7 @@ export function createSessionHandlers(d) {
       duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, input_mode: s.input_mode,
       active_elapsed_ms: s.active_elapsed_ms + (s.state === 'active' && s.started_at ? Math.max(0, Date.now() - Date.parse(s.started_at)) : 0), questions: s.questions.map((q) => ({ id: q.id, text: q.text, primary: q.primary, secondary: q.secondary, ...(q.trend_ids ? { trend_ids: q.trend_ids, source_status: q.source_status, basis: q._institution_basis } : {}), ...(q.application_evidence ? { application_evidence: q.application_evidence, source_status: q.source_status, prompt_version: q.prompt_version } : {}) })), q_index: s.q_index,
       current_question: s.questions[s.q_index] || null, followups_used: s.followups_used, llm_calls: s.llm_calls,
-      coverage: s.coverage || null, degraded_reason: s.degraded_reason, last_seq: (store.events.get(s.id) || []).filter((e) => e.durable).length,
+      coverage: s.coverage || null, degraded_reason: s.degraded_reason, provider_trace: (s.provider_trace || []).slice(-20), last_seq: (store.events.get(s.id) || []).filter((e) => e.durable).length,
     };
     if (s.interview_type === 'discussion') {
       base.topic = s.topic_id ? { id: s.topic_id, title: s.topic_title, brief: s.topic_brief } : null;

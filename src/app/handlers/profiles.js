@@ -7,10 +7,10 @@ import { isSyntheticProfileBody } from '../../domain/fixtures.js';
 import { buildInstitutionProfile, normalizeOrgType, providerConstraintForOrg } from '../../domain/institution.js';
 
 export function createProfileHandlers(d) {
-  const { config, store, ledger, err, now, priceOf, providerFor, syntheticTraffic } = d;
+  const { config, store, err, now, caller, requestContext } = d;
   async function createProfile(owner, body, requestId) {
     // 프로필 API 속도 제한(사양 §15): 계정당 분당2회/일10회 기본값
-    const counts = store.recordProfileCall(owner);
+    const counts = store.recordRate(owner, 'profile');
     if (counts.minute > config.profileRate.perMinute || counts.day > config.profileRate.perDay) {
       return err('quota_exceeded', '공고 분석 요청이 너무 잦습니다. 잠시 후 다시 시도하세요.', 429, { retryable: true, details: { minute: counts.minute, day: counts.day, limit_minute: config.profileRate.perMinute, limit_day: config.profileRate.perDay } });
     }
@@ -51,30 +51,21 @@ export function createProfileHandlers(d) {
       : (providedSources.length ? null : null);
     const masked = maskPii(source);
     const blind = buildBlindContext(masked);
-    let extracted;
-    let usedProvider = 'mock';
-    try {
-      // 미성년자 가능 기관(highschool)은 항상 Mock 추출(외부 전송 금지)
-      const useProvider = providerFor({ forceMock: !!body._forceMock }).provider;
-      if (syntheticTraffic && useProvider.name === 'gemini' && detectPii(source).length > 0) {
-        throw Object.assign(new Error('synthetic traffic must not contain PII'), { code: 422 });
-      }
-      if (useProvider.name === 'gemini') {
-        ledger.reserve(`profile:${profile.id}`, 0.01);
-        const caught = await useProvider.extract({ sourceText: masked, blindContext: blind });
-        ledger.settle(`profile:${profile.id}`, 0.01, priceOf(caught.model, caught.usage));
-        extracted = caught;
-        usedProvider = 'gemini';
-      } else {
-        extracted = extractClaims(masked, body.experiences || []);
-      }
-    } catch (e) {
-      if (e.code === 422 && /PII/.test(e.message)) {
-        return err('validation_error', '합성 테스트 데이터에 개인정보를 포함할 수 없습니다.', 422, { requestId });
-      }
-      // 추출 실패 → 일반 템플릿(세션은 계속 가능)
-      extracted = { claims: [], missing_fields: ['extraction_failed'], recommended_template: 'general-entry-v1', degraded_reason: e.code || 'provider_error' };
+    // 공고 키워드 추출: 공급자 라우팅·게이트·예산은 호출 래퍼가 처리한다(고교는 항상 Mock). 지원서 본문은 외부로 보내지 않는다.
+    const ctx = requestContext(owner, { forceMock: !!body._forceMock });
+    if (caller.plan('claims.extract', ctx).live && ctx.synthetic && detectPii(source).length > 0) {
+      return err('validation_error', '합성 테스트 데이터에 개인정보를 포함할 수 없습니다.', 422, { requestId });
     }
+    const res = await caller.call('claims.extract', {
+      ctx, mockAlias: 'rule-based',
+      reserve: { key: `profile:${profile.id}`, amount: config.profileRate.reserve },
+      invoke: (a) => a.extract({ sourceText: masked, blindContext: blind }),
+      mock: () => extractClaims(masked, body.experiences || []),
+      validate: (o) => Array.isArray(o?.claims) && o.claims.length <= 50,
+    });
+    // 실패 폴백이어도 규칙 기반 결과로 계속한다(세션은 계속 가능). 사유는 degraded_reason으로 남긴다.
+    const extracted = res.trace.mode === 'fallback' ? { ...res.value, degraded_reason: res.trace.reason } : res.value;
+    const usedProvider = res.trace.mode === 'live' ? res.trace.provider : 'mock';
     // 서버가 span을 원문에서 직접 계산(모델 좌표를 신뢰하지 않음) 후 일치 검증
     const normalized = (extracted.claims || []).map((c) => {
       const quote = String(c.value || c.quote || '').normalize('NFC').trim();
@@ -107,7 +98,7 @@ export function createProfileHandlers(d) {
     });
     store.setInstitution(profile.id, institution, 'review');
     void pubNotice;
-    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, synthetic, applicant_claims_count: applicant_claims.length, institution, institution_status: 'review' } };
+    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, synthetic, provider_trace: [res.trace], applicant_claims_count: applicant_claims.length, institution, institution_status: 'review' } };
   }
 
   function getProfile(owner, id) {

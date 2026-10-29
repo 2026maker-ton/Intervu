@@ -39,6 +39,14 @@ export function createStore({ ttlDays = 30 } = {}) {
     return ev;
   }
 
+  // 사용자별 속도 제한 기록(WP-B1): bucket별 최근 호출 시각. 분/일 창 안의 횟수를 돌려준다.
+  function recordRate(owner, bucket = 'profile') {
+    const t = Date.now();
+    const k = `${bucket}:${owner}`;
+    const list = (profileCalls.get(k) || []).filter((x) => t - x < 86_400_000).concat([t]).slice(-2100);
+    profileCalls.set(k, list);
+    return { minute: list.filter((x) => t - x < 60_000).length, day: list.length };
+  }
   return {
     // profiles
     createProfile(owner, data) {
@@ -126,6 +134,8 @@ export function createStore({ ttlDays = 30 } = {}) {
         interviewer_role: data.interviewer_role || 'practitioner',
         question_basis: data.question_basis || 'general-template-v1',
         free_test: data.free_test === true, // 서버가 정한 합성 전용 인스턴스 표시(요청 본문 값 아님)
+        server_synthetic: data.server_synthetic === true, // 서버 판정 합성 세션(WP-C6 fixture 해시). 클라이언트 값은 복사하지 않는다
+        provider_trace: [], // 공급자 호출 결과 라벨(WP-B1). 본문·키 없음
         panel_roles: data.panel_roles || null,
         topic_id: data.topic_id || null, topic_title: data.topic_title || null, topic_brief: data.topic_brief || null,
         discussion: data.discussion || null,
@@ -181,16 +191,8 @@ export function createStore({ ttlDays = 30 } = {}) {
       consents.set(owner, c);
       return c;
     },
-    getConsent(owner) { return consents.get(owner) || null; },
-    recordProfileCall(owner) {
-      const t = Date.now();
-      const list = (profileCalls.get(owner) || []).concat([t]).slice(-40);
-      profileCalls.set(owner, list);
-      return {
-        minute: list.filter((x) => t - x < 60_000).length,
-        day: list.filter((x) => t - x < 86_400_000).length,
-      };
-    },
+    recordRate,
+    recordProfileCall(owner) { return recordRate(owner, 'profile'); },
     deleteAccount(owner) {
       consents.delete(owner);
       const deletionId = randomUUID();

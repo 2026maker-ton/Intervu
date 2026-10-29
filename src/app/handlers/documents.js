@@ -4,9 +4,10 @@ import { maskPii } from '../../domain/pii.js';
 import { validateDocument, extractDocumentText } from '../../domain/documents.js';
 
 export function createDocumentHandlers(d) {
-  const { err, store } = d;
+  const { err, store, checkRate } = d;
   function extractDocument(owner, body) {
-    void owner;
+    const limited = checkRate(owner, 'documents');
+    if (limited) return limited;
     const filename = String(body.filename || '');
     const mimeType = String(body.mime_type || body.mimeType || '');
     const b64 = String(body.content_base64 || '');

@@ -11,9 +11,12 @@ import { rubricForInterviewType, getRubric } from '../../domain/rubrics.js';
 import { buildTypedEvaluation } from '../../domain/mock-eval-typed.js';
 import { validateEvaluationGeneric } from '../../domain/evaluation-generic.js';
 import { nextAiUtterance, moderatorLine, recordDiscussionTurn } from '../../domain/discussion.js';
+import { validateDialogueOutput } from '../../providers/validate.js';
 
 export function createCommandHandlers(d) {
-  const { config, store, ledger, err, now, priceOf, providerFor, provider, publicSession } = d;
+  const { config, store, err, now, caller, mock, requestContext, checkRate, publicSession } = d;
+  // 세션 provider_trace: 실제 호출 결과만 쌓는다(최근 100건). 본문·키는 담기지 않는다.
+  const pushTrace = (s, t) => { (s.provider_trace ||= []).push(t); if (s.provider_trace.length > 100) s.provider_trace.shift(); };
   // 유형·단계별 평가 차원 매핑: 보고서의 근거 차원은 발화 시점의 단계로 고정한다.
   const discussionTurnDims = (phase, userTurnNo) => {
     if (userTurnNo <= 1) return ['claim_understanding', 'evidence_use'];
@@ -117,6 +120,8 @@ export function createCommandHandlers(d) {
     }
     if (type === 'turn.text' || type === 'turn.commit') {
       if (s.state !== 'active') return err('conflict', '진행 중인 세션에서만 답변할 수 있습니다.', 409);
+      const limited = checkRate(owner, 'turns');
+      if (limited) return limited;
       // 서버 시계 기준 시간 상한(클라이언트 타이머 조작과 무관)
       const elapsedMs = s.active_elapsed_ms + (s.started_at ? Math.max(0, Date.now() - Date.parse(s.started_at)) : 0);
       if (elapsedMs >= s.duration_seconds * 1000) return finishSession(owner, s, accept, commandId);
@@ -255,8 +260,8 @@ export function createCommandHandlers(d) {
       let utterance = q.text;
       let action = 'next_question';
       let followupReason = null;
-      let geminiUsed = false;
-      let geminiModel = null;
+      let trace = null;
+      let liveResult = null;
       // 패널: 현재 질문 담당 역할의 꼬리질문 전략을 사용 (평가는 동일 루브릭)
       const panelRole = (s.interview_type === 'panel') ? (q._panel_role || (s.panel_roles || [])[s.q_index % (s.panel_roles || ['practitioner']).length] || s.interviewer_role) : s.interviewer_role;
       const needFollowup = s.followups_used < config.limits.maxFollowupsTotal && !q._followedUp;
@@ -264,52 +269,40 @@ export function createCommandHandlers(d) {
         followupReason = followupReasonFor(text);
         action = 'ask_followup';
       }
-      try {
-        ledger.reserve(`session:${s.id}`, 0.005);
-        // highschool 세션은 Mock 강제(미성년자 보호). 공급자는 서버 상태로만 정한다(요청 본문 무시).
-        const { provider: useProvider } = providerFor({ forceMock: !!s.highschool_mock });
-        // 최근 대화(최대 4턴)를 문맥으로 전달: Gemini가 답변 근거를 활용하도록
-        const pastTurns = store.sessionTurns(s.id).slice(-5, -1);
-        const history = pastTurns.map((t) => {
-          const revs = store.getRevisions(t.id);
-          const last = revs[revs.length - 1];
-          const qq = s.questions.find((x) => x.id === t.question_id);
-          return { question: qq?.text || '', answer: last?.normalized_text || '' };
-        }).filter((h) => h.question || h.answer);
-        history.push({ question: q.followup || q.text, answer: text });
-        const result = await useProvider.next({
-          persona: s.persona, role: panelRole, followupReason,
-          questionText: q.followup || q.text, recentAnswer: text,
-          interviewType: s.interview_type, history,
-        });
-        ledger.settle(`session:${s.id}`, 0.005, priceOf(result.model, result.usage));
-        utterance = result.utterance;
-        if (useProvider.name === 'gemini') {
-          // Gemini 실생성 사용 표시(보고서·로그에서 Mock과 구분)
-          s.degraded_reason = null;
-          geminiUsed = true;
-          try { geminiModel = result.model || useProvider.model; } catch { geminiModel = config.gemini.textModel; }
-          store.pushEvent(s.id, 'provider.used', { provider: 'gemini', model: geminiModel || result.model });
-        }
-      } catch (e) {
-        // 대체: 검증된 정적 후속/다음 질문 (예약이 있었으면 unknown 처리)
-        if (e.code === 429) {
-          // 무료 한도 소진: 추가 과금 없이 종료. 유료 모델로 자동 전환 금지.
-          s.degraded_reason = 'free_quota_exhausted';
-          store.pushEvent(s.id, 'budget.warning', { reason: 'free_quota_exhausted', fallback: 'static', retryable: false });
-          utterance = q.text;
-          return finishSession(owner, s, accept, commandId);
-        }
-        const res = ledger.usage(`session:${s.id}`);
-        if (res.reserved > 0) ledger.settle(`session:${s.id}`, 0.005, 0.005, { unknown: !e.code || e.code >= 500 });
-        // Fallback 전용: 검증된 정적 후속/역할 문장 (Mock 경로와 동일 전략)
-        if (followupReason) {
-          utterance = followupForRole(panelRole, followupReason, null) || FOLLOWUPS[followupReason] || q.text;
-        } else {
-          utterance = q.text;
-        }
-        s.degraded_reason = 'provider_fallback';
-        store.pushEvent(s.id, 'budget.warning', { reason: 'provider_fallback', fallback: 'static' });
+      // 공급자는 서버 상태(ctx)로만 정한다(요청 본문 무시). 고교 세션은 Mock 강제(미성년자 보호).
+      const ctx = requestContext(owner, { forceMock: !!s.highschool_mock, synthetic: s.server_synthetic === true });
+      // 최근 대화(최대 4턴)를 문맥으로 전달: 모델이 답변 근거를 활용하도록
+      const pastTurns = store.sessionTurns(s.id).slice(-5, -1);
+      const history = pastTurns.map((t) => {
+        const revs = store.getRevisions(t.id);
+        const last = revs[revs.length - 1];
+        const qq = s.questions.find((x) => x.id === t.question_id);
+        return { question: qq?.text || '', answer: last?.normalized_text || '' };
+      }).filter((h) => h.question || h.answer);
+      history.push({ question: q.followup || q.text, answer: text });
+      const dialogueInput = { persona: s.persona, role: panelRole, followupReason, questionText: q.followup || q.text, recentAnswer: text, interviewType: s.interview_type, history };
+      // 검증 기준 문맥: 모델 출력의 숫자는 이 안에 있어야 한다(새 사실·수치 금지)
+      const contextText = `${dialogueInput.questionText}\n${text}\n${history.map((h) => `${h.question}\n${h.answer}`).join('\n')}`;
+      const staticFollowup = () => (followupReason ? (followupForRole(panelRole, followupReason, null) || FOLLOWUPS[followupReason] || q.text) : q.text);
+      const res = await caller.call('dialogue.next', {
+        ctx,
+        reserve: { key: `session:${s.id}`, amount: 0.005 },
+        invoke: (a) => a.next(dialogueInput),
+        mock: () => mock.next(dialogueInput),
+        // 429·타임아웃·잘못된 출력 등 장애: 검증된 정적 후속 문장으로 세션을 계속한다(BUG-8). 다른 공급자로 승격하지 않는다.
+        fallback: async () => ({ utterance: staticFollowup() }),
+        validate: (o) => validateDialogueOutput(o, contextText),
+      });
+      trace = res.trace;
+      pushTrace(s, trace);
+      utterance = res.value.utterance;
+      if (trace.mode === 'live') {
+        s.degraded_reason = null;
+        liveResult = res.value;
+        store.pushEvent(s.id, 'provider.used', { provider: trace.provider, model: res.value.model });
+      } else if (trace.mode === 'fallback' || (trace.mode === 'blocked' && trace.reason === 'budget_cap')) {
+        s.degraded_reason = trace.reason;
+        store.pushEvent(s.id, 'budget.warning', { reason: trace.reason, fallback: 'static' });
       }
       s.llm_calls += 1;
       const panel_prefix = (s.interview_type === 'panel' && panelRole) ? `[${(ROLES[panelRole] || {}).label || panelRole}] ` : '';
@@ -339,8 +332,8 @@ export function createCommandHandlers(d) {
         command_id: commandId, state: s.state, version: s.version, action, utterance,
         turn_id: turn.id, revision: rev.revision, current_question: s.questions[s.q_index] || null,
         followups_used: s.followups_used, llm_calls: s.llm_calls,
-        provider: geminiUsed ? 'gemini' : 'mock',
-        ...(geminiUsed && geminiModel ? { model: geminiModel } : {}),
+        provider: trace.mode === 'live' ? trace.provider : 'mock', provider_trace: [trace],
+        ...(liveResult?.model ? { model: liveResult.model } : {}),
         ...(s.degraded_reason ? { degraded_reason: s.degraded_reason } : {}),
       };
       if (s.interview_type === 'panel') resp.speaker_role = panelRole;
@@ -378,23 +371,32 @@ export function createCommandHandlers(d) {
       else elicited = q ? [q.primary, ...(q.secondary || [])] : [];
       turnsWithText.push({ turn_id: t.id, question_id: t.question_id, revision: rev.revision, text: rev.normalized_text, elicited });
     }
-    // 평가 예산 예약(평가 슬롯 보존)
     let report = null;
     try {
-      ledger.reserve(`session:${s.id}`, config.budgets.evalReserve);
       const it = s.interview_type || s.mode || 'general';
       const rubric_version = s.policy_snapshot?.rubric || rubricForInterviewType(it);
       const isLegacy = rubric_version === 'behavioral-ko-v1' && (it === 'general' || it === 'panel' || it === 'structured');
-      let generated;
-      if (isLegacy) {
-        generated = buildMockEvaluation({ sessionId: s.id, turnsWithText });
-        const v = validateEvaluation(generated, turnsWithText.map((t) => ({ turn_id: t.turn_id, revision: t.revision, speaker: 'user', text: t.text, elicited_dimensions: t.elicited })));
+      const evalTurns = turnsWithText.map((t) => ({ turn_id: t.turn_id, revision: t.revision, speaker: 'user', text: t.text, elicited_dimensions: t.elicited }));
+      const validateGenerated = (g) => (isLegacy ? validateEvaluation(g, evalTurns) : validateEvaluationGeneric(g, evalTurns, getRubric(rubric_version)));
+      // 규칙 기반 평가: 인용·span 검증을 통과한 결과만 채택한다(기존 동작 불변)
+      const ruleBased = () => {
+        const g = isLegacy ? buildMockEvaluation({ sessionId: s.id, turnsWithText }) : buildTypedEvaluation({ rubricVersion: rubric_version, turnsWithText });
+        const v = validateGenerated(g);
         if (!v.ok) throw new Error(v.errors.join('; '));
-      } else {
-        generated = buildTypedEvaluation({ rubricVersion: rubric_version, turnsWithText });
-        const v = validateEvaluationGeneric(generated, turnsWithText.map((t) => ({ turn_id: t.turn_id, revision: t.revision, speaker: 'user', text: t.text, elicited_dimensions: t.elicited })), getRubric(rubric_version));
-        if (!v.ok) throw new Error(v.errors.join('; '));
-      }
+        return g;
+      };
+      // 평가 라우팅(evaluation.generate): 기본은 규칙 기반. 모델 평가가 켜져도 같은 검증을 통과한 출력만 쓴다.
+      const evalRes = await caller.call('evaluation.generate', {
+        ctx: requestContext(owner, { forceMock: !!s.highschool_mock, synthetic: s.server_synthetic === true }),
+        mockAlias: 'rule-based',
+        reserve: { key: `session:${s.id}`, amount: config.budgets.evalReserve },
+        invoke: (a2) => a2.evaluate({ turnsWithText, dimensions: [] }),
+        mock: ruleBased, fallback: ruleBased,
+        validate: (g) => validateGenerated(g).ok === true,
+      });
+      const generated = evalRes.value;
+      const evalTrace = evalRes.trace;
+      pushTrace(s, evalTrace);
       // 기관 연결: 공개 요구사항과 답변의 근거 연결 (평가 점수와 별도 레이어)
       let institution_link = { mode: 'general', note: '공고 연결 없이 일반 역량 기준으로만 분석합니다.', links: [], uncovered: [] };
       let institution_profile = null;
@@ -425,22 +427,22 @@ export function createCommandHandlers(d) {
         evaluation_id: randomUUID(),
         status: 'ready',
         generated_at: now(),
-        provider: provider.name,
+        // 평가기 종류·실제 공급자는 provider_trace와 같은 값이다(BUG-6). 규칙 기반 평가를 AI 평가처럼 표기하지 않는다.
+        provider: evalTrace.provider,
+        evaluator: { kind: evalTrace.mode === 'live' ? 'llm' : 'rule_based', provider: evalTrace.provider, model_alias: evalTrace.model_alias, version: evalTrace.mode === 'live' ? (generated.model_version || null) : 'rule-based-v1' },
+        provider_trace: [...(s.provider_trace || [])],
         interviewer_role: s.interviewer_role || null,
         role_label: s.interviewer_role ? (ROLES[s.interviewer_role]?.label || null) : null,
         institution: institution_profile,
         institution_link,
         claim_links: buildClaimLinks(s, turnsWithText),
-        badge: 'AI 생성 코칭 · 실제 합격 예측 아님',
-        model_version: provider.name === 'gemini' ? config.gemini.textModel : 'mock-model-v1',
+        model_version: generated.model_version || 'mock-model-v1',
         interview_type: it,
         rubric_version,
         transcript_turn_count: turnsWithText.length,
       };
       store.evaluations.set(s.id, report);
-      ledger.settle(`session:${s.id}`, config.budgets.evalReserve, Math.min(config.budgets.evalReserve, 0.002));
     } catch (e) {
-      ledger.settle(`session:${s.id}`, config.budgets.evalReserve, config.budgets.evalReserve, { unknown: true });
       report = { status: 'failed', error_code: 'evaluation_failed', generated_at: now(), detail: '평가를 생성하지 못했습니다. 확정된 답변은 보존됩니다.', debug: String(e?.message || e).slice(0, 300) };
       store.evaluations.set(s.id, report);
     }

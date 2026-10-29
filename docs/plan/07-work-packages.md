@@ -3,6 +3,8 @@
 난이도: S(≈반나절) / M(1~2일) / L(3일+) — 대략 추정이며 일정이 아니다. 컷라인: **M**ust / **S**hould / **C**ould (01 §2.2).
 각 WP는 **독립 브랜치/워크트리**에서 수행하고 `README.md §3`의 공통 규칙·보고 형식을 따른다.
 
+> **WP-E4 주석:** §1~§8은 계획 당시 내용이다. `src/server.js`(→`src/app/`·`src/node/`)·`tests/run.mjs`(→`tests/{helpers,api,domain,eval}`)·`public/app.js` 단일 파일(→`public/core|screens`)은 A0·A1·D1에서 이미 분리됐다. 현재 완료/부분/미착수 상태는 문서 끝 **§9 진행 현황**을 본다.
+
 ## 1. 병렬 실행 규칙 (충돌 방지)
 
 ### 1.1 충돌 핫스팟과 소유
@@ -217,3 +219,43 @@ W5:         D8 접근성·반응형·카피 QA · E2 사람 평가 설계 · E4 
 | **Could** | B4, C2(수집기), C7 |
 
 배포를 하지 않기로 하면(DG-1 대안 B) A3·A4는 제외하고 `STORE=file` Node 서버로 시연한다.
+
+## 9. 진행 현황 (WP-E4, 2026-10-29, 기준 커밋 `aa6d0cc`)
+
+위 항목은 작성 당시 계획이다. 현재 상태(증거 있는 것만 올림). `[DONE]`은 **Mock·스텁 시험 범위**이며 실호출·실배포·실기기 검증을 뜻하지 않는다. 정본은 `PROJECT.md` §12.1.
+
+| WP | 상태 | 커밋 | 비고 |
+|---|---|---|---|
+| A0 테스트 분리 | `[DONE]` | `e417484` | 77개·이름 동일 분리, 이후 `tests/{helpers,api,domain,eval}` |
+| A1 핸들러·Store·멱등 | `[DONE]` | `559dc98` | `src/app/`·`src/node/`·`src/store/` |
+| A2 영속 저장 | `[DONE]` | `4881568`, `62d2812` | `STORE=file`, 단일 프로세스 가정 |
+| A3 Workers·DO | `[PARTIAL]` | `f0a9058` | 계약 테스트만, Workers·wrangler 미실행 `[UNVERIFIED]` |
+| A4 Pages·CORS·CI | `[PARTIAL]` | `fe06d70` | 코드·워크플로만, 배포 미실행 |
+| B1 라우팅·게이트·래퍼 | `[DONE]` | `cf95781`, `adf2a02` | Gemini·Mock·스텁으로 검증 |
+| B2 DeepSeek | `[PARTIAL]` | `d585161` | 스텁 시험만, 요청 형태 `[UNVERIFIED]` |
+| B3 Claude 주장 추출 | `[PARTIAL]` | `f76491a` | 스텁 시험만 |
+| B4 Claude 평가 | `[TODO]` | - | 미착수 |
+| B5 Groq STT 검증 | `[PARTIAL]` | `6ae151b` | 계약 시험·수동 스모크 도구만, 실측 미실행 |
+| B6 ElevenLabs TTS | `[PARTIAL]` | `202a8b8` | 스텁 시험만 |
+| B7 골든·불변식 | `[DONE]` | `6ae151b` | 합성 30건 |
+| C1 문서·revision | `[DONE]` | `4f4c23a` | 실제 한글 PDF 미검증, CID는 명시 실패 |
+| C2 수집기 | `[PARTIAL]` | `adf8c3c` | 주입 fetch/dns 시험만, 실수집 미실행, TOCTOU 틈 |
+| C3 트렌드 규칙·반영 | `[DONE]` | `91318cf` | 보조 질문 1개 |
+| C4 전이 질문 확대 | `[DONE]` | `047d0d3` | 15개 고정 템플릿 |
+| C5 PII 보강 | `[DONE]` | `f1e86e8` | 휴리스틱, 완전 익명화 아님 |
+| C6 합성 샘플·동의 | `[DONE]` | `e2e6f7e` | 자기 신고 방식 |
+| C7 주장 확장 | `[PARTIAL]` | `ea43252` | 합성 코퍼스 한정 |
+| C8 질문 계획 API | `[DONE]` | `b3fccf5` | |
+| D1 UI 모듈화 | `[DONE]` | `c4a859f` | |
+| D2 디자인 시스템·카피 | `[DONE]` | `aa11c0c` | `public/core/copy.js`·`public/ui/index.js` |
+| D3 S2 지원 정보 | `[DONE]` | `f863841` | |
+| D4 S3 근거 확인 | `[DONE]` | `f06e922` | |
+| D5 S4·S5 설정·면접실 | `[DONE]` | `ee178e4` | 실기기 마이크·TTS 미검증 |
+| D6 S6·S7 보고서·재연습 | `[DONE]` | `1c03f7b` | |
+| D7 S8·S9 기록·관리자 | `[DONE]` | `e73aac7` | |
+| D8 접근성·반응형·카피 QA | `[TODO]` | - | 미착수(스크린리더·키보드 수동 점검 기록 없음) |
+| D9 대시보드·복원·가드 | `[DONE]` | `056a73a` | |
+| E1 E2E 인프라 | `[DONE]` | `8a09a70` | `npm run e2e` 99 ok |
+| E2 사람 평가 설계 | `[PARTIAL]` | `6ae151b` | `docs/eval/` 프로토콜·템플릿만, 실험·결과 없음 |
+| E3 데모 리허설 | `[TODO]` | - | `npm run rehearsal` 없음 |
+| E4 문서 정합 | `[DONE]` | 이 변경 | PROJECT.md·README·체크리스트·docs/plan 갱신 |

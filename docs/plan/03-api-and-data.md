@@ -63,7 +63,7 @@
 | GET `/documents/:id/revisions` | **신규** | 목록 |
 | POST `/documents/extract` | 현재(유지·deprecate 예정) | 상태 없는 추출. 신규 UI는 위 `documents` 사용 |
 | GET `/profiles/:id/claims` | **신규** | 주장·공백 목록(`excluded` 포함) |
-| PATCH `/claims/:id` | **신규** | `{ excluded:boolean }` — 사용자가 질문 대상에서 제외 |
+| PATCH `/profiles/:id/claims/:claimId` | **구현됨(WP-C8)** | `{ excluded:boolean }` — 사용자가 질문 대상에서 제외. 주장 id가 프로필 범위라 복합 경로, 소유자 404. 제외 목록은 승인 시점에 동결(`frozen_excluded_claim_ids`), 이후 변경은 `needs_reapproval`→재승인 필요 |
 | POST `/profiles/:id/sources` | 현재 | URL 메타 등록(수집기 전에는 접속 안 함) |
 | POST `/profiles/:id/sources/:sid/fetch` | **신규(Could)** | 서버 수집기(WP-C2). `official_verified/unavailable/stale/conflict` 상태 분리 |
 | GET `/profiles/:id/institution` | 현재 | |

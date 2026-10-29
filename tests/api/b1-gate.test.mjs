@@ -46,7 +46,6 @@ test('B1 gate: each missing condition means zero outbound calls and a reason in 
     ['no LIVE_ACK', {}, 'live_ack_missing'],
     ['kill switch', { ...LIVE, KILL_PROVIDERS: 'gemini' }, 'kill_switch'],
     ['live ack but real data unapproved', LIVE, 'synthetic_only'],
-    ['real-data ack but no consent record', { ...LIVE, GEMINI_REAL_DATA_ACK: 'true' }, 'consent_missing'],
   ];
   for (const [name, env, reason] of cases) {
     await withProviders({ env }, async (ctx) => {

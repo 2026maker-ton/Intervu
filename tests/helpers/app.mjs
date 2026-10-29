@@ -17,7 +17,7 @@ export async function ensureConsent(baseUrl, token, fetchFn = globalThis.fetch) 
   assert.equal(r.status, 201);
   consented.add(k);
 }
-export const needsConsent = (method, path, noConsent) => method === 'POST' && path === '/api/v1/profiles' && !noConsent;
+export const needsConsent = (method, path, noConsent) => method === 'POST' && String(path).split('?')[0] === '/api/v1/profiles' && !noConsent;
 
 export async function call(path, { method = 'GET', token = A, body, idem = true, headers = {}, noConsent = false } = {}) {
   if (needsConsent(method, path, noConsent)) await ensureConsent(base, token);

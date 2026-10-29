@@ -1,7 +1,7 @@
 // WP-B1 시험 헬퍼: 스크립트 가능한 공급자 스텁 fetch. 실제 네트워크 호출은 하지 않는다(가짜 키·가짜 BASE_URL).
 import assert from 'node:assert/strict';
 import { createApp } from '../../src/server.js';
-import { A } from './app.mjs';
+import { A, ensureConsent, needsConsent } from './app.mjs';
 
 export const FAKE_KEY = 'fake-secret-key-XYZ-123';
 export const STUB_BASE = 'https://stub.gemini.test/v9';
@@ -33,14 +33,15 @@ export async function withProviders({ env = {}, overrides = {}, respond = () => 
   const app = createApp({
     env: {
       GEMINI_API_KEY: FAKE_KEY, GEMINI_BASE_URL: STUB_BASE, GEMINI_TEXT_MODEL: STUB_MODEL, GEMINI_FALLBACK_MODEL: STUB_MODEL,
-      GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: A, DEV_TOKEN_B: 'dev-user-b-token', TRENDS_FILE: '',
+      GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', GEMINI_ALLOW_UNPAID: '', GEMINI_PAID_ACK: '', GEMINI_LIVE_ACK: '', GEMINI_REAL_DATA_ACK: '', DEV_TOKEN_A: A, DEV_TOKEN_B: 'dev-user-b-token', TRENDS_FILE: '',
       PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100', ADMIN_TOKEN: 'b1-admin', ...env,
     },
     ...overrides,
   });
   await new Promise((r) => app.server.listen(0, r));
   const base = `http://127.0.0.1:${app.server.address().port}`;
-  const g = async (path, { method = 'GET', body, token = A } = {}) => {
+  const g = async (path, { method = 'GET', body, token = A, noConsent = false } = {}) => {
+    if (token && needsConsent(method, path, noConsent)) await ensureConsent(base, token, realFetch);
     const h = {};
     if (token) h.Authorization = `Bearer ${token}`;
     if (body !== undefined) h['Content-Type'] = 'application/json';

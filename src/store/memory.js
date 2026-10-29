@@ -191,6 +191,7 @@ export function createStore({ ttlDays = 30 } = {}) {
       consents.set(owner, c);
       return c;
     },
+    getConsent(owner) { return consents.get(owner) || null; },
     recordRate,
     recordProfileCall(owner) { return recordRate(owner, 'profile'); },
     deleteAccount(owner) {

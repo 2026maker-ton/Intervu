@@ -275,6 +275,21 @@ async function main() {
     check(mobileOverflow <= 1, '지원 정보 화면 오버플로 없음 @390px', `overflow ${mobileOverflow}px`);
     await page.screenshot({ path: path.join(OUT, '10-application-390.png'), fullPage: true });
 
+    // ---------- 접속 토큰 (내장 토큰 없음) ----------
+    console.log('\n[10b] 접속 토큰');
+    {
+      const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR' });
+      const p2 = await ctx2.newPage();
+      await p2.goto(base);
+      await p2.waitForSelector('#confirmDialog[open]', { timeout: 10000 });
+      check(/접속 토큰/.test(await p2.locator('#confirmTitle').innerText()), '토큰 없으면 접속 토큰 입력 대화상자');
+      await p2.fill('#confirmInput', 'e2e-user-a');
+      await p2.click('#confirmOk');
+      await p2.waitForFunction(() => !/실패/.test(document.querySelector('#modeChip')?.textContent || '') && !!localStorage.getItem('intervu.token'), null, { timeout: 10000 });
+      check(await p2.evaluate(() => localStorage.getItem('intervu.token')) === 'e2e-user-a', '입력한 토큰 저장');
+      await ctx2.close();
+    }
+
     // ---------- 오류 로그 ----------
     console.log('\n[11] 브라우저 오류');
     // 잘못된 관리자 토큰 시도는 의도된 403이므로 예상 실패로 분류한다.

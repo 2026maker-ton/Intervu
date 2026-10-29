@@ -409,8 +409,8 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 연령·미성년자 보호 | `[PARTIAL]` | 서버: `highschool` Mock 강제(test 520). UI: "만 19세 이상" 정적 문구 | 연령 확인 **절차** 없음(Figma 6단계 `[TODO]`). 고교 경로가 UI에는 없음 |
 | 오류 복구 | `[PARTIAL]` | 공급자 실패→정적 꼬리질문 폴백+`degraded_reason`, STT 실패→텍스트 안내, 평가 실패 상태, 보고서 폴링 | 대화 중 429는 **정적 폴백으로 계속하지 않고 세션을 즉시 종료**(`server.js:807~813`). 클라이언트 자동 재시도·세션 복구 없음 |
 | API 사용량·예산 | `[PARTIAL]` | `ledger.js`(예약→정산), 세션 $0.08·월 $30 상한, 프로필 분당2/일10 제한, 킬 스위치, test 330·356 | 원장이 **인메모리**(재시작 시 0). 월 경계 리셋 없음. 단가표는 Gemini 전용. 프로필 외 엔드포인트(문서 추출·STT·턴) 사용자별 속도 제한 없음. `config.registry`는 서버가 읽지 않음 |
-| 인증 | `[PARTIAL]` | 정적 개발 토큰 2개(`DEV_TOKEN_A/B`), 소유권 검사·교차 사용자 격리 test 277 | **실제 로그인 없음.** 브라우저가 기본 토큰 `dev-user-a-token`을 내장(`app.js:8`). 공개 배포 불가 |
-| 관리자 화면 | `[PARTIAL]` | `x-admin-token` 게이트(`checkAdmin`), E2E [9] | `ADMIN_TOKEN` 미설정이면 **모든 개발 토큰 사용자가 관리자 기능 사용 가능**(dev-open). 역할 모델 없음 |
+| 인증 | `[PARTIAL]` | 환경변수로 명시한 접속 토큰 2개(`DEV_TOKEN_A/B`)만 유효 — **내장 기본 토큰 제거**(`config.js`), 브라우저도 내장 토큰 없이 첫 401에서 접속 토큰을 물어 저장(`app.js promptToken`, E2E [10b]). 소유권 검사·교차 사용자 격리 test 277, P0-6 테스트 | **실제 로그인·세션·계정 없음**(토큰은 운영자가 나눠 주는 공유 비밀, `localStorage` 저장). 예시 토큰(`dev-user-*-token`) 사용 시 서버 시작 경고만 출력. 공개 서비스 불가 |
+| 관리자 화면 | `[PARTIAL]` | `ADMIN_TOKEN` **필수**: 미설정이면 관리 기능·`/metrics`·`/diagnostics` 전체가 꺼짐(403 `admin_disabled`), 토큰은 `x-admin-token` 헤더로만 수신하고 상수시간 비교(`checkAdmin`), E2E·P0-6 테스트 | 역할 모델·감사 기록·토큰 교체 절차 없음(단일 공유 비밀). 출처 없는 트렌드 공개 허용은 BUG-5로 남음 |
 | 공급자 게이트(실데이터 외부 전송 차단) | `[DONE]`(2026-10-29 P0-1 수정, 스텁 fetch 시험) | `selectProvider`, `providerFor`(`server.js`), 테스트 `P0 gate:*` 3건+`forged synthetic/free_test…`, 오프라인 프로브 재실행 | 요청 본문의 `synthetic`·`free_test`는 전송 근거가 아님. 합성 전용 인스턴스는 `createApp({syntheticTraffic:true})` 코드 호출로만 켜짐. **실키·유료 경로(`paidAck=true`)는 실제 호출하지 않아 `[UNVERIFIED]`**. 요청별 동의·연령 게이트는 별도 `[TODO]` |
 | 보고서 공급자 표기 | `[BUG]` | `server.js:939~945` | 규칙 기반 평가 보고서에 전역 `provider.name`을 붙이고, `paidAck=true`면 `model_version`이 Gemini 모델명이 됨(BUG-6) |
 | DeepSeek / Claude Sonnet / ElevenLabs | `[TODO]` | 코드·환경변수 없음 | §4.2 |
@@ -437,8 +437,8 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 
 | 문서 | 불일치 |
 |---|---|
-| `README.md` | 앞부분이 "통합 테스트 43개", "AI 기본 공급자는 Gemini", 만 19세·Mock→Gemini 중심. 실제 72개이며 목표 공급자 구성(§4.2)·배포 계획 미반영. 하단 "Current state"는 최신에 가까움 |
-| `IMPLEMENTATION_CHECKLIST.md` | 기준선이 "51 pass / check 3/3"(현재 72 pass / 가드 4 체크). P0 항목 일부(PII 회귀, 키워드 안티게이밍)는 테스트가 이미 있으나 미체크 |
+| `README.md` | 앞부분이 "통합 테스트 43개", "AI 기본 공급자는 Gemini", 만 19세·Mock→Gemini 중심. 실제 77개이며 목표 공급자 구성(§4.2)·배포 계획 미반영. 하단 "Current state"는 최신에 가까움 |
+| `IMPLEMENTATION_CHECKLIST.md` | 기준선이 "51 pass / check 3/3"(현재 77 pass / 가드 4 체크). P0 항목 일부(PII 회귀, 키워드 안티게이밍)는 테스트가 이미 있으나 미체크 |
 | `docs/project-intro.md`, `docs/master-plan.md`, `docs/implementation-spec.md`, `docs/decisions/2026-10-24-gemini-first.md` | 과거 목표·설정(31개 테스트, Gemini 우선, 토론 베타 등) — 이력으로 보존하되 사용자용 설명은 갱신 필요 |
 | `docs/cost-assumptions*.json`, `tools/cost-model*.mjs` | Gemini/레거시 Groq 가정뿐. 목표 구성 비용 가정 없음 |
 | `tools/e2e-ui.mjs` | Playwright 1.64.1 설치를 안내하나, 이 PC의 전역 Playwright는 1.61.1이고 브라우저 빌드가 달라 그대로는 실행 불가(§10) |
@@ -465,7 +465,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 검사 | 실행한 것 | 결과 |
 |---|---|---|
 | 문서·UI 구조 가드 | `npm run check:project` | PASS 4/4(PROJECT.md 헤딩·AGENTS.md·package 스크립트·UI 9화면/금지 패턴). **문서 구조 검사일 뿐 제품 적합성을 증명하지 않는다** |
-| 통합 테스트 | `npm test`(= 가드 + `node --test tests/run.mjs`) | **72 pass / 0 fail / 0 skipped**(P0-1~P0-3 반영 후; 수정 전 59), 약 2초. 테스트 서버는 로컬 `.env`의 키를 비우고 Mock으로만 동작 |
+| 통합 테스트 | `npm test`(= 가드 + `node --test tests/run.mjs`) | **77 pass / 0 fail / 0 skipped**(P0-1~P0-6 반영 후; 수정 전 59), 약 2초. 테스트 서버는 로컬 `.env`의 키를 비우고 Mock으로만 동작 |
 | 기관 맞춤 E2E(HTTP) | `node tools/e2e-institution.mjs` | 14 PASS / 0 FAIL (Mock) |
 | 브라우저 E2E | `tools/e2e-ui.mjs` | 47개 체크 전부 ok, "E2E 통과"(9화면 경로, 1440/768/390px 가로 오버플로 없음, 콘솔 오류·페이지 예외 0, 의도된 관리자 403 1회). **그대로는 실행 불가** — 스크립트가 안내하는 Playwright 1.64.1이 없고 전역 1.61.1은 맞는 브라우저 빌드가 없어서, 저장소 밖 임시 래퍼로 이미 설치된 `chromium_headless_shell-1248`을 `executablePath`로 지정해 실행. 헤드리스 Chromium 1종만, 마이크·SpeechSynthesis 실장치는 포함하지 않음 |
 | 설계 fixture 검사 | `node tools/verify-design.mjs` | PASS (문서 fixture·원가 산식 검사. 제품 품질·보안 검증 아님) |
@@ -487,15 +487,15 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 |---|---|---|---|
 | BUG-1 | ~~P0~~ **수정됨(2026-10-29, P0-1)** | **[원 결함·참고용]** 실사용자 텍스트가 클라이언트 위조 플래그로 Gemini에 전송될 수 있었음. `isServerSynthetic()`은 이름과 달리 **요청 본문의 `synthetic:true`와 `_synthetic_fixture:true`**만 본다. `GEMINI_ALLOW_UNPAID=true`이면(현재 로컬 `.env` 값) 선택기가 `gemini`를 반환한다. 방어는 이메일·전화·주민번호 정규식뿐이라 이름·학교는 통과. 프로필 경로는 응답에 `provider:"mock"`이라 적으면서 Gemini를 호출한다. `PROJECT.md` §5 #1·#3 위반 | `src/server.js:51~63,227~236,779~781`. 임시 프로브(스텁 fetch): 플래그 없음 → mock·호출 0, 위조 플래그 → `provider:"gemini"`·호출 1(턴), 프로필 → 응답 `mock`·호출 발생. 기존 테스트는 키를 비워 이 경로를 못 보고, test 815는 201/422 둘 다 통과시켜 공허함. 배포된 UI는 플래그를 보내지 않음(가드가 검사) — 직접 API 호출로만 악용 |
 | BUG-2 | ~~P0~~ **수정됨(2026-10-29, P0-2)** | **[원 결함·참고용]** 삭제 후 사용자 발언이 남았음. `DELETE /sessions/:id`·`DELETE /account`가 `transferJobs`(기준·재연습 발췌 원문)와 `exports`(10분)를 지우지 않는다. 계정 삭제 후에도 `GET /transfer-comparisons/:id`가 200과 발췌를 반환 | `server.js:74,1117,1369`. 프로브로 재현. `PROJECT.md` §5 #10 위반 |
-| BUG-3 | P1 | `ADMIN_TOKEN`이 없으면 **모든 일반 개발 토큰 사용자가 월간 역량 초안·공개·롤백 가능**(프로브: 사용자 B가 초안 201). 관리자 토큰을 쿼리스트링(`?admin_token=`)으로도 받아 URL·로그에 남을 수 있음 | `server.js:78~89` |
-| BUG-4 | P1 | 인증 전 엔드포인트: `/health`(설정 불리언·모델명), `/metrics`(월 지출 원장), `/diagnostics/gemini-models`(**서버 Gemini 키로 외부 호출, 인증·속도 제한 없음**) | `server.js:1403~1448`, 프로브로 무인증 200 확인 |
+| BUG-3 | ~~P1~~ **수정됨(2026-10-29, P0-6)** | **[원 결함·참고용]** `ADMIN_TOKEN`이 없으면 **모든 일반 개발 토큰 사용자가 월간 역량 초안·공개·롤백 가능**(프로브: 사용자 B가 초안 201). 관리자 토큰을 쿼리스트링(`?admin_token=`)으로도 받아 URL·로그에 남을 수 있음 | `server.js:78~89` |
+| BUG-4 | ~~P1~~ **수정됨(2026-10-29, P0-6; `/health`는 비인증 시 `selected`만, 나머지는 인증 필요)** | **[원 결함·참고용]** 인증 전 엔드포인트: `/health`(설정 불리언·모델명), `/metrics`(월 지출 원장), `/diagnostics/gemini-models`(**서버 Gemini 키로 외부 호출, 인증·속도 제한 없음**) | `server.js:1403~1448`, 프로브로 무인증 200 확인 |
 | BUG-5 | P1 | 월간 트렌드를 **출처·코멘트 없이** 공개 가능. `data/trends.json`에 `competency:"a"`, 출처 없음 항목이 공개 상태로 있고 `GET /trends/company/2026-10`이 그대로 노출. §2.3의 출처·검수 요건 미충족 | `trends.js validateItems`, `data/trends.json` |
 | BUG-6 | P1 | 보고서 표기 불일치: `badge:"AI 생성 코칭…"`이 규칙 기반 평가에도 붙음. `provider`는 전역값, `paidAck=true`면 `model_version`이 Gemini 모델명이 되어 **규칙 기반을 AI 평가로 오인시킬 수 있음**(UI 문구는 규칙 기반으로 정확). `PROJECT.md` §2.6 위반 소지 | `server.js:939~945` |
 | BUG-7 | P1 | 새 질문 템플릿이 행동 루브릭 4역량(`relevance/evidence_specificity/reasoning/reflection`)만 있음. 기술·토론·PT·상황 루브릭 역량은 `reflection` 질문으로 대체되어 **같은 역량 재검증이 성립하지 않음**. `server.js`의 `practiceText`는 미사용 코드 | `transfer.js transferTemplatesFor`, `server.js:1243` |
 | BUG-8 | P1 | 대화 중 429 → 정적 폴백으로 계속하지 않고 `finishSession` 호출. 이 경로에서 원장 예약(0.005)이 정산되지 않음. `createSession`의 예산 사전 확인은 `session:${owner}` 키를 써서 실제 세션 원장과 무관 | `server.js:381,807~813` |
 | BUG-9 | P1 | 업로드 한도 불일치: 서버 상한 5MB vs JSON 본문 한도 1,000,000바이트(base64 팽창) → 약 0.7MB 초과 파일은 413. UI 안내와 다를 수 있음(코드 기준, 재현 미실시) | `server.js:118,1603`, `documents.js MAX_BYTES` |
 | DEBT-1 | P0 | **영속 저장 없음** — 프로세스 재시작 시 세션·보고서·전이 작업·예산 원장 소실(데모 중 서버 재시작=데이터 유실) | `src/store.js` 머리말 |
-| DEBT-2 | P0 | **실제 인증 없음** — 정적 개발 토큰, 브라우저 기본 토큰 내장. 공개 배포 전에 반드시 교체 | `config.js`, `app.js:8` |
+| DEBT-2 | P0(부분 완화) | **실제 인증 없음** — 정적 접속 토큰(내장 기본 토큰·클라이언트 내장 토큰은 P0-6에서 제거). 공개 배포 전에 반드시 교체 | `config.js`, `app.js:8` |
 | DEBT-3 | P0 | 공급자 라우팅 부재 — `config.registry`는 정의만 있고 미사용. 목표 구성(§4.2) 도입 시 어댑터 선택 구조 필요 | `grep registry src` |
 | DEBT-4 | P1 | `Idempotency-Key`는 필수 헤더지만 저장·재생하지 않음(`idempotency` Map 미사용). 명령은 `command_id`로 별도 보호 | `server.js:66,1477` |
 | DEBT-5 | P1 | `server.js` 1,700줄 단일 파일, UI `app.js` 1,780줄 — Workers 이전·테스트 분리 부담 | — |
@@ -518,7 +518,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | P0-3 | **1차 완료(2026-10-29, 규칙 기반·Mock)** 지원서 주장 검증 슬라이스 — 모델 기반 2차는 P0-4에서 | 신규 `src/domain/claims.js`, `server.js`(`createProfile`,`createSession`), `public/app.js`(`renderEvidence`), `tests/run.mjs` | 자소서/지원서 텍스트를 별도 입력으로 받아 문장 단위 주장(역할·행동·결과·수치·공백) 추출, 원문 span·코드포인트 보존, 질문에 `application_evidence_ids`·`source_status`·`prompt_version` 연결, 자소서에 없는 사실 생성 금지. 1차는 결정적 규칙+Mock, 2차에 Claude Sonnet 연결 | P0-1 | 합성 자소서에서 질문이 인용 문장에 연결됨, 존재하지 않는 구절 거부, 프롬프트 인젝션 문장이 지시로 쓰이지 않음 | L |
 | P0-4 | 공급자 라우팅 + 목표 구성 최소 실모델 경로 | `config.js registry`, `server.js`, 신규 어댑터(DeepSeek 꼬리질문, Claude Sonnet 분석·질문 설계) | operation별 공급자 선택. 명시적 환경 플래그·예산 상한 없이는 호출 금지, 실패 시 Mock 폴백과 **"Mock 사용 중" 표시**, 유료 자동 승격 금지(§5 #8). 각 공급자 약관·데이터·연령 조건 확인 후 합성 데이터만 연결 | P0-1, §14 약관 확인 | 스텁 `fetch` 계약 테스트 + 합성 데이터 실호출 1회 스모크(개발자 승인 후) | L |
 | P0-5 | 배포 구조 결정·구현 | `public/`, 신규 `wrangler` 설정·Worker, `.github/workflows` | (a) Pages 정적 UI + Workers 프록시/백엔드로 갈지 (b) 대회 데모는 로컬 Node 서버로 시연할지 결정(`[미확정]`). (a)면 API 기본 URL 설정, CORS, 키는 Workers 비밀값, 영속 저장(KV/D1/Durable Objects 택1) 필요. 현 `server.js`는 그대로 Worker로 이식 불가 | 결정 | 배포 URL에서 §13 시나리오 완주, 번들에 키 없음 확인 | L |
-| P0-6 | 공개 전 필수 보안 정리 | `server.js`(`checkAdmin`,`/health`,`/metrics`,`/diagnostics`), `config.js`, `app.js:8` | 관리자 토큰 필수화(미설정 시 관리 기능 비활성), 토큰 쿼리 수신 제거, 진단·지표 엔드포인트 인증·제한, 기본 개발 토큰 제거·실제 인증 도입(또는 데모 전용 초대 토큰) | P0-5 | 무인증 호출 401/403 테스트 | M |
+| P0-6 | **완료(2026-10-29, 실제 로그인 제외)** 공개 전 필수 보안 정리 | `server.js`(`checkAdmin`,`/health`,`/metrics`,`/diagnostics`), `config.js`, `app.js:8` | 관리자 토큰 필수화(미설정 시 관리 기능 비활성), 토큰 쿼리 수신 제거, 진단·지표 엔드포인트 인증·제한, 기본 개발 토큰 제거·실제 인증 도입(또는 데모 전용 초대 토큰) | P0-5 | 무인증 호출 401/403 테스트 | M |
 | P0-7 | 데모 데이터 영속화 | `store.js` 또는 외부 저장소 | 최소한 세션·평가·전이 작업을 파일/KV에 저장해 재시작 후 기록 조회 | P0-5 | 서버 재시작 후 기록·비교 유지 테스트 | M |
 
 ### P1 — 면접 품질·분석 정확성·평가·음성
@@ -626,7 +626,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 |---|---|---|---|---|
 | 웹 조사·자료 등록 | `[PARTIAL]` 관리자가 직접 입력(`/admin/trends` 초안) | 허용된 공개 자료 수집·등록 | 수집기, 자료 저장 | P1-6 |
 | 근거·신선도 검토 | `[TODO]` 트렌드용 검토 없음(기관 출처 신선도 함수는 별도) | 출처·발행일·반복성·편향 검토 | 검토 데이터·UI | P2 |
-| 관리자 승인 | `[PARTIAL]` 공개 시 승인 | 역할 기반 승인 | **인증 개방(BUG-3)** | P0-6 |
+| 관리자 승인 | `[PARTIAL]` 공개 시 승인 | 역할 기반 승인 | 관리자 개방(BUG-3)은 P0-6으로 수정, 역할 모델 없음 | P0-6 |
 | 월간 역량 게시 | `[PARTIAL]` 공개·롤백·구버전 보존·공개본만 노출 | 분야별 최대 3개+출처+코멘트 | 출처·코멘트 필수 검증(BUG-5), 질문 설계 연동 | P1-5 |
 
 ### 16.3 하위 분기·루프 대조
@@ -645,6 +645,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 
 ## 17. 이번 점검의 변경 요약 (v1.0.0 → v1.1.0)
 
+- **2026-10-29 P0-6 코드 수정:** `src/config.js`(내장 기본 토큰 제거), `src/server.js`(`ADMIN_TOKEN` 미설정 시 관리 기능 꺼짐·헤더 전용 상수시간 비교, `/metrics`·`/diagnostics`는 관리자 전용, `/health`는 비인증 시 `selected`만, `/stt/status` 인증 필요, 시작 경고), `public/`(내장 토큰 제거·401 시 접속 토큰 입력, 관리자 비활성 안내), `README.md`·`.env.example`, 테스트 5건 추가(수정 전 5건 실패 확인)·영속 테스트 관리자 헤더 반영, E2E +2(토큰 입력). 결과: `npm test` 77/77, 브라우저 E2E 54 ok, 기관 E2E 14/14. **한계: 실제 로그인·역할·감사 기록 없음(P3), 단일 공유 비밀 토큰.**
 - **2026-10-29 P0-3 코드(1차):** 신규 `src/domain/claims.js`(문장 단위 주장·공백 추출, 근거 인용 질문 생성), `server.js`(`application_text` 입력·마스킹, 일반 면접 앞쪽 주장 질문 2개, 보고서 `claim_links`), `store.js`(저장·계정 삭제 시 파기), `public/`(지원서 입력란, 근거 확인 화면의 "지원서 주장·공백", 면접실 질문 근거 표시, 보고서 "지원서 주장과 실제 답변"), `tools/e2e-ui.mjs` 확인 5건 추가. 테스트 6건 추가(span·공백·인젝션 문장·새 수치 금지·세션/보고서 연결·마스킹/삭제/외부 전송 0건). 결과: `npm test` 72/72, 브라우저 E2E 52 ok, 기관 E2E 14/14. **한계: 규칙 기반이라 의미 이해·정확도 미검증, 모델 연결은 P0-4.**
 - **2026-10-29 P0-2 코드 수정:** `src/server.js`(`purgeOwnedCaches`: 세션 삭제 시 해당 세션의 전이 작업·내보내기 캐시, 계정 삭제 시 소유자 전체 파기. 세션 삭제 시 재작성 연습·이의 제기도 파기). 신규 테스트 4건(기준·재연습 세션 삭제, 계정 삭제와 타 사용자 보존, 이의 제기), 수정 전 코드에서 3건 실패 확인. 결과: `npm test` 66/66, E2E 47 ok·기관 E2E 14/14, 오프라인 프로브에서 삭제 후 전이 작업 404. 영속 저장·백업은 없어 해당 범위 밖.
 - **2026-10-29 P0-1 코드 수정:** `src/server.js`(`isServerSynthetic`·`providerForRequest` 제거 → 서버 상태 기반 `providerFor`, 프로필 응답 `provider`는 실제 사용 공급자, highschool+`paidAck` 시 Gemini 호출되던 경로 차단), `src/store.js`(`free_test`는 요청 본문이 아닌 서버 값), `tools/gemini-e2e.mjs`(`syntheticTraffic:true`), `.env.example` 주석, `tests/run.mjs`(공허하던 test 815 제거, 위조 플래그 외부 호출 0건 등 신규 4건, `free_test` 영속 테스트를 위조 방어 테스트로 교체). 신규 테스트 4건은 수정 전 코드에서 실패함을 확인. 결과: `npm test` 62/62, E2E 47 ok, 기관 E2E 14/14. 실키 호출은 실행하지 않음.

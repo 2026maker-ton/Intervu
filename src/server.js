@@ -2,7 +2,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { loadDotEnv } from './env.js';
@@ -64,16 +64,14 @@ export function createApp(overrides = {}) {
   const trends = overrides.trends || createTrendStore({ filePath: trendsFilePath });
   const transferJobs = new Map(); // transfer_id -> { owner_id, baseline, retry, question, comparison }
   // ---- 관리자 인증 ----
-  // ADMIN_TOKEN이 설정된 경우 /admin/* 라우트는 x-admin-token(또는 body.admin_token) 일치를 요구한다.
-  // 미설정 시에는 dev-open 모드(기존 개발 토큰만으로 허용)이며 health 응답에 명시한다.
-  const adminRequired = !!config.adminToken;
-  function checkAdmin(req, body = {}) {
-    if (!adminRequired) return null;
-    const headerToken = String(req.headers['x-admin-token'] || '');
-    const queryToken = (() => { try { return String(new URL(req.url, 'http://localhost').searchParams.get('admin_token') || ''); } catch { return ''; } })();
-    const bodyToken = String(body?.admin_token || '');
-    const got = headerToken || queryToken || bodyToken;
-    if (got !== config.adminToken) {
+  // ADMIN_TOKEN 미설정이면 관리 기능 전체가 꺼진다(개발 토큰 사용자에게 열어 두지 않는다).
+  // 토큰은 x-admin-token 헤더로만 받는다(쿼리스트링·본문은 URL·로그에 남을 수 있어 사용하지 않는다).
+  const adminEnabled = !!config.adminToken;
+  const sha = (v) => createHash('sha256').update(String(v)).digest();
+  function checkAdmin(req) {
+    if (!adminEnabled) return err('admin_disabled', '관리자 기능이 꺼져 있습니다. 서버에 ADMIN_TOKEN을 설정해야 사용할 수 있습니다.', 403);
+    const got = String(req.headers['x-admin-token'] || '');
+    if (!got || !timingSafeEqual(sha(got), sha(config.adminToken))) {
       return err('admin_forbidden', '관리자 인증이 필요합니다. x-admin-token을 확인하세요.', 403);
     }
     return null;
@@ -156,7 +154,7 @@ export function createApp(overrides = {}) {
     paidAck: config.gemini.paidAck,
     allowUnpaid: config.gemini.allowUnpaid,
     freeOnly: config.gemini.freeOnly !== false,
-    adminRequired,
+    adminEnabled,
     trends: trends.status ? trends.status() : null,
     textModel: gemini?.model || config.gemini.textModel,
     fallbackModel: config.gemini.fallbackModel,
@@ -1425,7 +1423,8 @@ export function createApp(overrides = {}) {
     if (requestLog.length > 1000) requestLog.shift();
 
     try {
-      if (p === '/api/v1/health') return json(res, 200, { ok: true, provider: providerInfo(), time: now() });
+      // 공개 상태 확인은 최소 정보만: 설정·모델·예산 정보는 인증된 사용자에게만 준다.
+      if (p === '/api/v1/health') return json(res, 200, { ok: true, provider: auth(req) ? providerInfo() : { selected: provider.name }, time: now() });
       if (p === '/api/v1/interview-types' && method === 'GET') {
         return json(res, 200, {
           types: Object.values(INTERVIEW_TYPES),
@@ -1439,7 +1438,25 @@ export function createApp(overrides = {}) {
           scenarios: SITUATION_SCENARIOS.map((s) => ({ id: s.id, title: s.title })),
         });
       }
+      // 정적 UI
+      if (!p.startsWith('/api/')) {
+        const rel = p === '/' ? 'index.html' : p.replace(/^\/+/, '');
+        const file = path.join(staticDir, rel);
+        if (!file.startsWith(staticDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+          return json(res, 404, { error: { code: 'not_found', message: 'Not found', retryable: false, request_id: requestId, details: null } });
+        }
+        const ext = path.extname(file);
+        const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
+        res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'" });
+        return fs.createReadStream(file).pipe(res);
+      }
+
+      const owner = auth(req);
+      if (!owner) return json(res, 401, err('unauthorized', '인증이 필요합니다.', 401, { requestId }).error);
+
       if (p === '/api/v1/metrics' && method === 'GET') {
+        const gate = checkAdmin(req);
+        if (gate) return json(res, gate.status, { ...gate.error, request_id: requestId });
         const st = gemini?.stats || null;
         return json(res, 200, {
           provider: provider.name,
@@ -1454,6 +1471,8 @@ export function createApp(overrides = {}) {
       }
       // Gemini 진단: 현재 키에서 generateContent 가능한 모델 목록(합성 전용, 키·개인정보 미포함)
       if (p === '/api/v1/diagnostics/gemini-models' && method === 'GET') {
+        const gate = checkAdmin(req);
+        if (gate) return json(res, gate.status, { ...gate.error, request_id: requestId });
         if (!gemini || killed) return json(res, 200, { available: false, reason: killed ? 'kill_switch' : 'no_key', models: [], configured_model: null });
         try {
           const models = await gemini.listModels();
@@ -1471,22 +1490,6 @@ export function createApp(overrides = {}) {
           return json(res, 502, err('diagnostics_failed', '모델 목록 조회에 실패했습니다.', 502, { requestId, details: e.details || null }).error);
         }
       }
-
-      // 정적 UI
-      if (!p.startsWith('/api/')) {
-        const rel = p === '/' ? 'index.html' : p.replace(/^\/+/, '');
-        const file = path.join(staticDir, rel);
-        if (!file.startsWith(staticDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-          return json(res, 404, { error: { code: 'not_found', message: 'Not found', retryable: false, request_id: requestId, details: null } });
-        }
-        const ext = path.extname(file);
-        const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
-        res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'" });
-        return fs.createReadStream(file).pipe(res);
-      }
-
-      const owner = auth(req);
-      if (!owner) return json(res, 401, err('unauthorized', '인증이 필요합니다.', 401, { requestId }).error);
 
       // 사양 §10: WSS 일회성 티켓 (/ws?ticket=...) — MVP는 ticket 교환 후 REST 사용 안내
       if (method === 'GET' && /^\/api\/v1\/sessions\/[^/]+\/ws$/.test(p)) {
@@ -1637,7 +1640,7 @@ export function createApp(overrides = {}) {
       }
       // 관리자 인증 상태 확인 (UI 노출용 게이트 표시)
       if (p === '/api/v1/admin/status' && method === 'GET') {
-        return json(res, 200, adminRequired ? { admin_required: true, seeded: false } : { admin_required: false, seeded: true, note: 'ADMIN_TOKEN 미설정: 개발 토큰으로 관리 기능을 사용할 수 있습니다.' });
+        return json(res, 200, adminEnabled ? { admin_enabled: true } : { admin_enabled: false, note: 'ADMIN_TOKEN이 설정되지 않아 관리 기능이 꺼져 있습니다.' });
       }
       // 관리자: 버전 이력 조회 (초안·공개·롤백 기록). 일반 사용자에게는 노출하지 않는다.
       if ((m = /^\/api\/v1\/admin\/trends\/(.+)\/history$/.exec(p)) && method === 'GET') {
@@ -1718,5 +1721,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const p = app.providerInfo();
     console.log(`Intervu listening on http://localhost:${app.config.port}`);
     console.log(`Provider: ${p.selected} | Gemini key configured: ${p.configured} | paidAck: ${p.paidAck}`);
+    const tokens = Object.keys(app.config.devTokens);
+    if (!tokens.length) console.warn('WARNING: DEV_TOKEN_A/DEV_TOKEN_B가 없어 로그인 가능한 사용자가 없습니다.');
+    if (tokens.some((t) => /^dev-user-[ab]-token$/.test(t))) console.warn('WARNING: 예시 토큰(dev-user-*-token)을 사용 중입니다. 외부에 공개하는 서버에서는 무작위 긴 토큰으로 바꾸세요.');
+    if (!app.config.adminToken) console.warn('NOTE: ADMIN_TOKEN 미설정 — 관리자·지표·진단 기능이 꺼져 있습니다.');
   });
 }

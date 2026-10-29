@@ -7,10 +7,9 @@ export function loadConfig(env = process.env) {
   };
   return {
     port: Number(env.PORT) || 3000,
-    devTokens: {
-      [env.DEV_TOKEN_A || 'dev-user-a-token']: 'user-a',
-      [env.DEV_TOKEN_B || 'dev-user-b-token']: 'user-b',
-    },
+    // 내장 기본 토큰 없음: 환경변수로 명시한 토큰만 유효하다(미설정이면 인증 가능한 사용자가 없다).
+    // 실제 로그인은 P3. 그 전까지 데모는 운영자가 나눠 준 접속 토큰을 쓴다.
+    devTokens: Object.fromEntries([[env.DEV_TOKEN_A, 'user-a'], [env.DEV_TOKEN_B, 'user-b']].filter(([t]) => typeof t === 'string' && t.trim())),
     gemini: {
       apiKey: env.GEMINI_API_KEY || '',
       // 2026-10-24 실키 검증: gemini-2.5-flash-lite는 신규 사용자 404.
@@ -79,8 +78,8 @@ export function loadConfig(env = process.env) {
     },
     // 킬 스위치(사양 §13·§12): 'gemini'가 포함되면 외부 호출을 차단하고 Mock으로 동작.
     killSwitch: String(env.KILL_PROVIDERS || env.INTERVU_KILL || 'none').toLowerCase(),
-    // 관리자 인증 (PROJECT §2.3/§3): ADMIN_TOKEN이 설정되면 /admin/* 은 x-admin-token 일치 시에만 허용.
-    // 미설정 시 개발 토큰만으로 동작하는 dev-open 모드이며, 공개본 조회에는 영향이 없다.
+    // 관리자 인증 (PROJECT §2.3/§3): /admin/*·/metrics·/diagnostics 는 x-admin-token 헤더가 ADMIN_TOKEN과 일치할 때만 허용.
+    // ADMIN_TOKEN 미설정이면 관리 기능은 꺼진다(공개본 조회는 영향 없음).
     adminToken: String(env.ADMIN_TOKEN || ''),
     // 빈 문자열을 명시하면 영속화를 끈다(테스트·격리 환경). 미설정 시 기본 파일 사용.
     trendsFile: env.TRENDS_FILE === undefined ? 'data/trends.json' : String(env.TRENDS_FILE),

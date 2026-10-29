@@ -5,7 +5,7 @@ const TOKEN_KEY = 'intervu.token';
 const ADMIN_KEY = 'intervu.admin';
 
 const state = {
-  token: localStorage.getItem(TOKEN_KEY) || 'dev-user-a-token',
+  token: localStorage.getItem(TOKEN_KEY) || '', // 내장 토큰 없음: 첫 401에서 접속 토큰을 물어본다
   screen: 'dashboard',
   journey: null,            // 'company' | 'university'
   profile: null,
@@ -26,7 +26,7 @@ const state = {
   catalog: { types: [], roles: [], topics: [], pt_tasks: [], scenarios: [] },
   stt: null,
   adminToken: sessionStorage.getItem(ADMIN_KEY) || '',
-  adminRequired: null,
+  adminEnabled: null,
   adminUnlocked: false,
   uploadedText: '',
 };
@@ -53,13 +53,34 @@ function toast(message, isError = false) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 4600);
 }
 
-async function api(path, { method = 'GET', body, idempotent = false, admin = false } = {}) {
+// 접속 토큰: 서버가 401을 주면 대화상자로 한 번 묻고 저장한다(취소하면 이 페이지에서는 다시 묻지 않는다).
+let tokenPrompt = null;
+let tokenDeclined = false;
+function promptToken() {
+  if (tokenDeclined) return Promise.resolve(null);
+  if (!tokenPrompt) {
+    tokenPrompt = askInput('접속 토큰', '운영자에게 받은 접속 토큰을 입력하세요.', '접속 토큰').then((v) => {
+      tokenPrompt = null;
+      if (!v) { tokenDeclined = true; return null; }
+      state.token = v.trim();
+      try { localStorage.setItem(TOKEN_KEY, state.token); } catch { /* noop */ }
+      return state.token;
+    });
+  }
+  return tokenPrompt;
+}
+
+async function api(path, { method = 'GET', body, idempotent = false, admin = false, retried = false } = {}) {
   const headers = { Authorization: `Bearer ${state.token}` };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (idempotent) headers['Idempotency-Key'] = uuid();
   if (admin && state.adminToken) headers['x-admin-token'] = state.adminToken;
   const res = await fetch(`/api/v1${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && !retried && !admin) {
+    const t = await promptToken();
+    if (t) return api(path, { method, body, idempotent, admin, retried: true });
+  }
   if (!res.ok) {
     const msg = data?.error?.message || `요청을 처리하지 못했습니다 (${res.status})`;
     throw Object.assign(new Error(msg), { status: res.status, data });
@@ -203,7 +224,7 @@ async function loadProvider() {
   try {
     const h = await api('/health');
     const provider = h.provider || {};
-    state.adminRequired = !!provider.adminRequired;
+    state.adminEnabled = typeof provider.adminEnabled === 'boolean' ? provider.adminEnabled : null;
     const chip = $('#modeChip');
     if (chip) {
       chip.textContent = providerLabel(provider);
@@ -1596,14 +1617,22 @@ function adminId(segment, month) {
 }
 
 async function initAdmin() {
-  if (state.adminRequired === null) await loadProvider();
+  if (state.adminEnabled === null) await loadProvider();
   const note = $('#adminGateNote');
   const gate = $('#adminGate');
   const panel = $('#adminPanel');
-  if (state.adminRequired === false) {
-    if (note) note.textContent = 'ADMIN_TOKEN이 설정되지 않은 개발 모드입니다. 개발 토큰으로 관리 기능을 사용할 수 있습니다.';
-    state.adminUnlocked = true;
+  const input = $('#adminTokenInput');
+  const unlock = $('#adminUnlockBtn');
+  if (state.adminEnabled === false) {
+    if (note) note.textContent = '서버에 ADMIN_TOKEN이 설정되지 않아 관리 기능이 꺼져 있습니다. 서버 설정 후 다시 열어 주세요.';
+    if (input) input.disabled = true;
+    if (unlock) unlock.disabled = true;
+    gate.hidden = false;
+    panel.hidden = true;
+    return;
   }
+  if (input) input.disabled = false;
+  if (unlock) unlock.disabled = false;
   if (state.adminUnlocked) {
     gate.hidden = true;
     panel.hidden = false;
@@ -1613,7 +1642,7 @@ async function initAdmin() {
   }
   gate.hidden = false;
   panel.hidden = true;
-  if (note && state.adminRequired) note.textContent = '서버에 ADMIN_TOKEN이 설정되어 있습니다. 관리자 토큰을 입력하세요.';
+  if (note) note.textContent = '관리자 토큰(x-admin-token)을 입력하세요.';
   if (state.adminToken) {
     const ok = await verifyAdmin();
     if (ok) { gate.hidden = true; panel.hidden = false; ensureTrendItems(); await loadAdminHistory(); }

@@ -31,7 +31,7 @@ node tools/cost-model-gemini.mjs --sessions=1000
 - 9-screen UI (dashboard, application, evidence, setup, room, feedback, repractice comparison, history/data, admin) at hash routes #/screen.
 - Company/university journeys only in the main flow. Evaluator is rule-based reference observation, not validated AI scoring.
 - Mock provider without keys; no external transmission. Live Gemini/Groq NOT verified here (no keys).
-- Admin: set ADMIN_TOKEN (x-admin-token). Without it, admin runs in open dev mode - not real production auth.
+- Admin/metrics/diagnostics: set ADMIN_TOKEN and send it as the x-admin-token header. Without ADMIN_TOKEN these features are disabled (not open). Auth is still static env tokens (DEV_TOKEN_A/B, no built-in defaults), not real login.
 - Trends persist to TRENDS_FILE (draft -> publish -> rollback, published-only exposure).
 - Tests: npm test (59 + project guard); browser E2E: node tools/e2e-ui.mjs (needs playwright + chromium).
 

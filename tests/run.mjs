@@ -1059,12 +1059,12 @@ test('P2: trends persist to TRENDS_FILE across restarts', async () => {
   const { createApp } = await import('../src/server.js');
   const { writeFileSync, unlinkSync, existsSync } = await import('node:fs');
   const f = `${process.env.TEMP || '/tmp'}/intervu-trends-${Date.now()}.json`;
-  const mk = (extra = {}) => createApp({ env: { GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', DEV_TOKEN_A: A, DEV_TOKEN_B: B, TRENDS_FILE: f, PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100', ...extra } });
+  const mk = (extra = {}) => createApp({ env: { GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', DEV_TOKEN_A: A, DEV_TOKEN_B: B, TRENDS_FILE: f, ADMIN_TOKEN: 'persist-admin', PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100', ...extra } });
   const a1 = mk();
   await new Promise((r) => a1.server.listen(0, r));
   try {
     const b1 = `http://127.0.0.1:${a1.server.address().port}`;
-    const res = await fetch(`${b1}/api/v1/admin/trends`, { method: 'POST', headers: { Authorization: `Bearer ${A}`, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ segment: 'university', yyyyMm: '2026-10', items: [{ competency: '학업 역량' }] }) });
+    const res = await fetch(`${b1}/api/v1/admin/trends`, { method: 'POST', headers: { Authorization: `Bearer ${A}`, 'x-admin-token': 'persist-admin', 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ segment: 'university', yyyyMm: '2026-10', items: [{ competency: '학업 역량' }] }) });
     assert.equal(res.status, 201);
     assert.ok(existsSync(f), 'trends file must be written');
     const saved = JSON.parse((await import('node:fs')).readFileSync(f, 'utf8'));
@@ -1076,7 +1076,7 @@ test('P2: trends persist to TRENDS_FILE across restarts', async () => {
   await new Promise((r) => a2.server.listen(0, r));
   try {
     const b2 = `http://127.0.0.1:${a2.server.address().port}`;
-    const h2 = { Authorization: `Bearer ${A}`, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() };
+    const h2 = { Authorization: `Bearer ${A}`, 'x-admin-token': 'persist-admin', 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() };
     const res = await fetch(`${b2}/api/v1/trends/university/2026-10`, { headers: h2 });
     // draft만 있고 publish가 없으므로 재시작 후에도 unavailable이어야 한다 (미승인 노출 금지)
     assert.equal(res.status, 200);
@@ -1337,5 +1337,87 @@ test('P0-3: applicant text is never sent to Gemini even when the provider gate i
     assert.equal(outbound.length, 1, 'only the posting text is extracted by the model');
     assert.ok(outbound[0].includes('인재상'));
     assert.ok(!outbound.join('').includes('유니크마커'), 'applicant text stays server-side in this slice');
+  });
+});
+
+// P0-6: 관리자·진단 엔드포인트·개발 토큰 정리
+async function withApp(env, fn) {
+  const a = createApp({ env: { GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: A, DEV_TOKEN_B: B, ADMIN_TOKEN: '', TRENDS_FILE: '', PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100', ...env } });
+  await new Promise((r) => a.server.listen(0, r));
+  const base2 = `http://127.0.0.1:${a.server.address().port}`;
+  const c = async (path, { method = 'GET', token = A, admin, body, headers = {} } = {}) => {
+    const h = { ...headers };
+    if (token) h.Authorization = `Bearer ${token}`;
+    if (admin) h['x-admin-token'] = admin;
+    if (body !== undefined) h['Content-Type'] = 'application/json';
+    if (method !== 'GET') h['Idempotency-Key'] = crypto.randomUUID();
+    const res = await fetch(base2 + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: res.status, data: await res.json().catch(() => ({})) };
+  };
+  try { await fn(c); } finally { a.server.close(); }
+}
+const TREND = { segment: 'company', yyyyMm: '2026-11', items: [{ competency: '문제 해결', comment: '코멘트', sources: ['https://example.com'] }] };
+
+test('P0-6: admin is disabled (not open) when ADMIN_TOKEN is unset', async () => {
+  await withApp({}, async (c) => {
+    const d = await c('/api/v1/admin/trends', { method: 'POST', token: B, body: TREND });
+    assert.equal(d.status, 403, 'ordinary dev-token users must not be admins');
+    assert.equal(d.data.code, 'admin_disabled');
+    assert.equal((await c(`/api/v1/admin/trends/${encodeURIComponent('company|2026-11')}/history`)).status, 403);
+    assert.equal((await c(`/api/v1/admin/trends/${encodeURIComponent('company|2026-11')}/publish`, { method: 'POST', body: { version: 1 } })).status, 403);
+    assert.equal((await c(`/api/v1/admin/trends/${encodeURIComponent('company|2026-11')}/rollback`, { method: 'POST', body: { version: 1 } })).status, 403);
+    assert.equal((await c('/api/v1/admin/trends', { method: 'POST', body: TREND, admin: 'anything' })).status, 403);
+    const st = await c('/api/v1/admin/status');
+    assert.equal(st.data.admin_enabled, false);
+    assert.equal((await c('/api/v1/trends/company/2026-11')).status, 200, 'published trend lookup stays public');
+  });
+});
+
+test('P0-6: admin token is accepted only via header, never query string or body', async () => {
+  await withApp({ ADMIN_TOKEN: 'secret-admin-token' }, async (c) => {
+    assert.equal((await c('/api/v1/admin/trends?admin_token=secret-admin-token', { method: 'POST', body: TREND })).status, 403);
+    assert.equal((await c('/api/v1/admin/trends', { method: 'POST', body: { ...TREND, admin_token: 'secret-admin-token' } })).status, 403);
+    assert.equal((await c('/api/v1/admin/trends', { method: 'POST', body: TREND, admin: 'secret-admin-tokeX' })).status, 403);
+    assert.equal((await c('/api/v1/admin/trends', { method: 'POST', body: TREND, admin: 'secret-admin-token' })).status, 201);
+    assert.equal((await c('/api/v1/admin/status')).data.admin_enabled, true);
+  });
+});
+
+test('P0-6: metrics and gemini diagnostics need authentication; admin only for spend/diagnostics', async () => {
+  await withApp({ ADMIN_TOKEN: 'secret-admin-token' }, async (c) => {
+    for (const p of ['/api/v1/metrics', '/api/v1/diagnostics/gemini-models']) {
+      assert.equal((await c(p, { token: null })).status, 401, `${p} without auth`);
+      assert.equal((await c(p)).status, 403, `${p} with ordinary user token`);
+      assert.equal((await c(p, { admin: 'secret-admin-token' })).status, 200, `${p} with admin token`);
+    }
+  });
+  await withApp({}, async (c) => {
+    assert.equal((await c('/api/v1/metrics', { admin: 'x' })).status, 403, 'disabled admin never grants metrics');
+  });
+});
+
+test('P0-6: public health is minimal; full provider info needs a user token', async () => {
+  await withApp({ GEMINI_API_KEY: 'fake-key', GEMINI_ALLOW_UNPAID: 'true' }, async (c) => {
+    const pub = await c('/api/v1/health', { token: null });
+    assert.equal(pub.status, 200);
+    assert.deepEqual(Object.keys(pub.data.provider), ['selected']);
+    const text = JSON.stringify(pub.data);
+    for (const leak of ['paidAck', 'allowUnpaid', 'freeOnly', 'textModel', 'configured', 'trends', 'groq', 'killSwitch']) assert.ok(!text.includes(leak), `public health leaks ${leak}`);
+    const full = await c('/api/v1/health');
+    assert.equal(full.data.provider.selected, 'mock');
+    assert.equal(full.data.provider.paidAck, false);
+    assert.equal(full.data.provider.adminEnabled, false);
+  });
+});
+
+test('P0-6: no built-in dev tokens; unauthenticated STT status rejected', async () => {
+  await withApp({ DEV_TOKEN_A: '', DEV_TOKEN_B: '' }, async (c) => {
+    for (const t of ['dev-user-a-token', 'dev-user-b-token', 'user-a', '']) {
+      assert.equal((await c('/api/v1/sessions', { token: t || 'x' })).status, 401, `token "${t}" must not work`);
+    }
+  });
+  await withApp({}, async (c) => {
+    assert.equal((await c('/api/v1/stt/status', { token: null })).status, 401);
+    assert.equal((await c('/api/v1/stt/status')).status, 200);
   });
 });

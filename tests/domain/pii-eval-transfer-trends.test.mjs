@@ -25,6 +25,6 @@ test('P4: transfer question is different and trends are capped', async () => {
   const { createTrendStore } = await import('../../src/domain/trends.js');
   const ts = createTrendStore();
   assert.throws(() => ts.draft({ segment: 'company', yyyyMm: '2026-10', items: [1, 2, 3, 4].map((i) => ({ competency: 'c' + i })) }));
-  ts.draft({ segment: 'company', yyyyMm: '2026-10', items: [{ competency: 'a' }] });
+  ts.draft({ segment: 'company', yyyyMm: '2026-10', items: [{ competency: 'a', comment: 'c', sources: ['https://e.com'] }] });
   assert.equal(ts.published({ segment: 'company', yyyyMm: '2026-10' }), null);
 });

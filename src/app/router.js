@@ -140,13 +140,14 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
       if (pth === '/api/v1/documents/extract' && mth === 'POST') return send(h.documents.extractDocument(owner, body));
       // P2 월간 트렌드: 관리자 검수·공개, 사용자는 공개본만 조회
       if (pth === '/api/v1/admin/trends' && mth === 'POST') return send(await h.admin.draftTrend(owner, body, req));
+      if (pth === '/api/v1/admin/trends' && mth === 'GET') return send(await h.admin.listTrends(owner, req));
       if (pth === '/api/v1/admin/status' && mth === 'GET') return send(h.ops.adminStatus());
       if ((mm = /^\/api\/v1\/admin\/trends\/(.+)\/history$/.exec(pth)) && mth === 'GET') return send(await h.ops.trendHistory(req, mm[1], requestId));
       // id는 encodeURIComponent(`${segment}|${yyyyMm}`) 형식. 디코딩 후 parseTrendId에서 분리한다.
-      if ((mm = /^\/api\/v1\/admin\/trends\/(.+)\/(publish|rollback)$/.exec(pth)) && mth === 'POST') {
+      if ((mm = /^\/api\/v1\/admin\/trends\/(.+)\/(publish|rollback|unpublish)$/.exec(pth)) && mth === 'POST') {
         let trendId = mm[1];
         try { trendId = decodeURIComponent(trendId); } catch { /* raw 사용 */ }
-        return send(await (mm[2] === 'publish' ? h.admin.publishTrend : h.admin.rollbackTrend)(owner, trendId, body, req));
+        return send(await ({ publish: h.admin.publishTrend, rollback: h.admin.rollbackTrend, unpublish: h.admin.unpublishTrend })[mm[2]](owner, trendId, body, req));
       }
       if ((mm = /^\/api\/v1\/trends\/([^/]+)\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.ops.publicTrend(mm[1], mm[2]));
       if (pth === '/api/v1/exports' && mth === 'POST') return send(h.account.createExport(owner, body));

@@ -227,6 +227,7 @@ async function main() {
     check(/^\d{4}-\d{2}$/.test(month), '관리자 연월 기본값', month);
     await page.fill('#trendItems .trend-competency', '문제 해결');
     await page.fill('#trendItems .trend-comment', '최근 공고에서 문제 해결 요구가 늘었습니다.');
+    await page.fill('#trendForm [name=sources]', 'https://example.com/trend-source');
     await page.click('#trendForm button[type=submit]');
     await page.waitForFunction(() => /v\d+/.test(document.querySelector('#trendList')?.textContent || ''), null, { timeout: 15000 });
     check(/초안/.test(await page.locator('#trendList').innerText()), '초안 등록');

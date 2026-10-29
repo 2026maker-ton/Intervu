@@ -25,7 +25,7 @@ import { createFetchHandler } from './router.js';
 
 // env: 평탄한 문자열 맵(어댑터가 .env·환경변수·바인딩을 합쳐 준다).
 // trends: 월간 트렌드 저장소(영속은 어댑터 책임). syntheticTraffic: 코드로만 켜는 합성 전용 인스턴스.
-export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends, syntheticTraffic = false } = {}) {
+export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends, syntheticTraffic = false, officialFetch = {} } = {}) {
   const config = loadConfig(env);
   const store = storeIn || createStore();
   const ledger = ledgerIn || createLedger({ sessionHardCap: config.budgets.sessionHardCap, monthlyApiBudget: config.budgets.monthlyApiBudget, state: store.ledgerState() });
@@ -113,7 +113,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     if (c.minute > lim.perMinute || c.day > lim.perDay) return err('quota_exceeded', '요청이 너무 잦습니다. 잠시 후 다시 시도하세요.', 429, { retryable: true, details: { bucket, minute: c.minute, day: c.day, limit_minute: lim.perMinute, limit_day: lim.perDay } });
     return null;
   };
-  const d = { config, store, ledger, trends, err, now, priceOf, provider, providerInfo, syntheticTraffic, gemini, groq, killed, killedGroq, adminEnabled, checkAdmin, mock, registry, caller, requestContext, checkRate };
+  const d = { config, store, ledger, trends, err, now, priceOf, provider, providerInfo, syntheticTraffic, gemini, groq, killed, killedGroq, adminEnabled, checkAdmin, mock, registry, caller, requestContext, checkRate, officialFetch };
   const sessions = createSessionHandlers(d);
   d.publicSession = sessions.publicSession;
   const admin = createAdminHandlers(d);

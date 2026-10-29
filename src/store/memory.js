@@ -19,6 +19,7 @@ export function createStore({ ttlDays = 30 } = {}) {
   const consents = new Map();       // owner -> 최신 동의 행(감사 기록, WP-C6)
   const profileCalls = new Map();   // owner -> [timestamps] (프로필 추출 속도 제한)
   const instSources = new Map();    // profile_id -> [source rows] (기관 자료 출처)
+  const sourceFetches = new Map();  // profile_id -> { source_id: 수집 결과 } (WP-C2)
   const institutions = new Map();   // profile_id -> { profile object, approved, approved_at }
   const documents = new Map();      // id -> SourceDocument (원본 바이너리 비저장)
   const docRevisions = new Map();   // documentId -> [DocumentRevision]
@@ -95,6 +96,8 @@ export function createStore({ ttlDays = 30 } = {}) {
       instSources.set(profile_id, list.slice(-30));
       return row;
     },
+    setSourceFetch(profile_id, sid, result) { const m = sourceFetches.get(profile_id) || {}; m[sid] = result; sourceFetches.set(profile_id, m); return result; },
+    getSourceFetches(profile_id) { return { ...(sourceFetches.get(profile_id) || {}) }; },
     listSources(profile_id) { return (instSources.get(profile_id) || []).slice(); },
     // 기관 프로필(분석 결과 버전): 승인 전 review, 승인 후 approved(불변 스냅샷)
     setInstitution(profile_id, profile, status = 'review') {
@@ -218,7 +221,7 @@ export function createStore({ ttlDays = 30 } = {}) {
         p.experiences = [];
         p.target_name = '';
         p.status = 'deleted';
-        instSources.delete(p.id);
+        instSources.delete(p.id); sourceFetches.delete(p.id);
         institutions.delete(p.id);
         const vid = p.approved_version_id || p.version_id;
         const v = profileVersions.get(vid);
@@ -297,14 +300,14 @@ export function createStore({ ttlDays = 30 } = {}) {
       for (const [k, a] of attempts) if (goneTurns.has(a.turn_id)) attempts.delete(k);
       for (const [k, j] of transferJobs) if (gone.has(j.baseline_session_id) || gone.has(j.retry_session_id)) transferJobs.delete(k);
       for (const [id, p] of profiles) if (Date.parse(p.expires_at) < nowMs) {
-        profiles.delete(id); instSources.delete(id); institutions.delete(id); removed++;
+        profiles.delete(id); instSources.delete(id); sourceFetches.delete(id); institutions.delete(id); removed++;
         for (const [vid, v] of profileVersions) if (v.profile_id === id) profileVersions.delete(vid);
       }
       for (const [k, r] of idempotency) if (r.expires_at < nowMs) idempotency.delete(k);
       return removed;
     },
     // WP-A2: 영속용 내부 맵(내보내기·티켓 제외 — 메모리 전용 TTL).
-    _maps: { profiles, profileVersions, sessions, turns, revisions, events, commands, evaluations, appeals, attempts, deletions, profileCalls, instSources, institutions, transferJobs, idempotency, consents, documents, docRevisions },
+    _maps: { profiles, profileVersions, sessions, turns, revisions, events, commands, evaluations, appeals, attempts, deletions, profileCalls, instSources, sourceFetches, institutions, transferJobs, idempotency, consents, documents, docRevisions },
 
     // 호환: 컬렉션 맵을 직접 노출(테스트·삭제 경로가 사용). 새 코드는 메서드를 우선한다.
     events, pushEvent, commands, evaluations, appeals, attempts, deletions,

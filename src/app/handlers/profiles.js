@@ -6,10 +6,11 @@ import { planGeneralQuestions, publicPlanItem } from '../../domain/plan.js';
 import { questionCountForDuration } from '../../domain/interview-types.js';
 import { normalizeSource } from '../../domain/sources.js';
 import { isSyntheticProfileBody } from '../../domain/fixtures.js';
+import { fetchOfficialSource, parseAllowList } from '../../domain/fetcher.js';
 import { buildInstitutionProfile, normalizeOrgType, providerConstraintForOrg } from '../../domain/institution.js';
 
 export function createProfileHandlers(d) {
-  const { config, store, err, now, caller, requestContext, trends, registry } = d;
+  const { config, store, err, now, caller, requestContext, trends, registry, checkRate, officialFetch = {} } = d;
   async function createProfile(owner, body, requestId) {
     // 프로필 API 속도 제한(사양 §15): 계정당 분당2회/일10회 기본값
     const counts = store.recordRate(owner, 'profile');
@@ -188,15 +189,43 @@ export function createProfileHandlers(d) {
         return err('validation_error', e.message || '사용할 수 없는 출처 URL입니다.', 422, { details: e.details || null });
       }
     }
-    // 출처 추가 후 기관 프로필 재생성(초안, 승인 전까지 review)
+    const institution = rebuildInstitution(p, profileId);
+    return { status: 201, body: { added, institution, institution_status: 'review' } };
+  }
+
+  // 기관 프로필 재생성. official_verified 수집 결과만 공식 근거(발췌 원문)로 반영한다.
+  function rebuildInstitution(p, profileId) {
     const ver = p.version_id ? store.getVersion(p.version_id) : null;
-    const claims = ver?.extracted?.claims || [];
+    const fetches = store.getSourceFetches(profileId);
+    const sources = store.listSources(profileId).map((s) => {
+      const f = fetches[s.id];
+      return f?.status === 'official_verified' ? { ...s, kind: 'official', status: 'official_verified', quote: f.excerpts.map((x) => x.text).join('\n') } : s;
+    });
     const institution = buildInstitutionProfile({
       orgType: normalizeOrgType(p.org_type), targetName: p.target_name, role: p.role,
-      sources: store.listSources(profileId), claims, userNotes: (p.experiences || []).join('\n'),
+      sources, claims: ver?.extracted?.claims || [], userNotes: (p.experiences || []).join('\n'),
     });
     store.setInstitution(profileId, institution, 'review');
-    return { status: 201, body: { added, institution, institution_status: 'review' } };
+    return institution;
+  }
+
+  // POST /profiles/:id/sources/:sid/fetch — 허용 도메인의 공식 자료만 서버가 수집(기본 비활성)
+  async function fetchInstitutionSource(owner, profileId, sid) {
+    const p = store.getProfile(owner, profileId);
+    if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
+    const src = store.listSources(profileId).find((x) => x.id === sid);
+    if (!src) return err('not_found', '출처를 찾을 수 없습니다. 먼저 출처를 등록하세요.', 404);
+    const allow = parseAllowList(config.officialFetch.allow);
+    if (!allow.length) return err('official_fetch_disabled', '공식 자료 자동 수집이 비활성화되어 있습니다.', 403);
+    if (!src.url) return err('validation_error', 'URL이 없는 출처는 수집할 수 없습니다.', 422);
+    const limited = checkRate(owner, 'fetch');
+    if (limited) return limited;
+    const others = Object.entries(store.getSourceFetches(profileId)).filter(([k, f]) => k !== sid && f.status !== 'unavailable').flatMap(([, f]) => f.kv || []);
+    const result = await fetchOfficialSource(src, { allow, fetchFn: officialFetch.fetchFn, resolveDns: officialFetch.resolveDns, timeoutMs: config.officialFetch.timeoutMs, maxBytes: config.officialFetch.maxBytes, otherKv: others });
+    store.setSourceFetch(profileId, sid, result);
+    const institution = rebuildInstitution(p, profileId);
+    const { text, kv, ...view } = result;
+    return { status: 200, body: { source_id: sid, ...view, text_length: result.text_cp || 0, institution } };
   }
 
   function getInstitution(owner, profileId) {
@@ -251,5 +280,5 @@ export function createProfileHandlers(d) {
     return { status: 200, body: { profile_id: profileId, version_id: version?.id || null, frozen, excluded_claim_ids: excluded, question_basis: plan.question_basis, questions: plan.questions.map(publicPlanItem) } };
   }
 
-  return { createProfile, getProfile, approveProfile, addInstitutionSource, getInstitution, listClaims, setClaimExcluded, getPlan };
+  return { createProfile, getProfile, approveProfile, addInstitutionSource, fetchInstitutionSource, getInstitution, listClaims, setClaimExcluded, getPlan };
 }

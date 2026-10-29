@@ -40,7 +40,7 @@ export function providerConstraintForOrg(orgType) {
   return { forceMock: false };
 }
 
-const COMPETENCY_KEYWORDS = [
+export const COMPETENCY_KEYWORDS = [
   { kw: '문제 해결', competency: 'reasoning', label: '문제해결' },
   { kw: '협업', competency: 'evidence_specificity', label: '협업' },
   { kw: '소통', competency: 'relevance', label: '소통' },

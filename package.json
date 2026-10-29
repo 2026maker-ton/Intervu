@@ -7,7 +7,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "check:project": "node tools/check-project.mjs",
-    "test": "node tools/check-project.mjs && node --test tests/run.mjs",
+    "test": "node tools/check-project.mjs && node --test \"tests/**/*.test.mjs\"",
     "verify:design": "node tools/verify-design.mjs",
     "cost": "node tools/cost-model.mjs --sessions=1000",
     "cost:gemini": "node tools/cost-model-gemini.mjs --sessions=1000",

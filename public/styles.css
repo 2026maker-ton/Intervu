@@ -449,3 +449,10 @@ footer p { margin: 0; font-size: .78rem; color: var(--muted); }
 .mode-chip { display: inline-block; padding: 2px var(--sp-3); border-radius: 999px; font-size: var(--fs-sm); background: var(--state-neutral-bg); }
 .mode-chip[data-mode="live"], .mode-chip[data-mode="partial-live"] { background: var(--state-ok-bg); color: var(--state-ok); }
 .mode-chip[data-mode="error"] { background: var(--state-error-bg); color: var(--state-error); }
+
+/* WP-D7 history/admin */
+.trend-item .trend-sources-wrap, .trend-item .trend-item-error { grid-column: 1 / -1; }
+.trend-item-error { color: var(--red); margin: 0; }
+.check { display: flex; gap: .5rem; align-items: center; margin: .25rem 0; }
+.danger.small { padding: .35rem .7rem; font-size: .82rem; }
+#trendMonths { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .6rem; }

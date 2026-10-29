@@ -209,6 +209,7 @@ async function main() {
     const historyText = await page.locator('#historyBody').innerText();
     check(/면접/.test(historyText), '기록 목록 표시');
     check(/Mock/.test(await page.locator('#providerDetail').innerText()), '공급자 상세 표시');
+    check(/재시작/.test(await page.locator('#restartNote').innerText()), '재시작 시 기록 소실 안내');
     await page.screenshot({ path: path.join(OUT, '07-history-1440.png'), fullPage: true });
 
     // ---------- 9. 관리자 ----------
@@ -231,9 +232,14 @@ async function main() {
     await page.fill('#trendItems .trend-comment', '최근 공고에서 문제 해결 요구가 늘었습니다.');
     await page.fill('#trendForm [name=sources]', 'https://example.com/trend-source');
     await page.click('#trendForm button[type=submit]');
+    check(/체크리스트/.test(await page.locator('#trendError').innerText()), '체크리스트 미확인 시 저장 차단');
+    for (const c of await page.locator('#reviewChecklist .review-check').all()) await c.check();
+    await page.click('#trendForm button[type=submit]');
     await page.waitForFunction(() => /v\d+/.test(document.querySelector('#trendList')?.textContent || ''), null, { timeout: 15000 });
     check(/초안/.test(await page.locator('#trendList').innerText()), '초안 등록');
     await page.click('[data-publish]');
+    await page.waitForSelector('#confirmDialog[open]');
+    await page.click('#confirmOk');
     await page.waitForSelector('[data-rollback]', { timeout: 15000 });
     check(await page.locator('[data-rollback]').count() > 0, '공개 후 롤백 버튼');
     await page.click('[data-rollback]');
@@ -241,6 +247,8 @@ async function main() {
     await page.click('#confirmOk');
     await page.waitForTimeout(1200);
     check(/롤백/.test(await page.locator('#trendList').innerText()), '롤백 새 버전 기록');
+    check(/현재 공개/.test(await page.locator('#trendList').innerText()), '현재 공개 버전 표시');
+    check(/사용자에게는 이렇게 보입니다/.test(await page.locator('#adminPanel').innerText()), '공개본 미리보기 문구');
     await page.screenshot({ path: path.join(OUT, '08-admin-1440.png'), fullPage: true });
 
     // 공개된 월간 자료가 사용자 조회에 노출되는지

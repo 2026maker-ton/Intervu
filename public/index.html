@@ -347,13 +347,15 @@
         <button class="ghost small" type="button" id="exportAllBtn">전체 목록 내보내기(JSON)</button>
       </div>
       <div id="historyBody" class="list" aria-live="polite"><p class="hint">불러오는 중…</p></div>
+      <p class="fine" id="restartNote">서버가 재시작되면 기록이 사라질 수 있습니다. 서버를 STORE=file로 실행한 경우에만 재시작 후에도 유지됩니다.</p>
     </div>
 
     <div class="panel-grid">
       <section class="card">
         <h2>저장하는 것 / 저장하지 않는 것</h2>
         <ul class="plain">
-          <li>답변 텍스트(전사), 코칭 보고서, 승인한 공고 버전 — 기본 30일</li>
+          <li>답변 텍스트(개인정보 마스킹 후), 코칭 보고서, 승인한 공고 버전 — 기본 30일</li>
+          <li>삭제 범위: 세션 삭제는 해당 세션의 답변·보고서·비교, 계정 삭제는 프로필·세션·보고서·이의 전체</li>
           <li>원음은 전사 후 서버에서 즉시 폐기하며 장기 저장하지 않습니다.</li>
           <li>삭제 요청 시 활성 저장소에서 즉시 파기, 백업은 최장 30일</li>
           <li>얼굴·카메라·감정 분석은 하지 않습니다.</li>
@@ -362,15 +364,16 @@
       <section class="card">
         <h2>AI 공급자와 한도</h2>
         <p class="hint" id="providerDetail" role="status"></p>
+        <div id="providerOps" aria-live="polite"></div>
         <ul class="plain">
           <li>API 키는 서버에서만 사용하며 브라우저에 노출되지 않습니다.</li>
-          <li>Mock 모드에서는 외부 전송이 없습니다.</li>
+          <li>Mock 모드에서는 외부 전송이 없습니다. 외부 AI는 서버 설정과 동의가 있을 때만 호출됩니다.</li>
           <li>Gemini 무료 전용 설정에서는 유료 모델로 자동 전환하지 않습니다.</li>
         </ul>
       </section>
       <section class="card">
         <h2>내 데이터 삭제</h2>
-        <p class="fine">세션별 삭제는 피드백 화면에서, 계정 전체 삭제는 아래에서 처리합니다. 삭제는 되돌릴 수 없습니다.</p>
+        <p class="fine">세션별 삭제는 위 기록 목록에서, 전체·계정 삭제는 아래에서 처리합니다. 삭제는 되돌릴 수 없으며 계정 삭제는 확인 문구 입력이 필요합니다.</p>
         <div class="actions">
           <button class="danger" type="button" id="deleteAllBtn">모든 세션 삭제</button>
           <button class="danger" type="button" id="deleteAccountBtn">계정 전체 삭제</button>
@@ -383,6 +386,7 @@
           <label class="field"><span>분야</span><select id="trendSegment"><option value="company">기업 취업</option><option value="university">대학 입학</option></select></label>
           <label class="field"><span>연월</span><input id="trendMonth" type="month" /></label>
         </div>
+        <p class="fine">검수·공개된 월간 보조 기준만 표시합니다. 공식 요구가 아니며 점수에 반영되지 않습니다.</p>
         <div id="trendResult" aria-live="polite"></div>
       </section>
     </div>
@@ -423,8 +427,15 @@
             <div id="trendItems" class="trend-items"></div>
             <button class="ghost small" type="button" id="addTrendItemBtn">역량 추가</button>
           </fieldset>
+          <fieldset class="field-group" id="reviewChecklist">
+            <legend>검토 체크리스트 (저장 전 모두 확인)</legend>
+            <label class="check"><input type="checkbox" class="review-check" /> 출처를 직접 열어 확인했다</label>
+            <label class="check"><input type="checkbox" class="review-check" /> 발행일이 최근이다</label>
+            <label class="check"><input type="checkbox" class="review-check" /> 여러 공고·자료에서 반복된다</label>
+            <label class="check"><input type="checkbox" class="review-check" /> 편향·기관 공식 입장과의 충돌이 없다</label>
+          </fieldset>
           <label class="field"><span>검수 코멘트</span><textarea name="comment" rows="2" maxlength="500"></textarea></label>
-          <label class="field"><span>출처 (한 줄에 하나)</span><textarea name="sources" rows="2" maxlength="2000" placeholder="https://…"></textarea></label>
+          <label class="field"><span>공통 출처 (항목에 출처가 없으면 물려받음, 한 줄에 하나)</span><textarea name="sources" rows="2" maxlength="2000" placeholder="https://…"></textarea></label>
           <div class="actions">
             <button class="primary" type="submit">초안으로 저장</button>
             <button class="ghost" type="button" id="trendLoadBtn">이 연월 이력 불러오기</button>
@@ -434,7 +445,13 @@
       </div>
       <div class="card">
         <h2>버전 이력 · 공개·롤백</h2>
+        <div id="trendMonths" class="list"></div>
         <div id="trendList" class="list" aria-live="polite"><p class="hint">분야와 연월을 선택한 뒤 “이력 불러오기”를 누르세요.</p></div>
+      </div>
+      <div class="card">
+        <h2>사용자 미리보기</h2>
+        <p class="fine">사용자에게는 이렇게 보입니다 (공개 중인 버전만).</p>
+        <div id="trendPreview" aria-live="polite"><p class="hint">이력을 불러오면 표시됩니다.</p></div>
       </div>
     </div>
   </section>

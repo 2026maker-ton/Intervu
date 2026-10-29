@@ -34,7 +34,8 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
 
       if (p === '/api/v1/metrics' && method === 'GET') return send(await h.ops.metrics(request));
       // Groq STT 연결 상태(키 노출 없음, 상태만 반환)
-      if (p === '/api/v1/stt/status' && method === 'GET') return json(200, h.stt.sttStatus());
+      if (p === '/api/v1/stt/status' && method === 'GET') return json(200, h.stt.sttStatus(owner));
+      if (p === '/api/v1/providers/status' && method === 'GET') return send(h.ops.providersStatus(owner));
       if (p === '/api/v1/diagnostics/gemini-models' && method === 'GET') return send(await h.ops.geminiModels(request, requestId));
 
       let m;

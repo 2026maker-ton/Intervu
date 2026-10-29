@@ -49,9 +49,9 @@ export function createMockAdapter() {
 }
 
 // Gemini 어댑터: REST generateContent. human-review/unpaid 금지 게이트는 호출자가 강제.
-export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutMs = 12000, fetchFn = fetch, freeOnly = true }) {
+export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutMs = 12000, fetchFn = (...a) => globalThis.fetch(...a), freeOnly = true, baseUrl = 'https://generativelanguage.googleapis.com/v1beta' }) {
   if (!apiKey) throw new Error('GEMINI_API_KEY missing');
-  const base = 'https://generativelanguage.googleapis.com/v1beta';
+  const base = String(baseUrl).replace(/\/+$/, '');
   // 호출 통계(운영 로그용, 본문 미포함)
   const stats = { calls: 0, failures: 0, rateLimits: 0, fallbacks: 0, totalMs: 0 };
   async function generateContent(model, { system, user, maxOutputTokens, json = true }) {
@@ -86,7 +86,7 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
       if (res.status === 429) {
         stats.rateLimits += 1; stats.failures += 1;
         const e = new Error('gemini rate limited');
-        e.code = 429; e.retryAfter = Number(res.headers.get('retry-after')) || 5; e.retryable = true;
+        e.code = 429; const ra = res.headers.get('retry-after'); e.retryAfter = ra !== null && ra !== '' && Number.isFinite(Number(ra)) ? Number(ra) : 5; e.retryable = true;
         throw e;
       }
       if (!res.ok) {
@@ -131,7 +131,7 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
     } catch (e) {
       if (!e.retryable) throw e;
       if (e.code === 429) {
-        const wait = Math.min(Number(e.retryAfter) || 2, 5) * 1000;
+        const wait = Math.min(Number.isFinite(e.retryAfter) ? e.retryAfter : 2, 5) * 1000;
         await sleep(wait);
       }
       if (safeFallback && safeFallback !== textModel) {
@@ -165,7 +165,7 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
       try {
         const j = JSON.parse(r.text);
         parsed = { ...parsed, claims: Array.isArray(j.claims) ? j.claims.slice(0, 30) : [], missing_fields: Array.isArray(j.missing_fields) ? j.missing_fields.slice(0, 10) : parsed.missing_fields };
-      } catch { throw Object.assign(new Error('gemini bad json'), { code: 502, retryable: true }); }
+      } catch { throw Object.assign(new Error('gemini bad json'), { code: 502, invalid: true }); }
       return { model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs, ...parsed };
     },
   // 꼬리질문: 실제 답변 내용(recentAnswer), 직전 질문, 최근 대화, 면접 유형,
@@ -183,9 +183,11 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
         user: `직전 질문: ${questionText || '(없음)'}\n사용자 직전 답변: ${recent || '(없음)'}\n부족한 점(서버 휴리스틱): ${followupReason || '없음'}\n최근 대화:\n${hist || '(없음)'}\n위 답변의 부족한 근거를 보완하도록 240자 이내 꼬리질문 한 개를 JSON으로 반환하세요.`,
         maxOutputTokens: 500,
       }));
-      let utterance = questionText;
-      try { utterance = JSON.parse(r.text).utterance || questionText; } catch { /* fallback */ }
-      return { model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs, utterance: String(utterance).slice(0, 240) };
+      // 잘못된 JSON·빈 응답은 질문을 그대로 돌려주지 않고 실패로 알린다(호출 래퍼가 정적 폴백 + invalid_output 표기).
+      let utterance = null;
+      try { utterance = JSON.parse(r.text).utterance; } catch { /* 아래에서 처리 */ }
+      if (typeof utterance !== 'string' || !utterance.trim()) throw Object.assign(new Error('gemini bad output'), { code: 502, invalid: true });
+      return { model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs, utterance: String(utterance).slice(0, 1000) };
     },
     // 평가는 MVP에서 결정적 mock 생성기를 사용(근거 인용 불일치 원천 차단).
     // Gemini 평가는 품질 검증 게이트(G4/G5) 통과 후 별도 활성화.
@@ -225,7 +227,7 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
 // endpoint: POST https://api.groq.com/openai/v1/audio/transcriptions (multipart/form-data)
 // model: whisper-large-v3-turbo, language: ko. 키는 서버에서만 사용.
 // 무료 한도 보호: 크기 상한 초과·429 → 즉시 fallback(텍스트 입력 유지), 재시도 없음.
-export function createGroqWhisperAdapter({ apiKey, model = 'whisper-large-v3-turbo', timeoutMs = 30000, maxAudioBytes = 25 * 1024 * 1024, fetchFn = fetch }) {
+export function createGroqWhisperAdapter({ apiKey, model = 'whisper-large-v3-turbo', timeoutMs = 30000, maxAudioBytes = 25 * 1024 * 1024, fetchFn = (...a) => globalThis.fetch(...a), baseUrl = 'https://api.groq.com/openai/v1' }) {
   if (!apiKey) throw new Error('GROQ_WHISPER_KEY missing');
   const stats = { calls: 0, failures: 0, rateLimits: 0, totalMs: 0 };
   return {
@@ -248,7 +250,7 @@ export function createGroqWhisperAdapter({ apiKey, model = 'whisper-large-v3-tur
         form.append('model', model);
         form.append('language', 'ko');
         form.append('response_format', 'json');
-        const res = await fetchFn('https://api.groq.com/openai/v1/audio/transcriptions', {
+        const res = await fetchFn(`${String(baseUrl).replace(/\/+$/, '')}/audio/transcriptions`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${apiKey}` },
           body: form,
@@ -274,16 +276,4 @@ export function createGroqWhisperAdapter({ apiKey, model = 'whisper-large-v3-tur
       }
     },
   };
-}
-
-// 게이트: 실제 사용자 데이터는 Paid 확인된 경우에만 gemini 사용 허용
-export function selectProvider({ config, isSynthetic }) {
-  if (!config.gemini.apiKey) return 'mock'; // 키 없으면 mock
-  if (!config.gemini.paidAck) {
-    // 무료 할당량은 학습·인간검토 대상 → 실제 사용자 데이터 금지.
-    // 합성/개발 트래픽도 기본 차단(allowUnpaid=false), 명시적 허용 시에만.
-    if (isSynthetic && config.gemini.allowUnpaid) return 'gemini';
-    return 'mock';
-  }
-  return 'gemini';
 }

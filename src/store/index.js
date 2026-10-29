@@ -4,7 +4,7 @@
 export const STORE_METHODS = [
   // 프로필·기관
   'createProfile', 'getProfile', 'setExtracted', 'approveVersion', 'getVersion',
-  'addSource', 'listSources', 'setInstitution', 'getInstitution', 'recordProfileCall',
+  'addSource', 'listSources', 'setInstitution', 'getInstitution', 'recordProfileCall', 'recordRate',
   // 세션·턴·전사
   'createSession', 'getSession', 'listSessions', 'updateSession',
   'createTurn', 'getTurn', 'sessionTurns', 'addRevision', 'getRevisions', 'pushEvent',

@@ -226,7 +226,7 @@
 **현재 구현된 공급자:** Gemini(`gemini-3.5-flash-lite`, 대체 `gemini-3.6-flash`, 환경설정 기준; 실제 응답 가능 여부는 이번에 호출하지 않아 `[UNVERIFIED]`), Groq Whisper, Mock, 브라우저 SpeechSynthesis. 앞의 `Groq GPT-OSS 120B 비교 후보`는 개발자의 목표 구성에서 제외되었으므로 **현재 목표가 아니다**(이력으로만 유지).
 
 **마이그레이션 원칙(Gemini → 목표 구성).**
-1. 어댑터 인터페이스(`extract / next / evaluate / transcribe`)를 operation별 공급자 라우팅(`config.registry`)으로 연결해 교체한다. 현재 `registry`는 정의돼 있으나 서버가 읽지 않는다(`server.js`는 `gemini`/`mock`을 직접 선택) — `[BUG]` 기술 부채.
+1. 어댑터 인터페이스(`extract / next / evaluate / transcribe`)를 operation별 공급자 라우팅(`config.registry`)으로 연결해 교체한다. `[DONE]`(2026-10-29 WP-B1): `config.registry`를 `providers/registry.js`가 읽어 operation(`dialogue.next`·`claims.extract`·`evaluation.generate`·`speech.transcribe`·`speech.synthesize`)별로 라우팅하고, 게이트(`providers/gate.js`)·호출 래퍼(`providers/call.js`)를 거친다. 새 벤더 어댑터(DeepSeek·Claude·ElevenLabs)는 아직 없다(B2·B3).
 2. 신규 유료 공급자 도입은 개발자의 **명시적 설정·확인 플래그**로만 켜고, 장애·429 시 다른 유료 모델로 자동 승격하지 않는다(§5 #8).
 3. 공급자별로 **개인정보 전송 전제 조건**을 먼저 확인한다: 약관상 학습·인간검토 여부, 데이터 보존, 국외 이전 고지, 연령 제한. 현재 DeepSeek·Claude·ElevenLabs 각각에 대해 `[UNVERIFIED]`이며, 확인 전까지 실제 지원자 문서는 전송하지 않고 합성 fixture만 사용한다.
 4. 키는 Cloudflare Workers 비밀값(또는 서버 `.env`)에만 두고 Pages 번들에 넣지 않는다. Workers 이전 시 CORS·Idempotency-Key·인증·영속 저장(KV/D1/Durable Objects 중 선택 `[미확정]`)을 함께 설계해야 하며, 현재 `src/server.js`(약 1,700줄)를 그대로 Worker로 올릴 수 없다.
@@ -291,7 +291,7 @@
 | 5 | 웹 수집 SSRF 방어 | `[PARTIAL]` 수집기가 없어 현재 위험 없음, 호스트 문자열 검사만 | DEBT-9 |
 | 6 | 문서·모델 출력 비신뢰, 프롬프트 인젝션 방어 | `[PARTIAL]` 평가가 결정적이라 인젝션 영향 없음(test 264). LLM 경로의 인젝션 방어는 프롬프트 지시문뿐이며 미시험 | `adapters.js` |
 | 7 | PII 마스킹 오탐/누락 검증 | `[PARTIAL]` 오탐 회귀(test 852). 이름·학교 미탐지 | DEBT-7 |
-| 8 | 429·장애 시 유료 자동 승격 금지, 예산·킬 스위치 | `[PARTIAL]` 무료 허용 목록·킬 스위치·세션/월 상한(test 330). 원장 인메모리, 429 시 세션 종료 | BUG-8 |
+| 8 | 429·장애 시 유료 자동 승격 금지, 예산·킬 스위치 | `[PARTIAL]` 무료 허용 목록·킬 스위치·세션/월 상한(test 330). 원장 인메모리. 429·타임아웃·잘못된 출력은 정적 폴백으로 **세션을 계속**하고 원장 예약을 정산(WP-B1 스텁 시험 `b1-call`). 공급자별 월 상한은 `[TODO]` | BUG-8 수정 |
 | 9 | 음성 의사 없는 전송·장기 저장 금지 | `[PARTIAL]` 원음 전사 후 폐기 코드. 실동작 미검증 | `[UNVERIFIED]` |
 | 10 | 보관·내보내기·삭제와 UI 설명 일치 | `[PARTIAL]` 세션·계정 삭제가 전이 작업·내보내기 캐시·재작성 연습·이의 제기를 파기(P0-2 수정, tests/run.mjs 말미 P0-2 테스트). 인메모리 한정이며 백업·영속 저장소의 삭제 보장은 해당 없음/`[TODO]` | BUG-2 수정, DEBT-1 |
 | 11 | 인용 일치≠타당성 별도 검증 | `[TODO]` 의미 검수 시험 없음 | §6.2 |
@@ -398,7 +398,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 실시간 면접 대화·세션 관리 | `[PARTIAL]` | REST 명령(`session.start/pause/resume/finish`, `turn.text`), 서버 시계 시간 상한, 낙관적 버전 잠금, `command_id` 재생, test 85~264 | 실시간 스트리밍·WebSocket 없음(`/ws`는 티켓 스텁). 재시작 시 세션 소실 |
 | STT(Groq Whisper) | `[UNVERIFIED]` | `createGroqWhisperAdapter`, `POST /sessions/:id/transcriptions`, 브라우저 `MediaRecorder` UI(`app.js:921~1040`), 키 없음/비오디오 경로 test 762~791 | 실키 호출 미실행. 전사 확인·교정 UI는 존재. 한국어 오류율·지연 측정 없음. `input_mode:'voice'`(브라우저 인식) 경로는 E2E 미확인 |
 | TTS | `[PARTIAL]` | 브라우저 `SpeechSynthesis`(`app.js:831`) | ElevenLabs `[TODO]`. 브라우저·OS별 한국어 음성 편차 미확인 |
-| 답변 분석·평가 | `[DONE]`(규칙 기반) | `mock-eval*.js`, 인용·span 검증(`evaluation.js`), test 85·132·859 | 의미 기반 평가 아님. UI는 "규칙 기반 참고 관찰" 고지(E2E 확인). API 응답 `badge`는 "AI 생성 코칭"(아래 BUG-6) |
+| 답변 분석·평가 | `[DONE]`(규칙 기반) | `mock-eval*.js`, 인용·span 검증(`evaluation.js`), test 85·132·859 | 의미 기반 평가 아님. UI는 "규칙 기반 참고 관찰" 고지(E2E 확인). 보고서에 `evaluator:{kind:'rule_based',provider:'mock',…}`를 표기하고 `badge` 필드를 제거(BUG-6 수정, WP-B1) |
 | 근거 인용·판단 보류 | `[DONE]` | `validateEvaluation`, `insufficient_evidence`, test 132·637 | 의미 타당성 검증 없음 |
 | 약점 집중 코칭·재연습 | `[PARTIAL]` | `POST /practice-attempts`, `generateTransferQuestion`, UI `app.js:1338~1401` | 새 질문은 역량당 **고정 템플릿 3개**에서 선택(`transfer.js`). 행동 루브릭 4역량 외 역량은 `reflection` 템플릿으로 대체 `[BUG]`. 90초·1문항 세션 |
 | 새 질문 전후 비교 | `[PARTIAL]` | `compareTransfer`, `POST /transfer-comparisons`, UI `app.js:1429`, test 866·1032 | 같은 루브릭·다른 질문·유사도(바이그램 Jaccard 0.55)·판단 보류는 구현. 비교 수준은 키워드 규칙 점수의 차이. 전이 작업(`transferJobs`)이 **메모리에만** 있고 삭제 시 지워지지 않음 `[BUG]` |
@@ -408,11 +408,11 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 개인정보 처리 | `[PARTIAL]` | `detectPii`(이메일·전화·주민번호만), `maskPii`, 블라인드 마스킹, test 852 | **이름·학교·주소는 탐지하지 않음.** 블라인드는 휴리스틱(UI도 "완전하지 않을 수 있음" 고지) |
 | 연령·미성년자 보호 | `[PARTIAL]` | 서버: `highschool` Mock 강제(test 520). UI: "만 19세 이상" 정적 문구 | 연령 확인 **절차** 없음(Figma 6단계 `[TODO]`). 고교 경로가 UI에는 없음 |
 | 오류 복구 | `[PARTIAL]` | 공급자 실패→정적 꼬리질문 폴백+`degraded_reason`, STT 실패→텍스트 안내, 평가 실패 상태, 보고서 폴링 | 대화 중 429는 **정적 폴백으로 계속하지 않고 세션을 즉시 종료**(`server.js:807~813`). 클라이언트 자동 재시도·세션 복구 없음 |
-| API 사용량·예산 | `[PARTIAL]` | `ledger.js`(예약→정산), 세션 $0.08·월 $30 상한, 프로필 분당2/일10 제한, 킬 스위치, test 330·356 | 원장이 **인메모리**(재시작 시 0). 월 경계 리셋 없음. 단가표는 Gemini 전용. 프로필 외 엔드포인트(문서 추출·STT·턴) 사용자별 속도 제한 없음. `config.registry`는 서버가 읽지 않음 |
+| API 사용량·예산 | `[PARTIAL]` | `ledger.js`(예약→정산), 세션 $0.08·월 $30 상한, 프로필 분당2/일10 제한, 킬 스위치, test 330·356 | 원장이 **인메모리**(재시작 시 0). 월 경계 리셋 없음. 단가표는 Gemini 전용. 문서 추출·STT·턴·프로필에 사용자별 속도 제한(분/일, 환경변수로 조정, WP-B1). `config.registry`는 `providers/registry.js`가 읽어 라우팅. 공급자별 월 상한(`<P>_MONTHLY_CAP_USD`)은 `[TODO]` |
 | 인증 | `[PARTIAL]` | 환경변수로 명시한 접속 토큰 2개(`DEV_TOKEN_A/B`)만 유효 — **내장 기본 토큰 제거**(`config.js`), 브라우저도 내장 토큰 없이 첫 401에서 접속 토큰을 물어 저장(`app.js promptToken`, E2E [10b]). 소유권 검사·교차 사용자 격리 test 277, P0-6 테스트 | **실제 로그인·세션·계정 없음**(토큰은 운영자가 나눠 주는 공유 비밀, `localStorage` 저장). 예시 토큰(`dev-user-*-token`) 사용 시 서버 시작 경고만 출력. 공개 서비스 불가 |
 | 관리자 화면 | `[PARTIAL]` | `ADMIN_TOKEN` **필수**: 미설정이면 관리 기능·`/metrics`·`/diagnostics` 전체가 꺼짐(403 `admin_disabled`), 토큰은 `x-admin-token` 헤더로만 수신하고 상수시간 비교(`checkAdmin`), E2E·P0-6 테스트 | 역할 모델·감사 기록·토큰 교체 절차 없음(단일 공유 비밀). 출처 없는 트렌드 공개 허용은 BUG-5로 남음 |
-| 공급자 게이트(실데이터 외부 전송 차단) | `[DONE]`(2026-10-29 P0-1 수정, 스텁 fetch 시험) | `selectProvider`, `providerFor`(`server.js`), 테스트 `P0 gate:*` 3건+`forged synthetic/free_test…`, 오프라인 프로브 재실행 | 요청 본문의 `synthetic`·`free_test`는 전송 근거가 아님. 합성 전용 인스턴스는 `createApp({syntheticTraffic:true})` 코드 호출로만 켜짐. **실키·유료 경로(`paidAck=true`)는 실제 호출하지 않아 `[UNVERIFIED]`**. 요청별 동의·연령 게이트는 별도 `[TODO]` |
-| 보고서 공급자 표기 | `[BUG]` | `server.js:939~945` | 규칙 기반 평가 보고서에 전역 `provider.name`을 붙이고, `paidAck=true`면 `model_version`이 Gemini 모델명이 됨(BUG-6) |
+| 공급자 게이트(실데이터 외부 전송 차단) | `[DONE]`(2026-10-29 P0-1 수정, 스텁 fetch 시험) | `providers/gate.js`(키·BASE_URL·MODEL·`<P>_LIVE_ACK`·데이터 등급·킬 스위치)+`providers/call.js`(WP-B1 일반화), 테스트 `P0 gate:*`·`b1-gate`(조건별 외부 호출 0건)·`GET /providers/status`, 오프라인 프로브 재실행 | 요청 본문의 `synthetic`·`free_test`는 전송 근거가 아님. 합성 전용 인스턴스는 `createApp({syntheticTraffic:true})` 코드 호출로만 켜짐. **실키·유료 경로(`paidAck=true`)는 실제 호출하지 않아 `[UNVERIFIED]`**. 요청별 동의·연령 게이트는 규칙만 구현(`ctx.consent/age19`, 동의 API 전에는 항상 false → `<P>_REAL_DATA_ACK` 경로는 `consent_missing`으로 차단). 구 `GEMINI_PAID_ACK`는 호환 경로(deprecated). Groq STT는 이제 `GROQ_LIVE_ACK`+합성/동의 필요. 합성 판정 fixture 해시는 WP-C6 `[TODO]` |
+| 보고서 공급자 표기 | `[DONE]`(2026-10-29 WP-B1, BUG-6 수정) | `commands.js`(평가 `evaluator`·`provider_trace`), 테스트 `b1-call` labels | 규칙 기반 평가 보고서는 `provider:'mock'`·`model_version:'mock-model-v1'`·`evaluator.kind:'rule_based'`로 고정(`paidAck`와 무관), 응답·세션·보고서에 `provider_trace[]`(실제 호출과 일치, 모델 ID 비노출) |
 | DeepSeek / Claude Sonnet / ElevenLabs | `[TODO]` | 코드·환경변수 없음 | §4.2 |
 | GitHub Pages / Cloudflare Workers | `[TODO]` | 설정 파일 없음 | §4.2, §12 P0-5 |
 
@@ -490,16 +490,16 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | BUG-3 | ~~P1~~ **수정됨(2026-10-29, P0-6)** | **[원 결함·참고용]** `ADMIN_TOKEN`이 없으면 **모든 일반 개발 토큰 사용자가 월간 역량 초안·공개·롤백 가능**(프로브: 사용자 B가 초안 201). 관리자 토큰을 쿼리스트링(`?admin_token=`)으로도 받아 URL·로그에 남을 수 있음 | `server.js:78~89` |
 | BUG-4 | ~~P1~~ **수정됨(2026-10-29, P0-6; `/health`는 비인증 시 `selected`만, 나머지는 인증 필요)** | **[원 결함·참고용]** 인증 전 엔드포인트: `/health`(설정 불리언·모델명), `/metrics`(월 지출 원장), `/diagnostics/gemini-models`(**서버 Gemini 키로 외부 호출, 인증·속도 제한 없음**) | `server.js:1403~1448`, 프로브로 무인증 200 확인 |
 | BUG-5 | P1 | 월간 트렌드를 **출처·코멘트 없이** 공개 가능. `data/trends.json`에 `competency:"a"`, 출처 없음 항목이 공개 상태로 있고 `GET /trends/company/2026-10`이 그대로 노출. §2.3의 출처·검수 요건 미충족 | `trends.js validateItems`, `data/trends.json` |
-| BUG-6 | P1 | 보고서 표기 불일치: `badge:"AI 생성 코칭…"`이 규칙 기반 평가에도 붙음. `provider`는 전역값, `paidAck=true`면 `model_version`이 Gemini 모델명이 되어 **규칙 기반을 AI 평가로 오인시킬 수 있음**(UI 문구는 규칙 기반으로 정확). `PROJECT.md` §2.6 위반 소지 | `server.js:939~945` |
+| BUG-6 | ~~P1~~ **수정됨(2026-10-29, WP-B1; `evaluator` 표기·`badge` 제거·`provider_trace` 일치)** | **[원 결함·참고용]** 보고서 표기 불일치: `badge:"AI 생성 코칭…"`이 규칙 기반 평가에도 붙음. `provider`는 전역값, `paidAck=true`면 `model_version`이 Gemini 모델명이 됨 | `server.js:939~945`(구) |
 | BUG-7 | P1 | 새 질문 템플릿이 행동 루브릭 4역량(`relevance/evidence_specificity/reasoning/reflection`)만 있음. 기술·토론·PT·상황 루브릭 역량은 `reflection` 질문으로 대체되어 **같은 역량 재검증이 성립하지 않음**. `server.js`의 `practiceText`는 미사용 코드 | `transfer.js transferTemplatesFor`, `server.js:1243` |
-| BUG-8 | P1 | 대화 중 429 → 정적 폴백으로 계속하지 않고 `finishSession` 호출. 이 경로에서 원장 예약(0.005)이 정산되지 않음. `createSession`의 예산 사전 확인은 `session:${owner}` 키를 써서 실제 세션 원장과 무관 | `server.js:381,807~813` |
+| BUG-8 | ~~P1~~ **수정됨(2026-10-29, WP-B1; 429·장애 시 정적 폴백으로 계속, 호출 단위 예약·정산, 사전 예산 확인에서 가짜 `session:${owner}` 키 제거)** | **[원 결함·참고용]** 대화 중 429 → 정적 폴백 없이 `finishSession`, 원장 예약 미정산, `createSession` 예산 사전 확인이 실제 세션 원장과 무관한 키 사용 | `server.js:381,807~813`(구) |
 | BUG-9 | P1 | 업로드 한도 불일치: 서버 상한 5MB vs JSON 본문 한도 1,000,000바이트(base64 팽창) → 약 0.7MB 초과 파일은 413. UI 안내와 다를 수 있음(코드 기준, 재현 미실시) | `server.js:118,1603`, `documents.js MAX_BYTES` |
 | DEBT-1 | P0 | **영속 저장 없음** — 프로세스 재시작 시 세션·보고서·전이 작업·예산 원장 소실(데모 중 서버 재시작=데이터 유실) | `src/store.js` 머리말 |
 | DEBT-2 | P0(부분 완화) | **실제 인증 없음** — 정적 접속 토큰(내장 기본 토큰·클라이언트 내장 토큰은 P0-6에서 제거). 공개 배포 전에 반드시 교체 | `config.js`, `app.js:8` |
-| DEBT-3 | P0 | 공급자 라우팅 부재 — `config.registry`는 정의만 있고 미사용. 목표 구성(§4.2) 도입 시 어댑터 선택 구조 필요 | `grep registry src` |
+| DEBT-3 | ~~P0~~ **해소(2026-10-29, WP-B1)** | **[원 결함·참고용]** 공급자 라우팅 부재 — `config.registry` 미사용 → 이제 `providers/registry.js`·`gate.js`·`call.js`가 라우팅·게이트·호출을 담당 | `src/providers/` |
 | DEBT-4 | P1 | `Idempotency-Key`는 필수 헤더지만 저장·재생하지 않음(`idempotency` Map 미사용). 명령은 `command_id`로 별도 보호 | `server.js:66,1477` |
 | DEBT-5 | P1 | `server.js` 1,700줄 단일 파일, UI `app.js` 1,780줄 — Workers 이전·테스트 분리 부담 | — |
-| DEBT-6 | P1 | 사용자별 속도 제한이 프로필 생성에만 있음(문서 추출·STT·턴 없음) | `store.recordProfileCall` |
+| DEBT-6 | ~~P1~~ **해소(2026-10-29, WP-B1; 문서 추출·STT·턴·프로필, `Store.recordRate`)** | **[원 결함·참고용]** 사용자별 속도 제한이 프로필 생성에만 있음. TTS는 엔드포인트 신설 시(WP-B6) 같은 방식으로 추가 | `store.recordRate` |
 | DEBT-7 | P1 | 이름·학교·주소 PII 탐지 없음, 블라인드 마스킹은 휴리스틱 | `pii.js` |
 | DEBT-8 | P2 | 6개 면접 유형이 기본 설정 화면에 노출(§3과 충돌) | `index.html:237` |
 | DEBT-9 | P2 | SSRF 검사는 호스트 문자열 기반 — **수집기를 만들 때 DNS 해석·리디렉션 재검사 필수** | `sources.js` |
@@ -533,9 +533,9 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | P1-4 | 새 질문 생성 개선(BUG-7) | `transfer.js`, `server.js createPractice` | 루브릭별 템플릿 또는 LLM 생성+유사도·역량 일치 검사, 전 루브릭 역량 지원 | P0-4 | 루브릭 6종 모두 같은 역량·다른 질문 테스트 | M |
 | P1-5 | 월간 트렌드 규칙 강화·연결(BUG-5) | `trends.js`, `server.js`, `questions`/`institution.js` | 출처·코멘트 필수, 공개 항목을 **보조 기준으로 표기**해 질문 설계에 반영, 미승인 노출 금지 유지 | 없음 | 출처 없는 공개 422, 공개본만 질문에 반영 | M |
 | P1-6 | 공식 자료 수집기 | 신규 `src/domain/fetcher.js`, `sources.js` | 허용 도메인 목록, 서버 fetch, DNS 해석 후 사설 IP 재검사, 리디렉션 재검증, 크기·시간·robots 제한, 상태 `official_verified/unavailable/stale/conflict` 분리. **미구현 시 데모에서는 큐레이션 fixture를 "사용자 제공/데모 fixture"로 표기** | P0-1 | SSRF 시험(사설 IP·리디렉션·DNS rebinding 모사), 수집 실패 상태 분리 테스트 | L |
-| P1-7 | 오류·한도 처리(BUG-8,9) | `server.js` | 429 시 정적 폴백으로 계속(또는 안내 종료)하며 원장 정산 누락 수정, 업로드 한도 정합, 사용자별 속도 제한 확대 | 없음 | 429·타임아웃 스텁 테스트 | M |
+| P1-7 | 오류·한도 처리(BUG-8,9) | `providers/call.js`, `commands.js` | **`[PARTIAL]` WP-B1: 429 정적 폴백 계속·원장 정산 누락 수정·사용자별 속도 제한 확대 완료. 업로드 한도 정합(BUG-9)은 미해결** | 없음 | 429·타임아웃 스텁 테스트(`b1-call`) | M |
 | P1-8 | PII 탐지 보강 | `pii.js` | 이름·학교·주소 후보 탐지, 오탐(`이유`,`이번`,`21세기`) 회귀 유지 | 없음 | 정/오탐 코퍼스 테스트 | M |
-| P1-9 | 보고서 표기 정정(BUG-6) | `server.js`(보고서 생성) | 평가기 종류·실제 공급자 표기, `badge` 문구 정정 | 없음 | 보고서 필드 단언 테스트 | S |
+| P1-9 | 보고서 표기 정정(BUG-6) | `commands.js`(보고서 생성) | **`[DONE]` WP-B1: 평가기 종류·실제 공급자 표기, `badge` 제거** | 없음 | 보고서 필드 단언 테스트(`b1-call` labels, `sessions`) | S |
 | P1-10 | 실제 PDF/DOCX 호환 | `documents.js` | 실제 한국어 PDF/DOCX 샘플(합성)로 시험, 실패 시 붙여넣기 안내 유지(필요 시 검증된 파서 도입 검토 — 의존성 추가는 개발자 승인 필요) | — | 실문서 샘플 추출 성공/실패율 기록 | M |
 
 ### P2 — 추가 유형·UX·운영 편의
@@ -647,6 +647,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 
 ## 17. 이번 점검의 변경 요약 (v1.0.0 → v1.1.0)
 
+- **2026-10-29 WP-B1 공급자 라우팅·게이트·호출 래퍼:** 신규 `src/providers/{registry,gate,call,validate}.js`. `config.registry`가 operation별 라우팅(`ROUTE_<OP>` 환경변수로 조정)을 결정하고, 게이트는 키·BASE_URL·MODEL·`<P>_LIVE_ACK`·데이터 등급(합성=서버 판정 `ctx.synthetic` 훅/실데이터=`REAL_DATA_ACK`+동의+만 19세)·킬 스위치·예산을 모두 요구한다. 공통 래퍼는 타임아웃·1회 재시도·429/5xx/타임아웃/잘못된 출력 시 정적 폴백(세션 계속, 원장 예약 정산)을 처리한다. 응답·세션·보고서에 `provider_trace[]`, `GET /api/v1/providers/status`, 보고서 `evaluator`(`badge` 제거), 문서 추출·STT·턴 속도 제한을 추가했다. 신규 테스트 17건(`tests/api/b1-*.test.mjs`, 스텁 fetch·가짜 키). **한계: 새 벤더 어댑터 없음(B2·B3), 동의 API 없음, 공급자별 월 상한·TTS 엔드포인트 미구현, 실호출 미실행.**
 - **2026-10-29 WP-A1 핸들러 추출·Store 인터페이스(동작 불변 리팩터링):** `src/server.js`를 `src/app/`(router·core·handlers/*·crypto(Web Crypto)·mutex·body)와 `src/node/server.js`(Node 어댑터), `src/store/`(계약 `index.js` + `memory.js`)로 분리. 전역 `Map`(티켓·내보내기·전이작업·원장 상태)을 Store로 이동, `Idempotency-Key` 24h 응답 재생(성공 응답만·같은 키·경로에 다른 본문은 409)·세션별 쓰기 직렬화·어댑터의 `process.env` 직접 조회 제거(`GEMINI_FREE_ONLY`는 config로 주입). 보안 불변 유지: 계정·세션 삭제 시 멱등 저장본도 소유자 단위로 파기. 부수 수정: 잘못된 JSON·초과 본문이 500이던 것을 400/413으로 정정. 신규 테스트 17건(`tests/api/a1-*.test.mjs`). 결과: `npm test` 94/94, E2E 54 ok, 기관 E2E 실행. **한계: Store 메서드는 동기식이며 events·commands·evaluations·appeals·attempts·deletions는 호환용 Map으로 직접 노출, 문서 추출은 `node:zlib`·`Buffer` 의존(A3).**
 - **2026-10-29 WP-A0 테스트 분리:** `tests/run.mjs`를 `tests/helpers/*`·`tests/api/*.test.mjs`·`tests/domain/*.test.mjs`로 동작 불변 분리(테스트 77개·이름 동일, 파일별 독립 앱). `npm test` = check-project + `node --test "tests/**/*.test.mjs"`. 결과: 77/77.
 - **2026-10-29 P0-6 코드 수정:** `src/config.js`(내장 기본 토큰 제거), `src/server.js`(`ADMIN_TOKEN` 미설정 시 관리 기능 꺼짐·헤더 전용 상수시간 비교, `/metrics`·`/diagnostics`는 관리자 전용, `/health`는 비인증 시 `selected`만, `/stt/status` 인증 필요, 시작 경고), `public/`(내장 토큰 제거·401 시 접속 토큰 입력, 관리자 비활성 안내), `README.md`·`.env.example`, 테스트 5건 추가(수정 전 5건 실패 확인)·영속 테스트 관리자 헤더 반영, E2E +2(토큰 입력). 결과: `npm test` 77/77, 브라우저 E2E 54 ok, 기관 E2E 14/14. **한계: 실제 로그인·역할·감사 기록 없음(P3), 단일 공유 비밀 토큰.**

@@ -5,7 +5,7 @@ import { PT_TASKS, SITUATION_SCENARIOS, PANEL_PRESETS } from '../../domain/scena
 import { DISCUSSION_TOPICS } from '../../domain/discussion.js';
 
 export function createOpsHandlers(d) {
-  const { config, store, ledger, trends, err, now, provider, providerInfo, gemini, groq, killed, adminEnabled, checkAdmin, parseTrendId } = d;
+  const { config, store, ledger, trends, err, now, provider, providerInfo, gemini, groq, killed, adminEnabled, checkAdmin, parseTrendId, registry, caller, requestContext } = d;
 
   // 공개 상태 확인은 최소 정보만: 설정·모델·예산 정보는 인증된 사용자에게만 준다.
   const health = (authed) => ({ status: 200, body: { ok: true, provider: authed ? providerInfo() : { selected: provider.name }, time: now() } });
@@ -92,5 +92,18 @@ export function createOpsHandlers(d) {
     return { status: 200, body: { sessions: store.listSessions(owner).filter((s) => !['deleted', 'deleting'].includes(s.state)).map((s) => ({ id: s.id, state: s.state, mode: s.mode, interview_type: s.interview_type || s.mode || 'general', persona: s.persona, blind: !!s.blind, created_at: s.created_at, completed_at: s.completed_at || null, question_count: s.questions.length })) } };
   }
 
-  return { health, interviewTypes, metrics, geminiModels, adminStatus, trendHistory, publicTrend, listSessions };
+  // GET /providers/status: operation별 실제 사용 공급자·모드. 키·모델 ID·BASE_URL은 싣지 않는다(UI 모드 칩·설정 요약용).
+  // provider는 실제로 응답할 공급자(막혀 있으면 mock)이고, blocked_reason은 설정된 공급자가 열리지 않은 이유 코드다.
+  function providersStatus(owner) {
+    const ctx = requestContext(owner);
+    const operations = {};
+    for (const op of registry.operations()) {
+      const p = caller.plan(op, ctx);
+      operations[op] = { provider: p.provider, mode: p.live ? 'live' : 'mock', ...(!p.live && p.reason ? { blocked_reason: p.reason } : {}) };
+    }
+    const live = Object.values(operations).filter((o) => o.mode === 'live').length;
+    return { status: 200, body: { operations, summary: live === 0 ? 'mock' : live === registry.operations().length ? 'live' : 'partial_live' } };
+  }
+
+  return { health, providersStatus, interviewTypes, metrics, geminiModels, adminStatus, trendHistory, publicTrend, listSessions };
 }

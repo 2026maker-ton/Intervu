@@ -49,7 +49,10 @@ test('full flow: answers → report with verified evidence', async () => {
   }
   assert.ok(scored >= 1, 'at least one dimension scored');
   assert.ok(rep.data.next_actions.length <= 3);
-  assert.match(rep.data.badge, /AI 생성/);
+  // BUG-6: 규칙 기반 평가에 'AI 생성' 배지를 붙이지 않고 평가기 종류를 명시한다
+  assert.equal(rep.data.badge, undefined);
+  assert.equal(rep.data.evaluator.kind, 'rule_based');
+  assert.equal(rep.data.provider, 'mock');
 });
 
 test('report evidence quotes are readable spans of the answer', async () => {

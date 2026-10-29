@@ -5,6 +5,13 @@ export function loadConfig(env = process.env) {
     const v = Number(env[k]);
     return Number.isFinite(v) && v >= 0 ? v : d;
   };
+  const bool = (v) => String(v || 'false').toLowerCase() === 'true';
+  const route = (op, d) => {
+    const v = String(env[`ROUTE_${op}`] || d).toLowerCase();
+    return ['mock', 'gemini', 'groq'].includes(v) ? v : 'mock';
+  };
+  const paidAck = bool(env.GEMINI_PAID_ACK);
+  const allowUnpaid = bool(env.GEMINI_ALLOW_UNPAID);
   return {
     port: Number(env.PORT) || 3000,
     // 내장 기본 토큰 없음: 환경변수로 명시한 토큰만 유효하다(미설정이면 인증 가능한 사용자가 없다).
@@ -33,14 +40,39 @@ export function loadConfig(env = process.env) {
       maxAudioBytes: num('GROQ_MAX_AUDIO_BYTES', 25 * 1024 * 1024),
       maxRecordingSeconds: num('GROQ_MAX_RECORDING_SECONDS', 120),
     },
-    // 모델 레지스트리: operation -> {provider, model, maxOutputTokens}
-    // Gemini 우선. gpt-6-luna 등은 품질/비용 비교 후보로 유지(미연동).
+    // 모델 레지스트리(WP-B1): operation -> {provider, alias, maxOutputTokens}. providers/registry.js가 실제 라우팅에 쓴다.
+    // 환경변수 ROUTE_<OP>(예: ROUTE_DIALOGUE_NEXT=mock)로 공급자를 바꾼다. 알 수 없는 값은 mock으로 처리한다.
+    // 모델 ID는 공급자 블록(gemini.textModel 등)에만 있고, 외부(응답·상태 API)에는 alias만 노출한다.
     registry: {
-      'profile.extract': { provider: 'gemini', model: env.GEMINI_TEXT_MODEL || 'gemini-3.5-flash-lite', maxOutputTokens: 1500 },
-      'dialogue.next': { provider: 'gemini', model: env.GEMINI_TEXT_MODEL || 'gemini-3.5-flash-lite', maxOutputTokens: 500 },
-      'evaluation.generate': { provider: 'gemini', model: env.GEMINI_TEXT_MODEL || 'gemini-3.5-flash-lite', maxOutputTokens: 2500 },
-      'report.repair': { provider: 'gemini', model: env.GEMINI_TEXT_MODEL || 'gemini-3.5-flash-lite', maxOutputTokens: 2500 },
-      'speech.transcribe': { provider: 'gemini', model: env.GEMINI_TRANSCRIBE_MODEL || 'gemini-3.5-transcribe', maxOutputTokens: 1000 },
+      'dialogue.next': { provider: route('DIALOGUE_NEXT', 'gemini'), alias: 'gemini-text', maxOutputTokens: 500 },
+      'claims.extract': { provider: route('CLAIMS_EXTRACT', 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },
+      // 평가는 규칙 기반이 기본(Gemini 평가는 사람 평가 검증 후, DG-8)
+      'evaluation.generate': { provider: route('EVALUATION_GENERATE', 'mock'), alias: 'rule-based', maxOutputTokens: 2500 },
+      'speech.transcribe': { provider: route('SPEECH_TRANSCRIBE', 'groq'), alias: 'groq-whisper', maxOutputTokens: 1000 },
+      'speech.synthesize': { provider: route('SPEECH_SYNTHESIZE', 'mock'), alias: 'browser-tts', maxOutputTokens: 0 },
+    },
+    // 공급자 게이트 입력(04 §2): 키·BASE_URL·MODEL·LIVE_ACK·REAL_DATA_ACK. 비밀값은 여기에만 있고 응답으로 나가지 않는다.
+    // GEMINI_PAID_ACK는 구 설정(유료 확인=약관·데이터 처리 확인)이라 LIVE_ACK+실데이터 허용으로 취급한다(deprecated).
+    providerGate: {
+      gemini: {
+        apiKey: env.GEMINI_API_KEY || '',
+        baseUrl: env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta',
+        model: env.GEMINI_TEXT_MODEL || 'gemini-3.5-flash-lite',
+        liveAck: bool(env.GEMINI_LIVE_ACK) || paidAck || allowUnpaid,
+        realDataAck: bool(env.GEMINI_REAL_DATA_ACK),
+        legacyRealData: paidAck,
+        // 무료/미확인 등급이면 실데이터 차단 사유를 synthetic_only로 표기
+        syntheticOnly: !paidAck,
+      },
+      groq: {
+        apiKey: env.GROQ_WHISPER_KEY || env.GROQ_API_KEY || '',
+        baseUrl: env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
+        model: env.GROQ_WHISPER_MODEL || 'whisper-large-v3-turbo',
+        liveAck: bool(env.GROQ_LIVE_ACK),
+        realDataAck: bool(env.GROQ_REAL_DATA_ACK),
+        legacyRealData: false,
+        syntheticOnly: true,
+      },
     },
     // Gemini 유료 단가 (USD/1M, 2026-10 공식 가격표 기준)
     geminiPricing: {
@@ -68,6 +100,12 @@ export function loadConfig(env = process.env) {
       maxAnswerChars: 4000,
       maxUtteranceChars: 240,
       dataTtlDaysDefault: num('DATA_TTL_DAYS_DEFAULT', 30),
+    },
+    // 사용자별 속도 제한(분/일): 문서 추출·음성 전사·답변 제출. 환경변수로 조정한다.
+    rateLimits: {
+      documents: { perMinute: num('DOCS_RATE_PER_MINUTE', 20), perDay: num('DOCS_RATE_PER_DAY', 300) },
+      stt: { perMinute: num('STT_RATE_PER_MINUTE', 20), perDay: num('STT_RATE_PER_DAY', 300) },
+      turns: { perMinute: num('TURN_RATE_PER_MINUTE', 60), perDay: num('TURN_RATE_PER_DAY', 2000) },
     },
     // 프로필 추출 남용 방지(사양 §15: 계정당 분당2회/일10회, 1회예약 $0.01).
     // 통합 테스트처럼 합성 트래픽이 많은 환경에서는 환경변수로 완화한다.

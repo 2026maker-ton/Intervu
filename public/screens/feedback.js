@@ -71,7 +71,7 @@ export function renderReport(r) {
   body.innerHTML = `
     <div class="card report">
       ${inst}
-      <p class="fine">${esc(r.badge || 'AI 생성 코칭 · 실제 합격 예측 아님')} · 공급자 ${esc(r.provider === 'gemini' ? 'Gemini' : 'Mock')} · ${esc(rubricNote(r.interview_type))}</p>
+      <p class="fine">${esc(r.evaluator?.kind === 'llm' ? 'AI 분석(검증 중)' : '규칙 기반 참고 관찰')} · 실제 합격 예측 아님 · 평가기 ${esc(r.evaluator?.provider === 'mock' || !r.evaluator ? '규칙 기반(외부 AI 없음)' : r.evaluator.provider)} · ${esc(rubricNote(r.interview_type))}</p>
       <p class="fine">현재 평가는 <strong>규칙 기반 참고 관찰</strong>입니다. 검증된 AI 채점이나 사람 평가자를 대체하지 않습니다.</p>
       ${dims || '<p class="hint">평가할 수 있는 답변이 없습니다.</p>'}
       ${renderInstitutionLink(r.institution_link)}
@@ -90,7 +90,7 @@ export function renderReport(r) {
         <button class="ghost" id="appealStatusBtn" type="button">이의 처리 상태</button>
         <button class="danger" id="deleteBtn" type="button">이 세션 삭제</button>
       </div>
-      <p class="fine">AI 생성 코칭이며 실제 합격 가능성이나 사람의 성격을 평가하지 않습니다.</p>
+      <p class="fine">참고용 코칭이며 실제 합격 가능성이나 사람의 성격을 평가하지 않습니다.</p>
     </div>`;
 
   $('#copyBtn')?.addEventListener('click', async () => {

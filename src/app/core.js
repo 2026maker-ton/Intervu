@@ -3,7 +3,9 @@
 import { loadConfig } from '../config.js';
 import { createStore } from '../store/index.js';
 import { createLedger } from '../domain/ledger.js';
-import { createMockAdapter, createGeminiAdapter, createGroqWhisperAdapter, selectProvider } from '../providers/adapters.js';
+import { createMockAdapter, createGeminiAdapter, createGroqWhisperAdapter } from '../providers/adapters.js';
+import { createRegistry } from '../providers/registry.js';
+import { createCaller } from '../providers/call.js';
 import { err, now } from './util.js';
 import { safeEqual } from './crypto.js';
 import { createProfileHandlers } from './handlers/profiles.js';
@@ -25,17 +27,28 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const store = storeIn || createStore();
   const ledger = ledgerIn || createLedger({ sessionHardCap: config.budgets.sessionHardCap, monthlyApiBudget: config.budgets.monthlyApiBudget, state: store.ledgerState() });
   const mock = createMockAdapter();
-  const gemini = config.gemini.apiKey ? createGeminiAdapter({ apiKey: config.gemini.apiKey, textModel: config.gemini.textModel, fallbackModel: config.gemini.fallbackModel, timeoutMs: config.gemini.timeoutMs, freeOnly: config.gemini.freeOnly }) : null;
-  const groq = config.groq.apiKey ? createGroqWhisperAdapter({ apiKey: config.groq.apiKey, model: config.groq.model, timeoutMs: config.groq.timeoutMs, maxAudioBytes: config.groq.maxAudioBytes }) : null;
-  const killed = String(config.killSwitch || '').split(/[,\s]+/).includes('gemini');
-  const killedGroq = String(config.killSwitch || '').split(/[,\s]+/).includes('groq');
-  // 공급자 게이트(PROJECT.md §5 #1·#3): 외부 전송 허용 여부는 서버 상태로만 정한다.
+  const gemini = config.gemini.apiKey ? createGeminiAdapter({ apiKey: config.gemini.apiKey, textModel: config.gemini.textModel, fallbackModel: config.gemini.fallbackModel, timeoutMs: config.gemini.timeoutMs, freeOnly: config.gemini.freeOnly, baseUrl: config.providerGate.gemini.baseUrl }) : null;
+  const groq = config.groq.apiKey ? createGroqWhisperAdapter({ apiKey: config.groq.apiKey, model: config.groq.model, timeoutMs: config.groq.timeoutMs, maxAudioBytes: config.groq.maxAudioBytes, baseUrl: config.providerGate.groq.baseUrl }) : null;
+  const killList = String(config.killSwitch || '').split(/[,\s]+/);
+  const killed = killList.includes('gemini');
+  const killedGroq = killList.includes('groq');
+  // 공급자 라우팅·게이트·호출 래퍼(WP-B1, 04 §1~3). 외부 전송 허용 여부는 서버 상태(ctx)로만 정한다.
   // 요청 본문의 synthetic/free_test 값은 어떤 경로에서도 전송 근거가 아니다.
-  function providerFor({ forceMock = false } = {}) {
-    const name = killed || forceMock ? 'mock' : selectProvider({ config, isSynthetic: syntheticTraffic });
-    return { name, provider: name === 'gemini' && gemini ? gemini : mock };
-  }
-  const { name: providerName, provider } = providerFor();
+  const registry = createRegistry(config);
+  const caller = createCaller({
+    registry, gates: config.providerGate, ledger, priceOf: (model, usage) => priceOf(model, usage),
+    killed: new Set(killList), adapters: { mock, gemini, groq },
+    timeouts: { gemini: config.gemini.timeoutMs, groq: config.groq.timeoutMs },
+  });
+  // 요청 컨텍스트: synthetic은 서버가 코드로 켠 인스턴스이거나 서버 판정 훅(extra.synthetic, WP-C6 fixture 해시)일 때만 true.
+  // consent/age19는 Store의 동의 기록에서만 온다(동의 API 전에는 항상 false).
+  const requestContext = (owner, extra = {}) => {
+    const consent = store.getConsent?.(owner) || null;
+    return { owner, synthetic: syntheticTraffic === true || extra.synthetic === true, forceMock: !!extra.forceMock, consent: !!consent, age19: !!consent?.age_19_confirmed };
+  };
+  // 서버 기본 컨텍스트에서 실제로 외부 호출이 열려 있는 공급자(없으면 mock): 상태 표시·구 호환용.
+  const providerName = ['dialogue.next', 'claims.extract'].map((op) => caller.plan(op, requestContext(null))).find((p) => p.live)?.provider || 'mock';
+  const provider = { name: providerName };
   const adminEnabled = !!config.adminToken;
 
   // ---- 관리자 인증 ----
@@ -61,6 +74,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     return ((usage.input || 0) * p.input + (usage.output || 0) * p.output) / 1e6;
   };
   const providerInfo = () => ({
+    routes: Object.fromEntries(registry.operations().map((op) => [op, registry.route(op).provider])),
     selected: provider.name,
     configured: !!config.gemini.apiKey,
     paidAck: config.gemini.paidAck,
@@ -84,7 +98,13 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   });
 
   // ---- 핸들러 조립 ----
-  const d = { config, store, ledger, trends, err, now, priceOf, providerFor, provider, providerInfo, syntheticTraffic, gemini, groq, killed, killedGroq, adminEnabled, checkAdmin };
+  const checkRate = (owner, bucket) => {
+    const lim = config.rateLimits[bucket];
+    const c = store.recordRate(owner, bucket);
+    if (c.minute > lim.perMinute || c.day > lim.perDay) return err('quota_exceeded', '요청이 너무 잦습니다. 잠시 후 다시 시도하세요.', 429, { retryable: true, details: { bucket, minute: c.minute, day: c.day, limit_minute: lim.perMinute, limit_day: lim.perDay } });
+    return null;
+  };
+  const d = { config, store, ledger, trends, err, now, priceOf, provider, providerInfo, syntheticTraffic, gemini, groq, killed, killedGroq, adminEnabled, checkAdmin, mock, registry, caller, requestContext, checkRate };
   const sessions = createSessionHandlers(d);
   d.publicSession = sessions.publicSession;
   const admin = createAdminHandlers(d);

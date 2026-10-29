@@ -8,7 +8,7 @@ export function loadConfig(env = process.env) {
   const bool = (v) => String(v || 'false').toLowerCase() === 'true';
   const route = (op, d) => {
     const v = String(env[`ROUTE_${op}`] || d).toLowerCase();
-    return ['mock', 'gemini', 'groq', 'claude', 'deepseek'].includes(v) ? v : 'mock';
+    return ['mock', 'gemini', 'groq', 'claude', 'deepseek', 'elevenlabs'].includes(v) ? v : 'mock';
   };
   const paidAck = bool(env.GEMINI_PAID_ACK);
   const allowUnpaid = bool(env.GEMINI_ALLOW_UNPAID);
@@ -55,7 +55,7 @@ export function loadConfig(env = process.env) {
       // 평가는 규칙 기반이 기본(Gemini 평가는 사람 평가 검증 후, DG-8)
       'evaluation.generate': { provider: route('EVALUATION_GENERATE', 'mock'), alias: 'rule-based', maxOutputTokens: 2500 },
       'speech.transcribe': { provider: route('SPEECH_TRANSCRIBE', 'groq'), alias: 'groq-whisper', maxOutputTokens: 1000 },
-      'speech.synthesize': { provider: route('SPEECH_SYNTHESIZE', 'mock'), alias: 'browser-tts', maxOutputTokens: 0 },
+      'speech.synthesize': { provider: route('SPEECH_SYNTHESIZE', String(env.TTS_PROVIDER || 'mock').toLowerCase()), alias: 'tts', maxOutputTokens: 0 },
     },
     // 공급자 게이트 입력(04 §2): 키·BASE_URL·MODEL·LIVE_ACK·REAL_DATA_ACK. 비밀값은 여기에만 있고 응답으로 나가지 않는다.
     // GEMINI_PAID_ACK는 구 설정(유료 확인=약관·데이터 처리 확인)이라 LIVE_ACK+실데이터 허용으로 취급한다(deprecated).
@@ -69,6 +69,16 @@ export function loadConfig(env = process.env) {
         realDataAck: bool(env.DEEPSEEK_REAL_DATA_ACK),
         legacyRealData: false,
         syntheticOnly: !bool(env.DEEPSEEK_REAL_DATA_ACK),
+      },
+      // ElevenLabs TTS(WP-B6): 모델·URL·음성 ID는 환경변수에서만 온다(기본값 없음). 합성 문장 전용(실데이터는 REAL_DATA_ACK+동의+만 19세).
+      elevenlabs: {
+        apiKey: env.ELEVENLABS_API_KEY || '',
+        baseUrl: env.ELEVENLABS_BASE_URL || '',
+        model: env.ELEVENLABS_MODEL || '',
+        liveAck: bool(env.ELEVENLABS_LIVE_ACK),
+        realDataAck: bool(env.ELEVENLABS_REAL_DATA_ACK),
+        legacyRealData: false,
+        syntheticOnly: !bool(env.ELEVENLABS_REAL_DATA_ACK),
       },
       gemini: {
         apiKey: env.GEMINI_API_KEY || '',
@@ -105,9 +115,17 @@ export function loadConfig(env = process.env) {
       priceIn: num('DEEPSEEK_PRICE_IN', 0),
       priceOut: num('DEEPSEEK_PRICE_OUT', 0),
     },
+    elevenlabs: {
+      voiceId: env.ELEVENLABS_VOICE_ID || '',
+      timeoutMs: num('ELEVENLABS_TIMEOUT_MS', 15000),
+      charCap: num('ELEVENLABS_CHAR_CAP', 600), // 요청 1건당 합성 글자 상한(초과 시 외부 호출 없이 브라우저 TTS)
+      maxAudioBytes: num('ELEVENLABS_MAX_AUDIO_BYTES', 2 * 1024 * 1024),
+      pricePer1kChars: num('ELEVENLABS_PRICE_PER_1K_CHARS', 0), // 비우면 0: 달러 환산 안 함 → 호출 수 상한으로만 방어
+    },
     // 공급자별 월 상한(04 §5). usd: <P>_MONTHLY_CAP_USD(비우면 달러 상한 없음), calls: <P>_MONTHLY_CALL_CAP(기본 500). 호출 래퍼가 인메모리로 집행한다.
     providerCaps: {
       deepseek: { usd: env.DEEPSEEK_MONTHLY_CAP_USD ? num('DEEPSEEK_MONTHLY_CAP_USD', 0) : null, calls: num('DEEPSEEK_MONTHLY_CALL_CAP', 500) },
+      elevenlabs: { usd: env.ELEVENLABS_MONTHLY_CAP_USD ? num('ELEVENLABS_MONTHLY_CAP_USD', 0) : null, calls: num('ELEVENLABS_MONTHLY_CALL_CAP', 500) },
     },
     // Gemini 유료 단가 (USD/1M, 2026-10 공식 가격표 기준)
     geminiPricing: {
@@ -141,6 +159,7 @@ export function loadConfig(env = process.env) {
       documents: { perMinute: num('DOCS_RATE_PER_MINUTE', 20), perDay: num('DOCS_RATE_PER_DAY', 300) },
       stt: { perMinute: num('STT_RATE_PER_MINUTE', 20), perDay: num('STT_RATE_PER_DAY', 300) },
       turns: { perMinute: num('TURN_RATE_PER_MINUTE', 60), perDay: num('TURN_RATE_PER_DAY', 2000) },
+      tts: { perMinute: num('TTS_RATE_PER_MINUTE', 10), perDay: num('TTS_RATE_PER_DAY', 200) },
     },
     // 프로필 추출 남용 방지(사양 §15: 계정당 분당2회/일10회, 1회예약 $0.01).
     // 통합 테스트처럼 합성 트래픽이 많은 환경에서는 환경변수로 완화한다.

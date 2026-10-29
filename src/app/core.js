@@ -6,6 +6,7 @@ import { createLedger } from '../domain/ledger.js';
 import { createMockAdapter, createGeminiAdapter, createGroqWhisperAdapter } from '../providers/adapters.js';
 import { createClaudeAdapter } from '../providers/adapters/claude.js';
 import { createDeepseekAdapter } from '../providers/adapters/deepseek.js';
+import { createElevenlabsAdapter } from '../providers/adapters/elevenlabs.js';
 import { createRegistry } from '../providers/registry.js';
 import { createCaller } from '../providers/call.js';
 import { err, now } from './util.js';
@@ -20,6 +21,7 @@ import { createAccountHandlers } from './handlers/account.js';
 import { createDocumentHandlers } from './handlers/documents.js';
 import { createAdminHandlers } from './handlers/admin.js';
 import { createSttHandlers } from './handlers/stt.js';
+import { createTtsHandlers } from './handlers/tts.js';
 import { createOpsHandlers } from './handlers/ops.js';
 import { createFetchHandler } from './router.js';
 
@@ -36,6 +38,8 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const claude = cg.apiKey && cg.baseUrl && cg.model ? createClaudeAdapter({ apiKey: cg.apiKey, baseUrl: cg.baseUrl, model: cg.model, timeoutMs: config.claude.timeoutMs, apiVersion: config.claude.apiVersion }) : null;
   const dg = config.providerGate.deepseek;
   const deepseek = dg.apiKey && dg.baseUrl && dg.model ? createDeepseekAdapter({ apiKey: dg.apiKey, baseUrl: dg.baseUrl, model: dg.model, timeoutMs: config.deepseek.timeoutMs }) : null;
+  const eg = config.providerGate.elevenlabs;
+  const elevenlabs = eg.apiKey && eg.baseUrl && eg.model && config.elevenlabs.voiceId ? createElevenlabsAdapter({ apiKey: eg.apiKey, baseUrl: eg.baseUrl, model: eg.model, voiceId: config.elevenlabs.voiceId, timeoutMs: config.elevenlabs.timeoutMs, maxAudioBytes: config.elevenlabs.maxAudioBytes }) : null;
   const killList = String(config.killSwitch || '').split(/[,\s]+/);
   const killed = killList.includes('gemini');
   const killedGroq = killList.includes('groq');
@@ -44,8 +48,8 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const registry = createRegistry(config);
   const caller = createCaller({
     registry, gates: config.providerGate, ledger, priceOf: (model, usage) => priceOf(model, usage),
-    killed: new Set(killList), adapters: { mock, gemini, groq, claude, deepseek }, caps: config.providerCaps,
-    timeouts: { gemini: config.gemini.timeoutMs, groq: config.groq.timeoutMs, claude: config.claude.timeoutMs, deepseek: config.deepseek.timeoutMs },
+    killed: new Set(killList), adapters: { mock, gemini, groq, claude, deepseek, elevenlabs }, caps: config.providerCaps,
+    timeouts: { gemini: config.gemini.timeoutMs, groq: config.groq.timeoutMs, claude: config.claude.timeoutMs, deepseek: config.deepseek.timeoutMs, elevenlabs: config.elevenlabs.timeoutMs },
   });
   // 요청 컨텍스트: synthetic은 서버가 코드로 켠 인스턴스이거나 서버 판정 훅(extra.synthetic, WP-C6 fixture 해시)일 때만 true.
   // consent/age19는 Store의 동의 기록에서만 온다(동의 API 전에는 항상 false).
@@ -77,6 +81,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const priceOf = (model, usage) => {
     if (model && model === cg.model) return ((usage.input || 0) * config.claude.price.input + (usage.output || 0) * config.claude.price.output) / 1e6;
     if (model && model === dg.model) return ((usage.input || 0) * config.deepseek.priceIn + (usage.output || 0) * config.deepseek.priceOut) / 1e6;
+    if (model && model === eg.model) return ((usage.chars || 0) / 1000) * config.elevenlabs.pricePer1kChars;
     const p = config.geminiPricing[model];
     if (!p) return 0;
     if (p.perMinute) return ((usage.billedSeconds || 0) / 60) * p.perMinute;
@@ -113,7 +118,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     if (c.minute > lim.perMinute || c.day > lim.perDay) return err('quota_exceeded', '요청이 너무 잦습니다. 잠시 후 다시 시도하세요.', 429, { retryable: true, details: { bucket, minute: c.minute, day: c.day, limit_minute: lim.perMinute, limit_day: lim.perDay } });
     return null;
   };
-  const d = { config, store, ledger, trends, err, now, priceOf, provider, providerInfo, syntheticTraffic, gemini, groq, killed, killedGroq, adminEnabled, checkAdmin, mock, registry, caller, requestContext, checkRate };
+  const d = { config, store, ledger, trends, err, now, priceOf, provider, providerInfo, syntheticTraffic, gemini, groq, elevenlabs, killed, killedGroq, adminEnabled, checkAdmin, mock, registry, caller, requestContext, checkRate };
   const sessions = createSessionHandlers(d);
   d.publicSession = sessions.publicSession;
   const admin = createAdminHandlers(d);
@@ -129,6 +134,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     documents: createDocumentHandlers(d),
     admin,
     stt: createSttHandlers(d),
+    tts: createTtsHandlers(d),
     ops: createOpsHandlers(d),
   };
   const requestLog = [];

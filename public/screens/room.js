@@ -374,10 +374,12 @@ async function serverTts(text) {
   const op = state.providerStatus?.operations?.['speech.synthesize'];
   if (!op || op.mode !== 'live' || !state.session) return false;
   try {
+    // 서버가 세션에서 문장을 직접 고른다(요청에 텍스트를 싣지 않는다). 204 + X-TTS-Fallback 또는 오류면 브라우저 TTS로 대체.
+    const target = text === state.session.current_question?.text ? 'current_question' : 'last_utterance';
     const res = await fetch(`/api/v1/sessions/${state.session.id}/tts`, {
-      method: 'POST', headers: { Authorization: `Bearer ${state.token}`, 'Content-Type': 'application/json', 'Idempotency-Key': uuid() }, body: JSON.stringify({ text }),
+      method: 'POST', headers: { Authorization: `Bearer ${state.token}`, 'Content-Type': 'application/json', 'Idempotency-Key': uuid() }, body: JSON.stringify({ target }),
     });
-    if (!res.ok || !/^audio\//.test(res.headers.get('content-type') || '')) return false;
+    if (res.status === 204 || res.headers.get('X-TTS-Fallback') === 'browser' || !res.ok || !/^audio\//.test(res.headers.get('content-type') || '')) return false;
     const url = URL.createObjectURL(await res.blob());
     ttsAudio = new Audio(url);
     ttsAudio.onended = () => { showSpeaking(false); URL.revokeObjectURL(url); };

@@ -57,6 +57,7 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
       if (write && !idemKey) return json(422, err('idempotency_required', 'Idempotency-Key 헤더가 필요합니다.', 422, { requestId }).error);
 
       const isTranscription = /^\/api\/v1\/sessions\/[^/]+\/transcriptions$/.test(p);
+      const isTts = /^\/api\/v1\/sessions\/[^/]+\/tts$/.test(p); // 오디오 바이너리 응답: 멱등 재생(텍스트 저장) 대상이 아니다
       let body = {};
       let bodyText = '';
       if (write && !isTranscription) ({ json: body, text: bodyText } = await readJsonBody(request, DOCUMENT_UPLOAD_PATH.test(p) ? DOCUMENT_BODY_LIMIT : undefined));
@@ -66,7 +67,7 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
         const sid = write && !isTranscription ? sessionLockKey(method, p) : null;
         return sid ? mutex.run(sid, () => dispatch(owner, request, url, body)) : dispatch(owner, request, url, body);
       };
-      if (!write || isTranscription) return await run();
+      if (!write || isTranscription || isTts) return await run();
       // 쓰기: Idempotency-Key 재생(24시간, 성공 응답만).
       // 저장 키 = 소유자 + Idempotency-Key + 메서드 + 경로(+쿼리). 같은 키·같은 경로에 다른 본문(해시)이면 409.
       const fp = await sha256Hex(bodyText);
@@ -136,6 +137,7 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
       if ((mm = /^\/api\/v1\/sessions\/([^/]+)\/commands$/.exec(pth)) && mth === 'POST') return send(await h.commands.runCommand(owner, id1(), body, requestId));
       // Groq Whisper 전사: multipart 음성 → 텍스트(JSON). 원음은 저장하지 않고 전사 후 폐기.
       if ((mm = /^\/api\/v1\/sessions\/([^/]+)\/transcriptions$/.exec(pth)) && mth === 'POST') return send(await h.stt.transcribe(owner, id1(), req, requestId));
+      if ((mm = /^\/api\/v1\/sessions\/([^/]+)\/tts$/.exec(pth)) && mth === 'POST') { const r = await h.tts.synthesize(owner, id1(), body, requestId); return r instanceof Response ? r : send(r); }
       if ((mm = /^\/api\/v1\/sessions\/([^/]+)\/connect$/.exec(pth)) && mth === 'POST') return send(h.sessions.connectSession(owner, id1()));
       if ((mm = /^\/api\/v1\/sessions\/([^/]+)\/events$/.exec(pth)) && mth === 'GET') return send(h.sessions.getEvents(owner, id1(), u.searchParams.get('after_seq')));
       if ((mm = /^\/api\/v1\/sessions\/([^/]+)\/report$/.exec(pth)) && mth === 'GET') return send(h.sessions.getReport(owner, id1()));

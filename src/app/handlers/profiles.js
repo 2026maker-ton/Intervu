@@ -2,12 +2,14 @@
 import { randomUUID } from '../crypto.js';
 import { detectPii, maskPii, buildBlindContext, extractClaims, verifyClaimSpan } from '../../domain/pii.js';
 import { extractApplicantClaims } from '../../domain/claims.js';
+import { planGeneralQuestions, publicPlanItem } from '../../domain/plan.js';
+import { questionCountForDuration } from '../../domain/interview-types.js';
 import { normalizeSource } from '../../domain/sources.js';
 import { isSyntheticProfileBody } from '../../domain/fixtures.js';
 import { buildInstitutionProfile, normalizeOrgType, providerConstraintForOrg } from '../../domain/institution.js';
 
 export function createProfileHandlers(d) {
-  const { config, store, err, now, caller, requestContext } = d;
+  const { config, store, err, now, caller, requestContext, trends } = d;
   async function createProfile(owner, body, requestId) {
     // 프로필 API 속도 제한(사양 §15): 계정당 분당2회/일10회 기본값
     const counts = store.recordRate(owner, 'profile');
@@ -127,6 +129,8 @@ export function createProfileHandlers(d) {
     if (!vid) return err('validation_error', 'version_id가 필요합니다.', 422);
     const v = store.approveVersion(owner, id, vid);
     if (!v) return err('not_found', '버전을 찾을 수 없습니다.', 404);
+    // 질문 계획 동결(WP-C8): 승인 시점의 주장 제외 목록을 스냅샷한다. 이후 변경은 재승인해야 세션에 반영된다.
+    v.frozen_excluded_claim_ids = [...(v.excluded_claim_ids || [])];
     // 기관 프로필도 함께 승인(불변 스냅샷). 사용자가 수정한 경우 body.institution_edits 반영.
     const inst = store.getInstitution(id);
     let approvedInst = inst?.profile || null;
@@ -183,5 +187,49 @@ export function createProfileHandlers(d) {
     return { status: 200, body: { profile_id: profileId, status: inst.status, approved_at: inst.approved_at || null, institution: inst.profile, sources: store.listSources(profileId) } };
   }
 
-  return { createProfile, getProfile, approveProfile, addInstitutionSource, getInstitution };
+  // ---- 질문 계획·주장 제외(WP-C8) ----
+  // 주장 id(claim-N)는 프로필 버전 안에서만 유일하므로 경로에 프로필 id를 함께 쓴다.
+  const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+  function claimsView(p) {
+    const cur = p.version_id ? store.getVersion(p.version_id) : null;
+    const ex = new Set(cur?.excluded_claim_ids || []);
+    const claims = (cur?.extracted?.applicant_claims || []).map((c) => ({ ...c, excluded: ex.has(c.id) }));
+    const needs_reapproval = !!(p.approved_version_id === cur?.id && !sameSet(cur?.frozen_excluded_claim_ids || [], cur?.excluded_claim_ids || []));
+    return { cur, claims, needs_reapproval };
+  }
+  function listClaims(owner, profileId) {
+    const p = store.getProfile(owner, profileId);
+    if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
+    const { claims, needs_reapproval } = claimsView(p);
+    return { status: 200, body: { profile_id: profileId, claims, needs_reapproval } };
+  }
+  function setClaimExcluded(owner, profileId, claimId, body) {
+    const p = store.getProfile(owner, profileId);
+    if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
+    if (typeof body?.excluded !== 'boolean') return err('validation_error', 'excluded는 true/false여야 합니다.', 422);
+    const { cur } = claimsView(p);
+    const claim = (cur?.extracted?.applicant_claims || []).find((c) => c.id === claimId);
+    if (!claim) return err('not_found', '주장을 찾을 수 없습니다.', 404);
+    const set = new Set(cur.excluded_claim_ids || []);
+    if (body.excluded) set.add(claimId); else set.delete(claimId);
+    cur.excluded_claim_ids = [...set];
+    const view = claimsView(p);
+    return { status: 200, body: { profile_id: profileId, claim: view.claims.find((c) => c.id === claimId), needs_reapproval: view.needs_reapproval } };
+  }
+  // 승인된 버전이 있으면 그 동결 스냅샷으로, 없으면 현재(초안) 버전의 제외 목록으로 계획을 만든다.
+  function getPlan(owner, profileId, query = {}) {
+    const p = store.getProfile(owner, profileId);
+    if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
+    const approved = p.approved_version_id ? store.getVersion(p.approved_version_id) : null;
+    const version = approved || (p.version_id ? store.getVersion(p.version_id) : null);
+    const frozen = !!approved;
+    const excluded = frozen ? (approved.frozen_excluded_claim_ids || []) : (version?.excluded_claim_ids || []);
+    const duration = [5, 10, 15].includes(Number(query.duration_minutes)) ? Number(query.duration_minutes) : 15;
+    const seedNum = (Number(query.seed) || 0) >>> 0;
+    const institution = store.getInstitution(profileId)?.profile || null;
+    const plan = planGeneralQuestions({ version, institution, orgType: p.org_type, trends, qCount: questionCountForDuration(duration), seedNum, excludedClaimIds: excluded });
+    return { status: 200, body: { profile_id: profileId, version_id: version?.id || null, frozen, excluded_claim_ids: excluded, question_basis: plan.question_basis, questions: plan.questions.map(publicPlanItem) } };
+  }
+
+  return { createProfile, getProfile, approveProfile, addInstitutionSource, getInstitution, listClaims, setClaimExcluded, getPlan };
 }

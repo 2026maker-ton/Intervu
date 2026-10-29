@@ -1,5 +1,6 @@
 // Provider 어댑터: mock 기본 + gemini(게이트 통과 시에만). 키는 서버에서만 사용.
 import { estimateTokens } from '../domain/ledger.js';
+import { buildClaimsPrompt } from './prompts/claims.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -154,6 +155,17 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
       if (!res.ok) throw Object.assign(new Error('listModels failed'), { code: res.status >= 500 ? 503 : 502, details: String(data?.error?.message || '').slice(0, 200) });
       return (data.models || []).filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
         .map((m) => String(m.name || '').replace(/^models\//, ''));
+    },
+    // 지원서 주장 추출(Claude 어댑터와 같은 계약): 마스킹된 지원서만 받고 {quotes}를 돌려준다.
+    // 인용이 원문과 일치하는지는 서버(mergeModelClaims)가 검증한다 — 모델 출력은 신뢰하지 않는다.
+    async extractApplicantClaims({ maskedApplication }) {
+      const { system, user } = buildClaimsPrompt(maskedApplication);
+      const r = await withFallback((model) => generateContent(model, { system, user, maxOutputTokens: 1500 }));
+      let parsed;
+      try { parsed = JSON.parse(String(r.text).trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw Object.assign(new Error('gemini bad json'), { code: 502, invalid: true }); }
+      if (!Array.isArray(parsed?.claims)) throw Object.assign(new Error('gemini bad schema'), { code: 502, invalid: true });
+      const quotes = parsed.claims.map((c) => (typeof c === 'string' ? c : c?.quote)).filter((q) => typeof q === 'string');
+      return { quotes, model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
     },
     async extract({ sourceText, blindContext }) {
       const r = await withFallback((model) => generateContent(model, {

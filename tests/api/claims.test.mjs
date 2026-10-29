@@ -65,13 +65,18 @@ test('P0-3: application text is stored masked, size-limited and wiped on account
   assert.equal(after.data.application_text, '[삭제됨]');
 });
 
-test('P0-3: applicant text is never sent to Gemini even when the provider gate is open', async () => {
+test('P0-3: applicant text leaves only masked and only when the provider gate is open (Gemini claims route)', async () => {
+  // 변경(Gemini 주장 추출 추가): 게이트가 열려 있으면 마스킹된 지원서가 모델로 갈 수 있다. 닫혀 있으면 한 건도 나가지 않는다.
   await withGeminiStub({ GEMINI_PAID_ACK: 'true' }, {}, async ({ gcall, outbound }) => {
-    const pr = await gcall('/api/v1/profiles', { method: 'POST', body: { org_type: 'company', role: '기획', source_text: '핵심가치: 문제 해결, 협업 인재상', application_text: '저는 유니크마커프로젝트를 담당해 운영했습니다.' } });
+    const pr = await gcall('/api/v1/profiles', { method: 'POST', body: { org_type: 'company', role: '기획', source_text: '핵심가치: 문제 해결, 협업 인재상', application_text: '저는 유니크마커프로젝트를 담당해 운영했습니다. 연락처 010-1234-5678.' } });
     assert.equal(pr.status, 201, JSON.stringify(pr.data));
-    assert.equal(pr.data.applicant_claims_count, 1);
-    assert.equal(outbound.length, 1, 'only the posting text is extracted by the model');
-    assert.ok(outbound[0].includes('인재상'));
-    assert.ok(!outbound.join('').includes('유니크마커'), 'applicant text stays server-side in this slice');
+    assert.ok(pr.data.applicant_claims_count >= 1);
+    assert.ok(outbound.some((o) => o.includes('인재상')), 'posting extraction call');
+    assert.ok(!outbound.join('').includes('010-1234-5678'), 'PII never leaves the server');
+  });
+  await withGeminiStub({}, {}, async ({ gcall, outbound }) => {
+    const pr = await gcall('/api/v1/profiles', { method: 'POST', body: { org_type: 'company', role: '기획', source_text: '핵심가치: 문제 해결', application_text: '저는 유니크마커프로젝트를 담당해 운영했습니다.' } });
+    assert.equal(pr.status, 201);
+    assert.equal(outbound.length, 0, 'gate closed: nothing leaves');
   });
 });

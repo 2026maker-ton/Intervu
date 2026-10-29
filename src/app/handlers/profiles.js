@@ -96,8 +96,10 @@ export function createProfileHandlers(d) {
     // 지원자 주장·공백(문장 단위, 원문 span 검증 포함): 질문 설계의 근거(PROJECT.md §2.4)
     let applicant_claims = extractApplicantClaims(maskedApplication);
     const traces = res.trace ? [res.trace] : [];
-    if (claudeRoute && maskedApplication.trim()) {
-      // 마스킹본만 전송. 모델 인용은 원문 그대로일 때만 채택(서버가 span·gaps 재계산), 규칙 결과는 하한선. 실패 시 규칙만 남는다.
+    // 지원서 주장은 모델 라우트(claude 또는 gemini)에서만 모델에 묻는다. 어느 쪽이든 규칙 결과가 하한선이다.
+    const applicantModelRoute = claudeRoute || registry.route('claims.extract').provider === 'gemini';
+    if (applicantModelRoute && maskedApplication.trim()) {
+      // 마스킹본만 전송(Gemini는 합성 판정 데이터에서만 게이트 통과). 모델 인용은 원문 그대로일 때만 채택(서버가 span·gaps 재계산), 규칙 결과는 하한선. 실패 시 규칙만 남는다.
       const cres = await caller.call('claims.extract', {
         ctx: requestContext(owner, { forceMock: !!body._forceMock, synthetic }), mockAlias: 'rule-based',
         reserve: { key: `profile:${profile.id}:claims`, amount: config.profileRate.reserve },

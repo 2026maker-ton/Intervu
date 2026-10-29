@@ -1,8 +1,9 @@
 import { $, $$, esc, setError, uuid } from '../core/format.js';
-import { typeLabel } from '../core/copy.js';
+import { typeLabel, reasonCopy } from '../core/copy.js';
+import { OP_LABEL, refreshModeChip } from '../core/providers.js';
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
-import { enterRoom } from './room.js';
+import { enterRoom, SpeechRec } from './room.js';
 
 // ---- 4. 면접 설정 ----
 export async function loadCatalog() {
@@ -41,16 +42,55 @@ export async function loadCatalog() {
   }
 }
 
+// 설정 요약(#setupSummary): 근거 승인 상태 · 사용할 근거 수 · operation별 외부 AI 사용(/providers/status) · 예상 소요.
+export function renderProviderLines(st) {
+  if (!st) return '<li>외부 AI 사용 상태를 확인하지 못했습니다. 서버 연결을 확인해 주세요.</li>';
+  return Object.entries(st.operations || {}).map(([op, o]) => {
+    const live = o.mode === 'live';
+    const why = !live && o.blocked_reason ? ` — ${esc(reasonCopy(o.blocked_reason))}` : '';
+    return `<li><span class="op-name">${esc(OP_LABEL[op] || op)}</span> <span class="tag ${live ? 'official' : ''}">${live ? '실모델' : 'Mock'}</span>${why}</li>`;
+  }).join('');
+}
+
 export function updateSetupSummary() {
   const el = $('#setupSummary');
   if (!el) return;
   const uni = state.journey === 'university';
+  const mins = Number($('#setupForm input[name=duration_minutes]:checked')?.value || 10);
+  const qn = { 5: 3, 10: 4, 15: 5 }[mins] || 4;
+  let head;
   if (state.profile) {
-    el.innerHTML = `<span class="tag ${state.approved ? 'official' : ''}">${state.approved ? '근거 승인 완료' : '승인 필요'}</span> ${esc(state.profile.org_label || (uni ? '대학' : '기업'))} · ${esc(state.profile.target_name || '기관 미지정')} · ${esc(state.profile.role || (uni ? '학과 미지정' : '직무 미지정'))}`;
+    const n = state.profile.applicant_claims_count;
+    head = `<span class="tag ${state.approved ? 'official' : ''}">${state.approved ? '근거 승인 완료' : '승인 필요'}</span> ${esc(state.profile.org_label || (uni ? '대학' : '기업'))} · ${esc(state.profile.target_name || '기관 미지정')} · ${esc(state.profile.role || (uni ? '학과 미지정' : '직무 미지정'))}<br><span class="fine">사용할 근거: 지원서 주장 ${Number.isFinite(n) ? n : 0}개 · 자료 ${state.sources?.length || 0}건</span>`;
   } else {
-    el.innerHTML = `<span class="tag">자료 없이 일반 기준</span> ${uni ? '대학 입학' : '기업 취업'} · 기관 맞춤 검증 없이 기본 역량으로 연습합니다.`;
+    head = `<span class="tag">자료 없이 일반 기준</span> ${uni ? '대학 입학' : '기업 취업'} · 기관 맞춤 검증 없이 기본 역량으로 연습합니다.`;
   }
+  el.innerHTML = `${head}<p class="fine summary-sub">외부 AI 사용 (이 연습에서 실제로 쓰이는 공급자)</p><ul class="plain op-list">${renderProviderLines(state.providerStatus)}</ul><p class="fine">예상 소요 약 ${mins}분 · ${qn}문항</p>`;
 }
+
+// 쓸 수 없는 답변 방식은 비활성화하고 이유를 보여 준다(06 §10).
+export function updateInputModeAvailability() {
+  const why = [];
+  const off = (v, reason) => {
+    const r = $(`#setupForm input[name="input_mode"][value="${v}"]`);
+    if (!r) return;
+    r.disabled = true; r.closest('label')?.classList.add('disabled'); why.push(reason);
+    if (r.checked) $('#setupForm input[name="input_mode"][value="text"]').checked = true;
+  };
+  if (!SpeechRec) off('voice', '이 브라우저는 음성 인식을 지원하지 않아 “음성 인식”을 쓸 수 없습니다.');
+  if (state.stt && (!state.stt.configured || state.stt.provider === 'disabled')) off('groq', '서버에 전사 설정이 없어 “녹음 전사”를 쓸 수 없습니다.');
+  const note = $('#inputModeUnavailable');
+  if (note) { note.textContent = why.join(' '); note.hidden = !why.length; }
+}
+
+export async function refreshSetup() {
+  updateInputModeAvailability();
+  updateSetupSummary();
+  await refreshModeChip();
+  updateSetupSummary();
+}
+window.addEventListener('hashchange', () => { if (/^#\/(setup|room)$/.test(location.hash)) refreshSetup(); });
+$$('#setupForm input[name="duration_minutes"]').forEach((r) => r.addEventListener('change', updateSetupSummary));
 
 $('#setupForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -62,6 +102,7 @@ $('#setupForm')?.addEventListener('submit', async (e) => {
   const fd = new FormData(e.target);
   const btn = $('#startBtn');
   setError('#setupError', '');
+  state.tts = fd.get('tts') === 'on'; // 자동 낭독은 사용자가 켠 경우만(06 §10)
   btn.disabled = true;
   const prev = btn.textContent;
   btn.textContent = '면접을 준비하는 중…';
@@ -127,3 +168,6 @@ $('#interviewTypeSelect')?.addEventListener('change', (e) => {
   const roleSel = $('#interviewerRoleSelect');
   if (roleSel && e.target.value === 'technical' && !roleSel.value) roleSel.value = 'expert';
 });
+
+// 면접관 음성 듣기(TTS) 토글: 브라우저 SpeechSynthesis가 있을 때만 노출한다.
+if (!("speechSynthesis" in window)) { const t = $("#ttsToggle"); if (t) t.hidden = true; }

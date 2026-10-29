@@ -449,3 +449,35 @@ footer p { margin: 0; font-size: .78rem; color: var(--muted); }
 .mode-chip { display: inline-block; padding: 2px var(--sp-3); border-radius: 999px; font-size: var(--fs-sm); background: var(--state-neutral-bg); }
 .mode-chip[data-mode="live"], .mode-chip[data-mode="partial-live"] { background: var(--state-ok-bg); color: var(--state-ok); }
 .mode-chip[data-mode="error"] { background: var(--state-error-bg); color: var(--state-error); }
+
+/* ---- WP-D5 설정·면접실 ---- */
+.stepper li.current { font-weight: 700; }
+.summary-sub { margin: .6rem 0 .2rem; font-weight: 700; color: var(--ink-2); }
+.op-list { margin: 0; padding-left: 0; list-style: none; font-size: .86rem; }
+.op-list li { margin: .15rem 0; }
+.op-name { display: inline-block; min-width: 5.2em; font-weight: 700; }
+.room-body { position: relative; }
+.ev-chip { margin: 0 0 .9rem; font-size: .88rem; background: var(--paper-2); border-radius: var(--radius-sm); padding: .5rem .7rem; }
+.ev-chip .ev-label { font-weight: 800; color: var(--green-deep); }
+.ev-chip .ev-toggle { background: none; border: 0; padding: .35rem 0; min-height: var(--touch-min); font: inherit; color: var(--ink); text-align: left; text-decoration: underline dotted; cursor: pointer; }
+.ev-chip .ev-toggle:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.ev-chip .meta { color: var(--muted); font-size: .78rem; }
+.ev-chip blockquote { margin: .4rem 0 0; padding-left: .7rem; border-left: 3px solid var(--line-2); }
+.room-clock.critical span, .room-clock.critical small { color: var(--red); font-weight: 700; }
+.pause-overlay { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: .3rem; background: rgba(255, 253, 248, .96); border-radius: var(--radius-sm); padding: 1rem; }
+.pause-overlay[hidden] { display: none; }
+.pause-overlay .actions { justify-content: center; }
+.voice-box { display: flex; flex-direction: column; gap: .35rem; flex: 1 1 100%; }
+.voice-box .fine { margin: 0; }
+.voice-box .voice-recording { color: var(--red); font-weight: 700; }
+.voice-box .voice-error { color: var(--amber); }
+.voice-box .voice-review { color: var(--green-deep); }
+[inert] { opacity: .35; }
+#roomBusy::before { content: ""; display: inline-block; width: .8em; height: .8em; margin-right: .4em; border: 2px solid var(--line-2); border-top-color: var(--green); border-radius: 50%; vertical-align: -.1em; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { #roomBusy::before { animation: none; } }
+@media (max-width: 480px) {
+  .room-actions { position: sticky; bottom: 0; z-index: 10; margin: .8rem -.9rem -.9rem; padding: .6rem .9rem calc(.6rem + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; }
+  .room-actions button { min-height: var(--touch-min); }
+  .room-actions .primary { flex: 2 1 100%; }
+}

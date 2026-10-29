@@ -397,7 +397,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 면접 유형 | `[PARTIAL]` | general/technical/discussion/pt/situational/panel 서버 구현, test 562~756 | `PROJECT.md` §3·§1.3은 기본 화면에서 제외하라고 하나 **설정 화면 select에 6종 모두 노출**(`index.html:237`). 일반·압박(`challenging`)·블라인드는 구현. 유형별 설계는 §2.8 |
 | 실시간 면접 대화·세션 관리 | `[PARTIAL]` | REST 명령(`session.start/pause/resume/finish`, `turn.text`), 서버 시계 시간 상한, 낙관적 버전 잠금, `command_id` 재생, test 85~264 | 실시간 스트리밍·WebSocket 없음(`/ws`는 티켓 스텁). 재시작 시 세션 소실 |
 | STT(Groq Whisper) | `[UNVERIFIED]` | `createGroqWhisperAdapter`, `POST /sessions/:id/transcriptions`, 브라우저 `MediaRecorder` UI(`app.js:921~1040`), 키 없음/비오디오 경로 test 762~791 | 실키 호출 미실행. 전사 확인·교정 UI는 존재. 한국어 오류율·지연 측정 없음. `input_mode:'voice'`(브라우저 인식) 경로는 E2E 미확인 |
-| TTS | `[PARTIAL]` | 브라우저 `SpeechSynthesis`(`app.js:831`) | ElevenLabs `[TODO]`. 브라우저·OS별 한국어 음성 편차 미확인 |
+| TTS | `[PARTIAL]` | 브라우저 `SpeechSynthesis`(`public/screens/room.js speak`): "질문 듣기"+정지 버튼, 자동 낭독은 설정 토글 시에만. `/providers/status`의 `speech.synthesize`가 live일 때만 `POST /sessions/:id/tts`를 시도하고 실패 시 브라우저 TTS로 조용히 대체(WP-D5; 서버 TTS는 WP-B6 전이라 미호출) | ElevenLabs `[TODO]`. 브라우저·OS별 한국어 음성 편차 미확인 |
 | 답변 분석·평가 | `[DONE]`(규칙 기반) | `mock-eval*.js`, 인용·span 검증(`evaluation.js`), test 85·132·859 | 의미 기반 평가 아님. UI는 "규칙 기반 참고 관찰" 고지(E2E 확인). 보고서에 `evaluator:{kind:'rule_based',provider:'mock',…}`를 표기하고 `badge` 필드를 제거(BUG-6 수정, WP-B1) |
 | 근거 인용·판단 보류 | `[DONE]` | `validateEvaluation`, `insufficient_evidence`, test 132·637 | 의미 타당성 검증 없음 |
 | 약점 집중 코칭·재연습 | `[PARTIAL]` | `POST /practice-attempts`, `generateTransferQuestion`, UI `app.js:1338~1401` | 새 질문은 루브릭 5종 전 차원(15개) × **고정 템플릿 3개**에서 선택(`transfer.js TRANSFER_BANK`). 알 수 없는 역량은 422(대체 없음). 90초·1문항 세션 |
@@ -501,7 +501,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | DEBT-5 | P1 | `server.js` 1,700줄 단일 파일, UI `app.js` 1,780줄 — Workers 이전·테스트 분리 부담 | — |
 | DEBT-6 | ~~P1~~ **해소(2026-10-29, WP-B1; 문서 추출·STT·턴·프로필, `Store.recordRate`)** | **[원 결함·참고용]** 사용자별 속도 제한이 프로필 생성에만 있음. TTS는 엔드포인트 신설 시(WP-B6) 같은 방식으로 추가 | `store.recordRate` |
 | DEBT-7 | P1 | 이름·학교·주소 PII는 휴리스틱 탐지(C5 부분 해소, 표지어 없는 이름 등 누락 가능), 블라인드 마스킹도 휴리스틱 | `pii.js` |
-| DEBT-8 | P2 | 6개 면접 유형이 기본 설정 화면에 노출(§3과 충돌) | `index.html:237` |
+| DEBT-8 | ~~P2~~ **해소(2026-10-29, WP-D5; E2E 확인)** | **[원 결함·참고용]** 6개 면접 유형이 기본 설정 화면에 노출(§3과 충돌). 현재: 기본 `일반·인성`, 나머지는 `고급(실험)` 접힘 | `index.html` 설정 화면 |
 | DEBT-9 | P2 | SSRF 검사는 호스트 문자열 기반 — **수집기를 만들 때 DNS 해석·리디렉션 재검사 필수** | `sources.js` |
 | DEBT-10 | P2 | 새 질문 비교가 1~2개 답변의 키워드 규칙 점수 차이에 의존 | `compareTransfer`, `mock-eval.js scoreHeuristic` |
 
@@ -646,6 +646,8 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 재검증 루프 | `[PARTIAL]` 재연습 반복 가능하나 기록 영속화 없음 |
 
 ## 17. 이번 점검의 변경 요약 (v1.0.0 → v1.1.0)
+
+- **2026-10-29 WP-D5 설정·면접실 UI:** `public/screens/{setup,room}.js`, `core/providers.js`(신규), `index.html`·`styles.css`·`core/dialog.js`. 설정: operation별 Mock/실모델 + 한국어 차단 사유 요약(`/providers/status`), 고급(실험) 접힘(DEBT-8), TTS 토글, 불가 입력 방식 비활성+이유. 면접실: 근거 칩·폴백 배너(`provider_trace`/`degraded_reason`)·제출 중 상태·일시정지 오버레이·종료 확인 다이얼로그(기본 포커스 취소)·임박 타이머(낭독 1분/10초)·모바일 하단 행동 바·새로고침 복원(`GET /sessions/:id`, 재연습·토론 로그는 복원 제외)·음성 상태 머신. 앱바 칩 문구는 설정·면접실 진입 시 `/providers/status` 기준으로 갱신(대시보드 칩 갱신은 D9). 실키·실기기 마이크·TTS는 미검증.
 
 - **2026-10-29 WP-B1 공급자 라우팅·게이트·호출 래퍼:** 신규 `src/providers/{registry,gate,call,validate}.js`. `config.registry`가 operation별 라우팅(`ROUTE_<OP>` 환경변수로 조정)을 결정하고, 게이트는 키·BASE_URL·MODEL·`<P>_LIVE_ACK`·데이터 등급(합성=서버 판정 `ctx.synthetic` 훅/실데이터=`REAL_DATA_ACK`+동의+만 19세)·킬 스위치·예산을 모두 요구한다. 공통 래퍼는 타임아웃·1회 재시도·429/5xx/타임아웃/잘못된 출력 시 정적 폴백(세션 계속, 원장 예약 정산)을 처리한다. 응답·세션·보고서에 `provider_trace[]`, `GET /api/v1/providers/status`, 보고서 `evaluator`(`badge` 제거), 문서 추출·STT·턴 속도 제한을 추가했다. 신규 테스트 17건(`tests/api/b1-*.test.mjs`, 스텁 fetch·가짜 키). **한계: 새 벤더 어댑터 없음(B2·B3), 동의 API 없음, 공급자별 월 상한·TTS 엔드포인트 미구현, 실호출 미실행.**
 - **2026-10-29 WP-A1 핸들러 추출·Store 인터페이스(동작 불변 리팩터링):** `src/server.js`를 `src/app/`(router·core·handlers/*·crypto(Web Crypto)·mutex·body)와 `src/node/server.js`(Node 어댑터), `src/store/`(계약 `index.js` + `memory.js`)로 분리. 전역 `Map`(티켓·내보내기·전이작업·원장 상태)을 Store로 이동, `Idempotency-Key` 24h 응답 재생(성공 응답만·같은 키·경로에 다른 본문은 409)·세션별 쓰기 직렬화·어댑터의 `process.env` 직접 조회 제거(`GEMINI_FREE_ONLY`는 config로 주입). 보안 불변 유지: 계정·세션 삭제 시 멱등 저장본도 소유자 단위로 파기. 부수 수정: 잘못된 JSON·초과 본문이 500이던 것을 400/413으로 정정. 신규 테스트 17건(`tests/api/a1-*.test.mjs`). 결과: `npm test` 94/94, E2E 54 ok, 기관 E2E 실행. **한계: Store 메서드는 동기식이며 events·commands·evaluations·appeals·attempts·deletions는 호환용 Map으로 직접 노출, 문서 추출은 `node:zlib`·`Buffer` 의존(A3).**

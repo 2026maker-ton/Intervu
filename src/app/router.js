@@ -124,6 +124,9 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/approve$/.exec(pth)) && mth === 'POST') return send(h.profiles.approveProfile(owner, id1(), body));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/sources$/.exec(pth)) && mth === 'POST') return send(h.profiles.addInstitutionSource(owner, id1(), body));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/institution$/.exec(pth)) && mth === 'GET') return send(h.profiles.getInstitution(owner, id1()));
+      if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/claims$/.exec(pth)) && mth === 'GET') return send(h.profiles.listClaims(owner, id1()));
+      if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/claims\/([^/]+)$/.exec(pth)) && mth === 'PATCH') return send(h.profiles.setClaimExcluded(owner, mm[1], decodeURIComponent(mm[2]), body));
+      if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/plan$/.exec(pth)) && mth === 'GET') return send(h.profiles.getPlan(owner, id1(), Object.fromEntries(u.searchParams)));
       if (mth === 'POST' && pth === '/api/v1/sessions') return send(h.sessions.createSession(owner, body));
       if (mth === 'GET' && pth === '/api/v1/sessions') return send(h.ops.listSessions(owner));
       if ((mm = /^\/api\/v1\/sessions\/([^/]+)$/.exec(pth))) {

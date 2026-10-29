@@ -57,6 +57,98 @@ const answers = [
   '새로운 업무를 맡았을 때 먼저 선례와 데이터를 찾아보고, 이해관계자에게 확인한 뒤 실행 순서를 정했습니다. 시행 후에는 지표로 결과를 확인했습니다.',
 ];
 
+// ---------- WP-D8: 페이지 내 접근성 감사 (의존성 없음, axe 대체) ----------
+// 보이는 요소만 검사해 { labels, buttons, contrast, tap } 문제 목록을 돌려준다.
+const A11Y_AUDIT = (opts) => {
+  const vis = (el) => el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+  const txt = (el) => (el.textContent || '').replace(/\s+/g, ' ').trim();
+  const desc = (el) => `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/)[0] : ''}`;
+  const name = (el) => {
+    const lb = el.getAttribute('aria-labelledby');
+    if (lb) { const t = lb.split(/\s+/).map((i) => document.getElementById(i)?.textContent || '').join(' ').trim(); if (t) return t; }
+    if (el.getAttribute('aria-label')?.trim()) return el.getAttribute('aria-label').trim();
+    if (el.labels && el.labels.length) { const t = [...el.labels].map(txt).join(' ').trim(); if (t) return t; }
+    if (el.getAttribute('title')?.trim()) return el.getAttribute('title').trim();
+    if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') return txt(el);
+    return '';
+  };
+  const out = { labels: [], buttons: [], contrast: [], tap: [], skipped: 0 };
+  for (const el of document.querySelectorAll('input, textarea, select')) {
+    if (el.type === 'hidden' || !vis(el)) continue;
+    if (!name(el)) out.labels.push(desc(el));
+  }
+  for (const el of document.querySelectorAll('button, [role=button]')) {
+    if (!vis(el)) continue;
+    if (!name(el)) out.buttons.push(desc(el));
+  }
+  const parse = (c) => {
+    let m = c.match(/^rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)(?:\s*[,/]\s*([\d.%]+))?\s*\)$/);
+    if (m) { const a = m[4] === undefined ? 1 : m[4].endsWith('%') ? parseFloat(m[4]) / 100 : parseFloat(m[4]); return [+m[1], +m[2], +m[3], a]; }
+    m = c.match(/^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.%]+))?\s*\)$/);
+    if (m) { const a = m[4] === undefined ? 1 : m[4].endsWith('%') ? parseFloat(m[4]) / 100 : parseFloat(m[4]); return [m[1] * 255, m[2] * 255, m[3] * 255, a]; }
+    return null;
+  };
+  const over = (top, bot) => { const a = top[3] + bot[3] * (1 - top[3]); return a === 0 ? [255, 255, 255, 1] : [0, 1, 2].map((i) => (top[i] * top[3] + bot[i] * bot[3] * (1 - top[3])) / a).concat(a); };
+  const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  const bgOf = (el) => {
+    const layers = [];
+    for (let n = el; n; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      // 그라데이션·이미지 위 텍스트는 자동 계산 불가. 단 body/html의 은은한 장식 배경은 배경색으로 근사한다(ponytail: 근사치).
+      if (cs.backgroundImage !== 'none' && n !== document.body && n !== document.documentElement) return null;
+      const c = parse(cs.backgroundColor);
+      if (c && c[3] > 0) { layers.push(c); if (c[3] >= 1) break; }
+    }
+    let acc = [255, 255, 255, 1];
+    for (const l of layers.reverse()) acc = over(l, acc);
+    return acc;
+  };
+  const seen = new Set();
+  for (const el of document.querySelectorAll('body *')) {
+    if (!vis(el)) continue;
+    if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+    if (el.disabled || el.closest('[disabled], [aria-disabled=true]')) continue;
+    const cs = getComputedStyle(el);
+    if (el.matches('.toast') && parseFloat(cs.opacity) < 1) continue; // 페이드 전환 중 토스트는 제외
+    const fg = parse(cs.color); const bg = bgOf(el);
+    if (!fg || !bg) { out.skipped += 1; continue; }
+    const f = over([fg[0], fg[1], fg[2], fg[3] * (parseFloat(cs.opacity) || 1)], bg);
+    const l1 = lum(f); const l2 = lum(bg);
+    const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+    const px = parseFloat(cs.fontSize); const bold = parseInt(cs.fontWeight, 10) >= 700;
+    const need = px >= 24 || (px >= 18.66 && bold) ? 3 : 4.5;
+    if (ratio < need) { const k = `${desc(el)}|${cs.color}|${need}`; if (!seen.has(k)) { seen.add(k); out.contrast.push(`${desc(el)} ${ratio.toFixed(2)}<${need}`); } }
+  }
+  if (opts.tap) {
+    for (const el of document.querySelectorAll('button, input:not([type=hidden]), select, textarea, a[href], summary')) {
+      if (!vis(el)) continue;
+      let t = el;
+      if (el.matches('input[type=radio], input[type=checkbox]')) t = el.closest('label') || el; // 라벨 전체가 터치 영역
+      const r = t.getBoundingClientRect();
+      if (r.height + 0.5 < 44) out.tap.push(`${desc(el)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+    }
+  }
+  out.text = document.body.innerText;
+  return out;
+};
+
+async function tabTo(page, id, max = 150) {
+  const rings = [];
+  for (let i = 0; i < max; i += 1) {
+    await page.keyboard.press('Tab');
+    const st = await page.evaluate(() => {
+      const el = document.activeElement; const cs = getComputedStyle(el);
+      const lab = el.closest('label');
+      const ring = (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2) || cs.boxShadow !== 'none'
+        || (!!lab && getComputedStyle(lab).outlineStyle !== 'none');
+      return { id: el.id, tag: el.tagName, ring };
+    });
+    rings.push(st);
+    if (st.id === id) return { found: true, steps: i + 1, rings };
+  }
+  return { found: false, steps: max, rings };
+}
+
 async function main() {
   const { createApp } = await import(pathToFileURL(path.resolve('src/server.js')).href);
   const app = createApp({
@@ -332,6 +424,33 @@ async function main() {
       if (s === 'history') check(await page.evaluate(() => document.activeElement?.tagName) === 'H1', '화면 전환 시 h1 포커스');
     }
 
+    // WP-D8 1단계: 면접실을 뺀 8화면 감사(진행 중 세션이 생기면 가드가 코칭 등을 면접실로 되돌리므로 먼저 수행)
+    const { containsBannedExpression } = await import(pathToFileURL(path.resolve('public/core/copy.js')).href);
+    const AGG = {};
+    for (const w of [1440, 768, 390]) AGG[w] = { overflow: [], labels: [], buttons: [], contrast: [], tap: [], banned: [], h1: [], skipped: 0 };
+    async function auditScreens(list, width, agg) {
+      for (const s of list) {
+        await page.evaluate((n) => { location.hash = `#/${n}`; }, s);
+        await page.waitForTimeout(250);
+        const shown = await page.evaluate(() => [...document.querySelectorAll('[data-screen]')].find((e) => !e.hidden)?.id);
+        if (shown !== `screen-${s}`) { agg.overflow.push(`${s}(도달 실패:${shown})`); continue; }
+        const ov = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        check(ov <= 1, `가로 오버플로 없음 ${s} @${width}px`, `overflow ${ov}px`);
+        if (ov > 1) agg.overflow.push(s);
+        if (width !== 768) await page.screenshot({ path: path.join(OUT, `12-${s}-${width}.png`), fullPage: true });
+        const r = await page.evaluate(A11Y_AUDIT, { tap: width === 390 });
+        for (const k of ['labels', 'buttons', 'contrast', 'tap']) r[k].forEach((x) => agg[k].push(`${s}:${x}`));
+        agg.skipped += r.skipped;
+        if (containsBannedExpression(r.text)) agg.banned.push(`${s}:${r.text.split(/\n/).filter((l) => containsBannedExpression(l)).join('/').slice(0, 120)}`);
+        if (await page.evaluate(() => document.activeElement?.tagName) !== 'H1') agg.h1.push(s);
+      }
+    }
+    for (const w of [1440, 768, 390]) {
+      await page.setViewportSize({ width: w, height: 900 });
+      await auditScreens(screens.filter((s) => s !== 'room'), w, AGG[w]);
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+
     // 새로고침 복원: 완료 세션 → 코칭, 승인된 프로필 → 설정
     console.log('\n[10a] 새로고침 복원·가드');
     await page.evaluate(() => { location.hash = '#/setup'; });
@@ -406,6 +525,75 @@ async function main() {
       await pf.waitForSelector('#screen-evidence:not([hidden])', { timeout: 15000 });
       check(!(await pf.locator('#consentDialog[open]').count()), '합성 샘플은 동의 대화상자 없이 진행');
       await ctxF.close();
+    }
+
+    // ---------- 12. 접근성·반응형·카피 QA (WP-D8) ----------
+    console.log('\n[12] 접근성·반응형·카피');
+    for (const width of [1440, 768, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      const agg = AGG[width];
+      await auditScreens(['room'], width, agg);
+      const uniq = (a) => [...new Set(a)];
+      console.log(`  (대비 자동 계산 제외 ${agg.skipped}건: 그라데이션·이미지 배경 위 텍스트) @${width}px`);
+      check(agg.overflow.every((x) => !x.includes('도달')), `9화면 모두 도달 @${width}px`, agg.overflow.join(','));
+      check(agg.labels.length === 0, `모든 입력에 접근 가능한 이름 @${width}px`, uniq(agg.labels).slice(0, 4).join(' | '));
+      check(agg.buttons.length === 0, `모든 버튼에 접근 가능한 이름 @${width}px`, uniq(agg.buttons).slice(0, 4).join(' | '));
+      check(agg.contrast.length === 0, `텍스트 대비 4.5:1(큰 글자 3:1) @${width}px`, uniq(agg.contrast).slice(0, 5).join(' | ') + ` (자동 계산 제외 ${agg.skipped})`);
+      if (width === 390) check(agg.tap.length === 0, '모바일 터치 영역 ≥44px(버튼·입력·요약)', uniq(agg.tap).slice(0, 8).join(' | '));
+      check(agg.banned.length === 0, `금지 표현 없음(렌더 텍스트 9화면) @${width}px`, agg.banned.join(','));
+      check(agg.h1.length === 0, `화면 전환 시 h1 포커스(9화면) @${width}px`, agg.h1.join(','));
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    check(await page.locator('[aria-live=polite], [role=status]').count() >= 1 && await page.locator('[aria-live=assertive], [role=alert]').count() >= 1, 'aria-live polite·assertive 영역 존재');
+
+    // 다이얼로그: 포커스 트랩·ESC·반환 포커스
+    await page.evaluate(() => { location.hash = '#/room'; });
+    await page.waitForSelector('#screen-room:not([hidden])');
+    await page.focus('#finishBtn');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('#confirmDialog[open]');
+    // 네이티브 showModal은 뒤 페이지를 inert로 만든다: 포커스는 대화상자 안이거나 브라우저 UI(body)에만 있어야 한다.
+    let trapped = true;
+    const inDialogOrChrome = () => page.evaluate(() => { const a = document.activeElement; return !!a?.closest('#confirmDialog') || a === document.body || a === document.documentElement; });
+    for (let i = 0; i < 6; i += 1) {
+      await page.keyboard.press('Tab');
+      if (!(await inDialogOrChrome())) trapped = false;
+    }
+    await page.keyboard.press('Shift+Tab');
+    if (!(await inDialogOrChrome())) trapped = false;
+    check(trapped, '다이얼로그 포커스 트랩(Tab/Shift+Tab 이탈 없음)');
+    const dlgAudit = await page.evaluate(A11Y_AUDIT, { tap: false });
+    check(dlgAudit.contrast.length === 0 && dlgAudit.labels.length === 0 && dlgAudit.buttons.length === 0, '열린 다이얼로그 대비·이름', [...dlgAudit.contrast, ...dlgAudit.labels, ...dlgAudit.buttons].slice(0, 3).join(' | '));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('#confirmDialog[open]'));
+    check(await page.evaluate(() => document.activeElement?.id) === 'finishBtn', '다이얼로그 ESC 후 호출 버튼으로 포커스 반환');
+
+    // 키보드만으로 지원 정보 → 근거 → 설정 (마우스 없음, 합성 샘플)
+    console.log('\n[12b] 키보드 전용 순회');
+    {
+      const ctxK = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR' });
+      const pk = await ctxK.newPage();
+      await pk.addInitScript(() => localStorage.setItem('intervu.token', 'e2e-user-b'));
+      await pk.goto(base + '/#/dashboard', { waitUntil: 'networkidle' });
+      await pk.waitForSelector('#screen-dashboard:not([hidden])');
+      const allRings = [];
+      const step = async (id, label) => { const t = await tabTo(pk, id); allRings.push(...t.rings); check(t.found, `키보드: Tab으로 ${label} 도달`, `${t.steps}회`); };
+      await step('journeyCompany', '기업 여정 버튼');
+      await pk.keyboard.press('Enter');
+      await pk.waitForSelector('#screen-application:not([hidden])');
+      await step('loadFixtureBtn', '합성 샘플 버튼');
+      await pk.keyboard.press('Enter');
+      await pk.waitForSelector('#fixtureBadge:not([hidden])');
+      await step('analyzeBtn', '분석 버튼');
+      await pk.keyboard.press('Enter');
+      await pk.waitForSelector('#screen-evidence:not([hidden])', { timeout: 15000 });
+      await step('approveBtn', '근거 승인 버튼');
+      await pk.keyboard.press('Enter');
+      await pk.waitForSelector('#screen-setup:not([hidden])', { timeout: 15000 });
+      await step('startBtn', '면접 시작 버튼(설정)');
+      const noRing = allRings.filter((r) => !r.ring);
+      check(noRing.length === 0, '키보드 포커스 링 항상 표시', noRing.slice(0, 4).map((r) => `${r.tag}#${r.id}`).join(' | '));
+      await ctxK.close();
     }
 
     // ---------- 접속 토큰 (내장 토큰 없음) ----------

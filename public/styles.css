@@ -5,7 +5,7 @@
   --card: #fffdf8;
   --ink: #17202b;
   --ink-2: #3b4757;
-  --muted: #6b7686;
+  --muted: #566170;
   --line: #e0d6c3;
   --line-2: #cfc2ab;
   --green: #0e7c4b;
@@ -177,13 +177,13 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 /* ---- 폼 ---- */
 .field { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .9rem; }
 .field > span { font-size: .86rem; font-weight: 700; color: var(--ink-2); }
-input[type="text"], input[type="month"], input[type="password"], input[type="file"], select, textarea {
+input:not([type]), input[type="text"], input[type="month"], input[type="password"], input[type="file"], select, textarea {
   font: inherit; font-size: .93rem; color: var(--ink);
   background: #fff; border: 1px solid var(--line-2); border-radius: var(--radius-sm);
   padding: .55rem .7rem; width: 100%;
 }
 textarea { resize: vertical; line-height: 1.55; }
-input:focus, select:focus, textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(14, 124, 75, .12); outline: none; }
+input:focus, select:focus, textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(14, 124, 75, .12); }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; }
 .form-card { max-width: 860px; }
 .field-group { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: .85rem 1rem 1rem; margin: 0 0 1rem; }
@@ -392,6 +392,12 @@ footer p { margin: 0; font-size: .78rem; color: var(--muted); }
   .segmented { gap: .35rem; }
   .segmented label { padding: .38rem .65rem; font-size: .84rem; }
   .primary, .ghost, .danger { padding: .55rem .9rem; font-size: .88rem; }
+  /* WP-D8: 모바일 터치 영역 ≥44px */
+  .navbtn, .primary, .ghost, .danger, .small, .tiny { min-height: var(--touch-min); }
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea { min-height: var(--touch-min); }
+  summary { min-height: var(--touch-min); display: flex; align-items: center; }
+  .check { min-height: var(--touch-min); align-items: center; }
+  a#fixtureLink { display: inline-flex; align-items: center; min-height: var(--touch-min); }
   .room-clock span { font-size: 1.2rem; }
   .list-item { align-items: flex-start; }
   .list-actions { width: 100%; justify-content: flex-start; }

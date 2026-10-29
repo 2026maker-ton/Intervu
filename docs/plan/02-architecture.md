@@ -82,7 +82,7 @@ Browser(Pages 정적 UI)
 
 ## 6. 테스트 구조 (WP-A0에서 분리)
 
-`tests/run.mjs`(약 1,420줄)는 병렬 작업의 최대 충돌 지점이다. 동작 불변으로 아래처럼 나눈다.
+`tests/run.mjs`(약 1,420줄)는 병렬 작업의 최대 충돌 지점이었다. **WP-A0(`e417484`)에서 분리 완료**했고 `tests/run.mjs`는 더 이상 없다. 현재 구조는 `tests/{helpers,api,domain,eval}`이며 `providers/`·`e2e/` 디렉터리는 만들지 않았다(공급자 시험은 `tests/api/b*-*.test.mjs`, E2E는 `tools/e2e-ui.mjs`). 아래는 계획 당시 구조다.
 
 ```
 tests/

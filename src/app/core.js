@@ -7,6 +7,7 @@ import { createMockAdapter, createGeminiAdapter, createGroqWhisperAdapter, selec
 import { err, now } from './util.js';
 import { safeEqual } from './crypto.js';
 import { createProfileHandlers } from './handlers/profiles.js';
+import { createConsentHandlers } from './handlers/consents.js';
 import { createSessionHandlers } from './handlers/sessions.js';
 import { createCommandHandlers } from './handlers/commands.js';
 import { createFeedbackHandlers } from './handlers/feedback.js';
@@ -92,6 +93,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const handlers = {
     sessions,
     profiles: createProfileHandlers(d),
+    consents: createConsentHandlers(d),
     commands: createCommandHandlers(d),
     feedback: createFeedbackHandlers(d),
     transfer: createTransferHandlers(d),

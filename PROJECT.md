@@ -614,7 +614,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 3 주장·공백 추출 | `[PARTIAL]` 키워드 14개 | 자소서 문장 단위 주장(역할·행동·결과·수치)과 공백, 원문 span | 지원자 주장 모델(`EvidenceClaim`) | 규칙/Gemini(공고 키워드) → Claude Sonnet | P0-3, 프롬프트 인젝션 방어 |
 | 4 공식 기준 탐색 | `[TODO]` URL 메타 기록만 | 서버 제어 수집기로 공식 페이지 수집·발췌 | 수집 결과·발췌 위치·확인일 저장 | 없음 → 수집기(+Claude Sonnet 요약은 선택) | SSRF·DNS·리디렉션 방어, 도메인 허용 목록(P1-6) |
 | 5 출처 검토·승인 | `[PARTIAL]` 기관 프로필 확인·승인(`approveProfile`) | 출처별 상태(공식 확인/사용자 제공/트렌드/미확인/수집 실패)와 승인 | `verified` 상태·수집 실패 구분 | 없음 | 4단계 선행 |
-| 6 개인정보·연령 확인 | `[PARTIAL]` PII 정규식·정적 연령 문구·고교 Mock 강제 | 연령 확인 절차, 실데이터 외부 전송 차단, 합성 모드 | 연령·동의 기록, 서버 소유 합성 fixture | 없음 | **BUG-1** 선행, 공급자 약관(§14) |
+| 6 개인정보·연령 확인 | `[PARTIAL]` PII 정규식·정적 연령 문구·고교 Mock 강제·**동의 API(`POST /consents`)·동의 없으면 프로필 428·서버 fixture 해시 합성 판정(WP-C6, 2026-10-29)** — UI 동의 화면(D3)·공급자 게이트 연결(B1)은 `[TODO]` | 연령 확인 절차, 실데이터 외부 전송 차단, 합성 모드 | 연령·동의 기록, 서버 소유 합성 fixture | 없음 | **BUG-1** 선행, 공급자 약관(§14) |
 | 7 검증 질문 설계 | `[PARTIAL]` 정적 팩+기관 템플릿 | 주장·공식 요구에 연결된 질문(근거 ID) | `question_id`/증거 ID/`prompt_version` | 없음 → Claude Sonnet | P0-3 |
 | 8 실전 면접 진행 | `[PARTIAL]` REST 명령, 텍스트·Groq 녹음, 브라우저 TTS | 실시간 꼬리질문, 음성 입출력 | 스트리밍(선택) | Gemini(조건부)/Mock → DeepSeek, Groq Whisper, ElevenLabs | P0-4, 약관 확인, 예산 상한 |
 | 9 근거 기반 관찰 | `[DONE]`(규칙) | 발언 인용 기반 관찰, 판단 보류 | 평가기 종류 표기(BUG-6) | 규칙 → Claude Sonnet(검증 후) | 인용 검증 유지, 사람 평가 비교 |
@@ -653,6 +653,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 - **2026-10-29 P0-3 코드(1차):** 신규 `src/domain/claims.js`(문장 단위 주장·공백 추출, 근거 인용 질문 생성), `server.js`(`application_text` 입력·마스킹, 일반 면접 앞쪽 주장 질문 2개, 보고서 `claim_links`), `store.js`(저장·계정 삭제 시 파기), `public/`(지원서 입력란, 근거 확인 화면의 "지원서 주장·공백", 면접실 질문 근거 표시, 보고서 "지원서 주장과 실제 답변"), `tools/e2e-ui.mjs` 확인 5건 추가. 테스트 6건 추가(span·공백·인젝션 문장·새 수치 금지·세션/보고서 연결·마스킹/삭제/외부 전송 0건). 결과: `npm test` 72/72, 브라우저 E2E 52 ok, 기관 E2E 14/14. **한계: 규칙 기반이라 의미 이해·정확도 미검증, 모델 연결은 P0-4.**
 - **2026-10-29 P0-2 코드 수정:** `src/server.js`(`purgeOwnedCaches`: 세션 삭제 시 해당 세션의 전이 작업·내보내기 캐시, 계정 삭제 시 소유자 전체 파기. 세션 삭제 시 재작성 연습·이의 제기도 파기). 신규 테스트 4건(기준·재연습 세션 삭제, 계정 삭제와 타 사용자 보존, 이의 제기), 수정 전 코드에서 3건 실패 확인. 결과: `npm test` 66/66, E2E 47 ok·기관 E2E 14/14, 오프라인 프로브에서 삭제 후 전이 작업 404. 영속 저장·백업은 없어 해당 범위 밖.
 - **2026-10-29 P0-1 코드 수정:** `src/server.js`(`isServerSynthetic`·`providerForRequest` 제거 → 서버 상태 기반 `providerFor`, 프로필 응답 `provider`는 실제 사용 공급자, highschool+`paidAck` 시 Gemini 호출되던 경로 차단), `src/store.js`(`free_test`는 요청 본문이 아닌 서버 값), `tools/gemini-e2e.mjs`(`syntheticTraffic:true`), `.env.example` 주석, `tests/run.mjs`(공허하던 test 815 제거, 위조 플래그 외부 호출 0건 등 신규 4건, `free_test` 영속 테스트를 위조 방어 테스트로 교체). 신규 테스트 4건은 수정 전 코드에서 실패함을 확인. 결과: `npm test` 62/62, E2E 47 ok, 기관 E2E 14/14. 실키 호출은 실행하지 않음.
+- **2026-10-29 WP-C6:** `src/domain/fixtures.js`(기업·대학 합성 샘플 각 1, 고정 seed), `GET /fixtures[/:id]`(`DEMO_FIXTURES=off`로 끔), `POST /consents`, 동의·일치 fixture 없는 `POST /profiles`는 428 `consent_required`, `profile.synthetic`은 fixture 해시 일치로만, 턴 revision `synthetic`은 샘플 답변 일치로만(`isSyntheticTurn`). Store에 `addConsent`/`getConsent` 추가. 클라이언트 `synthetic`/`free_test`는 계속 무시. 공급자 게이트 소비(B1)는 미연결.
 
 - 헤더에 버전·점검 범위를 갱신하고 §0에 상태 표기 표준을 추가했다.
 - §1.5(개요·SDGs 가설·사용자·시나리오), §2.8(면접 유형별 동작), §4.2(현재 vs 목표 공급자·마이그레이션), §4.4(AI 호출 구조), §5.1(현재 구현 대조), §7(실제 구현 상태 전면 개정), §10~§17을 추가·개정했다.

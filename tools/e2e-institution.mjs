@@ -14,6 +14,7 @@ async function call(path, { method = 'GET', body } = {}) {
   const data = await res.json().catch(() => ({}));
   return { status: res.status, data };
 }
+await fetch(base + '/api/v1/consents', { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ age_19_confirmed: true, notice_version: 'e2e-1' }) }); // WP-C6 동의 선기록
 function ok(name, cond, extra = '') {
   if (cond) { pass += 1; console.log(`PASS ${name}`); }
   else { fail += 1; console.log(`FAIL ${name} ${extra}`); }

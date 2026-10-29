@@ -1,5 +1,6 @@
 // 인메모리 저장소 (MVP). 운영 교체 대상: Postgres + RLS.
 // 모든 행에 owner_id. 조회는 항상 owner scope 강제.
+import { isSyntheticText } from '../domain/fixtures.js';
 const randomUUID = () => globalThis.crypto.randomUUID();
 
 export function createStore({ ttlDays = 30 } = {}) {
@@ -15,6 +16,7 @@ export function createStore({ ttlDays = 30 } = {}) {
   const appeals = new Map();        // id -> appeal
   const attempts = new Map();       // id -> practice attempt
   const deletions = new Map();      // id -> deletion job
+  const consents = new Map();       // owner -> 최신 동의 행(감사 기록, WP-C6)
   const profileCalls = new Map();   // owner -> [timestamps] (프로필 추출 속도 제한)
   const instSources = new Map();    // profile_id -> [source rows] (기관 자료 출처)
   const institutions = new Map();   // profile_id -> { profile object, approved, approved_at }
@@ -45,6 +47,7 @@ export function createStore({ ttlDays = 30 } = {}) {
         source_text: String(data.source_text || '').slice(0, 20000),
         application_text: String(data.application_text || '').slice(0, 20000), // 마스킹본만 전달됨
         source_url: data.source_url || null, experiences: (data.experiences || []).slice(0, 3).map((e) => String(e).slice(0, 2000)),
+        synthetic: data.synthetic === true, fixture_id: data.synthetic === true ? data.fixture_id : null, // 서버 판정값(본문 플래그 아님)
         status: 'extracting', created_at: now(), expires_at: new Date(Date.now() + ttlMs).toISOString(),
       };
       profiles.set(id, doc);
@@ -147,11 +150,17 @@ export function createStore({ ttlDays = 30 } = {}) {
     sessionTurns(sessionId) { return [...turns.values()].filter((t) => t.session_id === sessionId).sort((a, b) => a.ordinal - b.ordinal); },
     addRevision(turnId, text, origin = 'user', quality_flags = []) {
       const list = revisions.get(turnId) || [];
-      const rev = { turn_id: turnId, revision: list.length + 1, normalized_text: text.normalize('NFC'), origin, quality_flags, created_at: now() };
+      const rev = { turn_id: turnId, revision: list.length + 1, normalized_text: text.normalize('NFC'), origin, quality_flags, synthetic: origin === 'user' && isSyntheticText(text), created_at: now() };
       list.push(rev); revisions.set(turnId, list);
       return rev;
     },
     getRevisions(turnId) { return revisions.get(turnId) || []; },
+    addConsent(owner, data) {
+      const c = { id: randomUUID(), owner_id: owner, age_19_confirmed: data.age_19_confirmed === true, notice_version: data.notice_version, provider_modes_seen: {}, created_at: now() };
+      consents.set(owner, c);
+      return c;
+    },
+    getConsent(owner) { return consents.get(owner) || null; },
     recordProfileCall(owner) {
       const t = Date.now();
       const list = (profileCalls.get(owner) || []).concat([t]).slice(-40);
@@ -162,6 +171,7 @@ export function createStore({ ttlDays = 30 } = {}) {
       };
     },
     deleteAccount(owner) {
+      consents.delete(owner);
       const deletionId = randomUUID();
       const requested_at = now();
       for (const [sid, s] of sessions) {

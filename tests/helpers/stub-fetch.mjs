@@ -1,7 +1,7 @@
 // Gemini 스텁 fetch 헬퍼 (게이트 시험용)
 import assert from 'node:assert/strict';
 import { createApp } from '../../src/server.js';
-import { A } from './app.mjs';
+import { A, ensureConsent, needsConsent } from './app.mjs';
 
 export async function withGeminiStub(env, overrides, fn) {
   const realFetch = globalThis.fetch;
@@ -16,7 +16,8 @@ export async function withGeminiStub(env, overrides, fn) {
   const gated = createApp({ env: { GEMINI_API_KEY: 'fake-key', GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: A, TRENDS_FILE: '', PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100', ...env }, ...overrides });
   await new Promise((r) => gated.server.listen(0, r));
   const gbase = `http://127.0.0.1:${gated.server.address().port}`;
-  const gcall = async (path, { method = 'GET', body } = {}) => {
+  const gcall = async (path, { method = 'GET', body, noConsent = false } = {}) => {
+    if (needsConsent(method, path, noConsent)) await ensureConsent(gbase, A, realFetch);
     const h = { Authorization: `Bearer ${A}` };
     if (body !== undefined) h['Content-Type'] = 'application/json';
     if (method !== 'GET') h['Idempotency-Key'] = crypto.randomUUID();

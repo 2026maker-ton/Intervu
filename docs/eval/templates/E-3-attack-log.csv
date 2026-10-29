@@ -1,0 +1,2 @@
+attempt_id,date,attacker_id,attack_type,payload_summary,target_endpoint,expected_block,observed_outcome,success_Y_N,provider_mode,commit_hash,memo
+EXAMPLE-000,YYYY-MM-DD,A1,keyword_injection|prompt_injection|pii_bypass|synthetic_flag_forgery|delimiter_forgery|other,"(예시 행 — 삭제 후 사용)",,"(어떤 보호가 막아야 하는가)","(실제로 일어난 일)",Y|N,mock|stub|live,,

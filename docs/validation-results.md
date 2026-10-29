@@ -50,3 +50,18 @@
 ## 검증 한계
 
 JSON Schema 전문 validator는 실행하지 않았으며 전달 예시의 domain 불변식만 검사했다. DB migrations/RLS·WSS·유료 공급자 품질·부하시험은 아직 구현·검증 전이다(MVP는 인메모리 단일 프로세스). 브라우저 E2E는 로컬 Mock 경로이며 실제 사용자 데이터·실제 결제 계정 검증이 아니다. 시장·경쟁 사실은 공식 공개 자료 범위이고 제품 로그인 후 동작·무료량·효과를 검증한 것이 아니다. 법률 검토는 적용 쟁점을 정리한 것이며 자문 완료가 아니다. 출시 승인은 종합 설계서 G0~G9의 해당 게이트로 판단한다.
+
+## 사람 평가 실험 E-1~E-6 (2026-10-29 기준: 전부 미실행)
+
+아래 실험은 표본·평가자 모집·실행이 이뤄지지 않았다. 결과·수치는 없다. 절차는 `docs/eval/human-eval-protocol.md`.
+
+| 실험 | 상태 | 템플릿 |
+|---|---|---|
+| E-1 질문-근거 연결 | 미실행 | `docs/eval/templates/E-1-question-evidence.csv` |
+| E-2 평가 일치도 | 미실행 | `docs/eval/templates/E-2-rater-agreement.csv` |
+| E-3 공격 시험(사람 수행) | 미실행 | `docs/eval/templates/E-3-attack-log.csv` |
+| E-4 꼬리질문 적합성 | 미실행 | `docs/eval/templates/E-4-followup-relevance.csv` |
+| E-5 전이 개선 | 미실행 | `docs/eval/templates/E-5-transfer-improvement.csv` |
+| E-6 STT 오류율·지연 | 미실행 (수동 스모크 `tools/stt-smoke.mjs`도 미실행) | `docs/eval/templates/E-6-stt-error.csv` |
+
+자동 골든 케이스·STT 계약 시험(`tests/eval/golden.test.mjs`, `tests/api/b5-stt.test.mjs`)은 코드 불변식·스텁 계약 확인이며 위 사람 평가의 대체가 아니다.

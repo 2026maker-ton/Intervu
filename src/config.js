@@ -81,6 +81,8 @@ export function loadConfig(env = process.env) {
     // 관리자 인증 (PROJECT §2.3/§3): /admin/*·/metrics·/diagnostics 는 x-admin-token 헤더가 ADMIN_TOKEN과 일치할 때만 허용.
     // ADMIN_TOKEN 미설정이면 관리 기능은 꺼진다(공개본 조회는 영향 없음).
     adminToken: String(env.ADMIN_TOKEN || ''),
+    // 합성 샘플 API(WP-C6). 기본 켬, DEMO_FIXTURES=off로 끔.
+    demoFixtures: String(env.DEMO_FIXTURES ?? 'on').toLowerCase() !== 'off',
     // 빈 문자열을 명시하면 영속화를 끈다(테스트·격리 환경). 미설정 시 기본 파일 사용.
     trendsFile: env.TRENDS_FILE === undefined ? 'data/trends.json' : String(env.TRENDS_FILE),
   };

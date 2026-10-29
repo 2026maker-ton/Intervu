@@ -31,6 +31,7 @@ async function call(path, method, body) {
   return { status: res.status, data: await res.json() };
 }
 
+await call('/api/v1/consents', 'POST', { age_19_confirmed: true, notice_version: 'e2e-1' }); // WP-C6 동의 선기록
 const t0 = Date.now();
 const p = await call('/api/v1/profiles', 'POST', {
   org_type: 'public', target_name: '합성테스트기관', role: '사무',

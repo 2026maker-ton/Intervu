@@ -3,6 +3,7 @@ import { randomUUID } from '../crypto.js';
 import { detectPii, maskPii, buildBlindContext, extractClaims, verifyClaimSpan } from '../../domain/pii.js';
 import { extractApplicantClaims } from '../../domain/claims.js';
 import { normalizeSource } from '../../domain/sources.js';
+import { isSyntheticProfileBody } from '../../domain/fixtures.js';
 import { buildInstitutionProfile, normalizeOrgType, providerConstraintForOrg } from '../../domain/institution.js';
 
 export function createProfileHandlers(d) {
@@ -13,6 +14,9 @@ export function createProfileHandlers(d) {
     if (counts.minute > config.profileRate.perMinute || counts.day > config.profileRate.perDay) {
       return err('quota_exceeded', '공고 분석 요청이 너무 잦습니다. 잠시 후 다시 시도하세요.', 429, { retryable: true, details: { minute: counts.minute, day: counts.day, limit_minute: config.profileRate.perMinute, limit_day: config.profileRate.perDay } });
     }
+    // 합성 판정은 서버가 fixture 해시로만 한다(클라이언트 synthetic/free_test 값은 읽지 않음).
+    const synthetic = await isSyntheticProfileBody(body, { demoFixtures: config.demoFixtures });
+    if (!synthetic && !store.getConsent(owner)) return err('consent_required', '만 19세 이상 확인과 안내 동의가 필요합니다. 먼저 동의해 주세요.', 428, { requestId });
     const source = String(body.source_text || '');
     if (source.length > 20000) return err('validation_error', '공고 본문은 20,000자 이하여야 합니다.', 422, { requestId });
     const application = String(body.application_text || '');
@@ -28,7 +32,7 @@ export function createProfileHandlers(d) {
     const pii = detectPii(source + application + (body.experiences || []).join(' '));
     // 지원서 본문은 마스킹본만 저장·분석한다(원문 PII 비보관). 이 슬라이스는 규칙 기반이라 외부로 전송하지 않는다.
     const maskedApplication = maskPii(application).normalize('NFC');
-    const { profile, version_id } = store.createProfile(owner, { ...body, application_text: maskedApplication, org_type: orgType });
+    const { profile, version_id } = store.createProfile(owner, { ...body, application_text: maskedApplication, org_type: orgType, synthetic });
     // 사용자 제공 기관 URL(출처 메타): SSRF 방어 검증 후 기록만 한다 (fetch 없음)
     const providedSources = [];
     const rawSources = Array.isArray(body.sources) ? body.sources.slice(0, 10) : (body.source_url ? [{ url: body.source_url, title: '지원 공고 URL' }] : []);
@@ -103,7 +107,7 @@ export function createProfileHandlers(d) {
     });
     store.setInstitution(profile.id, institution, 'review');
     void pubNotice;
-    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, applicant_claims_count: applicant_claims.length, institution, institution_status: 'review' } };
+    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, synthetic, applicant_claims_count: applicant_claims.length, institution, institution_status: 'review' } };
   }
 
   function getProfile(owner, id) {

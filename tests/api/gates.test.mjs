@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { useSharedApp, A, B, app, base, call, newSession, cleanupAll } from '../helpers/app.mjs';
+import { ensureConsent, useSharedApp, A, B, app, base, call, newSession, cleanupAll } from '../helpers/app.mjs';
 import { createApp } from '../../src/server.js';
 
 useSharedApp();
@@ -19,6 +19,7 @@ test('profile rate limit: minute cap enforced', async () => {
   const limited = createApp({ env: { GEMINI_API_KEY: '', DEV_TOKEN_A: A, PROFILE_RATE_PER_MINUTE: '1', PROFILE_RATE_PER_DAY: '5' } });
   await new Promise((r) => limited.server.listen(0, r));
   const b2 = `http://127.0.0.1:${limited.server.address().port}`;
+  await ensureConsent(b2, A);
   const post = () => fetch(`${b2}/api/v1/profiles`, { method: 'POST', headers: { Authorization: `Bearer ${A}`, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ role: '사무' }) });
   assert.equal((await post()).status, 201);
   assert.equal((await post()).status, 429);

@@ -7,7 +7,20 @@ export const A = 'dev-user-a-token';
 export const B = 'dev-user-b-token';
 export let app, base;
 
-export async function call(path, { method = 'GET', token = A, body, idem = true, headers = {} } = {}) {
+// WP-C6: POST /profiles는 동의(또는 일치하는 합성 fixture)가 없으면 428이다. 기존 테스트는 이 헬퍼가
+// 첫 프로필 요청 전에 소유자별로 동의를 한 번 기록해 통과시킨다. 428 자체를 시험할 때는 noConsent:true.
+const consented = new Set();
+export async function ensureConsent(baseUrl, token, fetchFn = globalThis.fetch) {
+  const k = baseUrl + ' ' + token;
+  if (consented.has(k)) return;
+  const r = await fetchFn(baseUrl + '/api/v1/consents', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ age_19_confirmed: true, notice_version: 'test-1' }) });
+  assert.equal(r.status, 201);
+  consented.add(k);
+}
+export const needsConsent = (method, path, noConsent) => method === 'POST' && path === '/api/v1/profiles' && !noConsent;
+
+export async function call(path, { method = 'GET', token = A, body, idem = true, headers = {}, noConsent = false } = {}) {
+  if (needsConsent(method, path, noConsent)) await ensureConsent(base, token);
   const h = { Authorization: `Bearer ${token}`, ...headers };
   if (body !== undefined) h['Content-Type'] = 'application/json';
   if (idem && method !== 'GET') h['Idempotency-Key'] = crypto.randomUUID();
@@ -49,7 +62,8 @@ export async function withApp(env, fn) {
   const a = createApp({ env: { GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: A, DEV_TOKEN_B: B, ADMIN_TOKEN: '', TRENDS_FILE: '', PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100', ...env } });
   await new Promise((r) => a.server.listen(0, r));
   const base2 = `http://127.0.0.1:${a.server.address().port}`;
-  const c = async (path, { method = 'GET', token = A, admin, body, headers = {} } = {}) => {
+  const c = async (path, { method = 'GET', token = A, admin, body, headers = {}, noConsent = false } = {}) => {
+    if (token && needsConsent(method, path, noConsent)) await ensureConsent(base2, token);
     const h = { ...headers };
     if (token) h.Authorization = `Bearer ${token}`;
     if (admin) h['x-admin-token'] = admin;

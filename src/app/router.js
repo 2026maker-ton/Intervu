@@ -112,6 +112,9 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
       const pth = u.pathname;
       const mth = req.method;
       const id1 = () => mm[1];
+      if (mth === 'POST' && pth === '/api/v1/consents') return send(h.consents.createConsent(owner, body));
+      if (mth === 'GET' && pth === '/api/v1/fixtures') return send(h.consents.listFixtures());
+      if ((mm = /^\/api\/v1\/fixtures\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.consents.getFixtureById(id1()));
       if (mth === 'POST' && pth === '/api/v1/profiles') return send(await h.profiles.createProfile(owner, body, requestId));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.profiles.getProfile(owner, id1()));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/approve$/.exec(pth)) && mth === 'POST') return send(h.profiles.approveProfile(owner, id1(), body));

@@ -69,6 +69,8 @@ async function main() {
   await new Promise((r) => app.server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${app.server.address().port}`;
   console.log(`server ${base} · provider ${app.providerInfo().selected}`);
+  // WP-C6: 실데이터 프로필은 동의가 필요하다. UI 흐름 전에 시험 계정의 동의를 미리 기록한다(428 규칙은 그대로).
+  await fetch(base + '/api/v1/consents', { method: 'POST', headers: { Authorization: 'Bearer e2e-user-a', 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ age_19_confirmed: true, notice_version: 'e2e-1' }) });
 
   const browser = await pw.chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR' });

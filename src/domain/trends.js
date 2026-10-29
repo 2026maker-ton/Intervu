@@ -1,12 +1,12 @@
 // Monthly competency trends: admin-curated, ≤3 per segment/month, versioned, rollback.
 // PROJECT.md §2.3: 승인된 것만 사용자 노출, 미승인은 노출 금지. 월간 자동 갱신 없음.
 // 영속 저장: TRENDS_FILE(JSON) 기반. 저장 실패 시 메모리로만 동작하고 경고한다.
-import fs from 'node:fs';
-import path from 'node:path';
+// node:*를 쓰지 않는다(Workers 이식). 파일 영속은 src/node/trends-file.js가 persist/initial로 주입한다.
 
 export const SEGMENTS = ['company', 'university'];
 
-export function createTrendStore({ filePath = '', onWarn = null } = {}) {
+// persist(snapshot): 변경 시 호출(어댑터 책임, 던지면 메모리 전용으로 계속). initial: 시작 시 복원할 스냅샷. label: status에 표시할 저장 위치.
+export function createTrendStore({ filePath = '', onWarn = null, persist: persistFn = null, initial = null, label = filePath } = {}) {
   // key `${segment}:${yyyyMm}` -> { segment, yyyyMm, versions: [ { version, items, comment, sources, status, created_at, published_at } ] }
   const store = new Map();
   const key = (segment, yyyyMm) => `${segment}:${yyyyMm}`;
@@ -45,13 +45,9 @@ export function createTrendStore({ filePath = '', onWarn = null } = {}) {
   }
 
   function persist() {
-    if (!filePath) return;
+    if (!persistFn) return;
     try {
-      const dir = path.dirname(filePath);
-      if (dir && dir !== '.') fs.mkdirSync(dir, { recursive: true });
-      const tmp = `${filePath}.tmp-${process.pid}`;
-      fs.writeFileSync(tmp, JSON.stringify(snapshot(), null, 2), 'utf8');
-      fs.renameSync(tmp, filePath);
+      persistFn(snapshot());
       persistedAt = new Date().toISOString();
       persistError = null;
     } catch (e) {
@@ -61,10 +57,9 @@ export function createTrendStore({ filePath = '', onWarn = null } = {}) {
   }
 
   function load() {
-    if (!filePath) return;
+    if (!initial) return;
     try {
-      if (!fs.existsSync(filePath)) return;
-      const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const raw = initial;
       const rows = raw?.rows || {};
       for (const [k, v] of Object.entries(rows)) {
         if (!v || !Array.isArray(v.versions)) continue;
@@ -166,7 +161,7 @@ export function createTrendStore({ filePath = '', onWarn = null } = {}) {
       return (store.get(key(segment, yyyyMm))?.versions || []).map((v) => ({ ...v }));
     },
     status() {
-      return { file: filePath || null, persisted_at: persistedAt, persist_error: persistError, keys: [...store.keys()] };
+      return { file: label || null, persisted_at: persistedAt, persist_error: persistError, keys: [...store.keys()] };
     },
   };
 }

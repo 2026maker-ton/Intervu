@@ -1,7 +1,7 @@
 // 동작 불변 추출(WP-A1): src/server.js에서 옮긴 핸들러. 반환은 { status, body } 또는 { error, status }.
 import { randomUUID } from '../crypto.js';
 import { detectPii, maskPii, buildBlindContext, extractClaims, verifyClaimSpan } from '../../domain/pii.js';
-import { extractApplicantClaims, mergeModelClaims } from '../../domain/claims.js';
+import { extractApplicantClaims, extractDocClaims, mergeModelClaims } from '../../domain/claims.js';
 import { planGeneralQuestions, publicPlanItem } from '../../domain/plan.js';
 import { questionCountForDuration } from '../../domain/interview-types.js';
 import { normalizeSource } from '../../domain/sources.js';
@@ -142,11 +142,27 @@ export function createProfileHandlers(d) {
     };
   }
 
+  // WP-C7: 프로필 문서(최신 revision, 마스킹본)에서 문서별 주장을 뽑아 신청 본문·모델 주장 뒤에 붙인다.
+  // 문서 주장만 다시 계산하고, 사라진 id는 제외 목록에서 뺀다. 승인된 버전은 승인(재승인) 때만 갱신한다.
+  function syncDocClaims(owner, p, ver) {
+    if (!ver?.extracted) return;
+    const docs = store.listDocuments(owner, p.id).map((d) => {
+      const revs = store.getDocumentRevisions(owner, d.id) || [];
+      const r = revs[revs.length - 1];
+      return r ? { id: d.id, kind: d.kind, revision: r.revision, text: r.text_masked } : null;
+    }).filter(Boolean);
+    const base = (ver.extracted.applicant_claims || []).filter((c) => !c.document_id);
+    ver.extracted.applicant_claims = [...base, ...extractDocClaims(docs, base.length)];
+    const ids = new Set(ver.extracted.applicant_claims.map((c) => c.id));
+    ver.excluded_claim_ids = (ver.excluded_claim_ids || []).filter((x) => ids.has(x));
+  }
+
   function approveProfile(owner, id, body) {
     const p = store.getProfile(owner, id);
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
     const vid = body.version_id || p.approved_version_id;
     if (!vid) return err('validation_error', 'version_id가 필요합니다.', 422);
+    { const sv = store.getVersion(vid); if (sv) syncDocClaims(owner, p, sv); }
     const v = store.approveVersion(owner, id, vid);
     if (!v) return err('not_found', '버전을 찾을 수 없습니다.', 404);
     // 질문 계획 동결(WP-C8): 승인 시점의 주장 제외 목록을 스냅샷한다. 이후 변경은 재승인해야 세션에 반영된다.
@@ -210,8 +226,9 @@ export function createProfileHandlers(d) {
   // ---- 질문 계획·주장 제외(WP-C8) ----
   // 주장 id(claim-N)는 프로필 버전 안에서만 유일하므로 경로에 프로필 id를 함께 쓴다.
   const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
-  function claimsView(p) {
+  function claimsView(p, owner) {
     const cur = p.version_id ? store.getVersion(p.version_id) : null;
+    if (cur && p.approved_version_id !== cur.id) syncDocClaims(owner, p, cur);
     const ex = new Set(cur?.excluded_claim_ids || []);
     const claims = (cur?.extracted?.applicant_claims || []).map((c) => ({ ...c, excluded: ex.has(c.id) }));
     const needs_reapproval = !!(p.approved_version_id === cur?.id && !sameSet(cur?.frozen_excluded_claim_ids || [], cur?.excluded_claim_ids || []));
@@ -220,20 +237,20 @@ export function createProfileHandlers(d) {
   function listClaims(owner, profileId) {
     const p = store.getProfile(owner, profileId);
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
-    const { claims, needs_reapproval } = claimsView(p);
+    const { claims, needs_reapproval } = claimsView(p, owner);
     return { status: 200, body: { profile_id: profileId, claims, needs_reapproval } };
   }
   function setClaimExcluded(owner, profileId, claimId, body) {
     const p = store.getProfile(owner, profileId);
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
     if (typeof body?.excluded !== 'boolean') return err('validation_error', 'excluded는 true/false여야 합니다.', 422);
-    const { cur } = claimsView(p);
+    const { cur } = claimsView(p, owner);
     const claim = (cur?.extracted?.applicant_claims || []).find((c) => c.id === claimId);
     if (!claim) return err('not_found', '주장을 찾을 수 없습니다.', 404);
     const set = new Set(cur.excluded_claim_ids || []);
     if (body.excluded) set.add(claimId); else set.delete(claimId);
     cur.excluded_claim_ids = [...set];
-    const view = claimsView(p);
+    const view = claimsView(p, owner);
     return { status: 200, body: { profile_id: profileId, claim: view.claims.find((c) => c.id === claimId), needs_reapproval: view.needs_reapproval } };
   }
   // 승인된 버전이 있으면 그 동결 스냅샷으로, 없으면 현재(초안) 버전의 제외 목록으로 계획을 만든다.
@@ -242,6 +259,7 @@ export function createProfileHandlers(d) {
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
     const approved = p.approved_version_id ? store.getVersion(p.approved_version_id) : null;
     const version = approved || (p.version_id ? store.getVersion(p.version_id) : null);
+    if (version && !approved) syncDocClaims(owner, p, version);
     const frozen = !!approved;
     const excluded = frozen ? (approved.frozen_excluded_claim_ids || []) : (version?.excluded_claim_ids || []);
     const duration = [5, 10, 15].includes(Number(query.duration_minutes)) ? Number(query.duration_minutes) : 15;

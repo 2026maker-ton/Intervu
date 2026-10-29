@@ -3,6 +3,13 @@
 import { buildClaimQuestions } from './claims.js';
 import { selectQuestions } from './questions.js';
 
+// 주장 검증 질문을 앞에 붙이고 qCount로 자른다(일반·패널·기술 공용). 질문 수는 늘지 않는다.
+export function prependClaimQuestions(questions, version, excludedClaimIds, qCount) {
+  const ex = new Set(excludedClaimIds || []);
+  const claimQs = buildClaimQuestions((version?.extracted?.applicant_claims || []).filter((c) => !ex.has(c.id)));
+  return claimQs.length ? { questions: [...claimQs, ...questions].slice(0, qCount), n: claimQs.length } : { questions, n: 0 };
+}
+
 export function planGeneralQuestions({ version, institution, orgType, trends, qCount, seedNum, excludedClaimIds = [], yyyyMm = new Date().toISOString().slice(0, 7) }) {
   const { picked, coverage } = selectQuestions(seedNum, qCount);
   let questions = picked.map((q) => ({ ...q }));
@@ -17,12 +24,9 @@ export function planGeneralQuestions({ version, institution, orgType, trends, qC
     questions = [...instQs, ...questions].slice(0, qCount);
     question_basis = institution.badge || '기관 맞춤 검토 가능';
   }
-  const ex = new Set(excludedClaimIds);
-  const claimQs = buildClaimQuestions((version?.extracted?.applicant_claims || []).filter((c) => !ex.has(c.id)));
-  if (claimQs.length) {
-    questions = [...claimQs, ...questions].slice(0, qCount);
-    question_basis = `지원서 주장 검증 ${claimQs.length}건 · ${question_basis}`;
-  }
+  const wc = prependClaimQuestions(questions, version, excludedClaimIds, qCount);
+  questions = wc.questions;
+  if (wc.n) question_basis = `지원서 주장 검증 ${wc.n}건 · ${question_basis}`;
   // 월간 트렌드(보조 기준): 공개본이 있을 때만 끝에 최대 1개.
   const seg = { company: 'company', university: 'university' }[orgType];
   const item = (seg && trends?.published ? trends.published({ segment: seg, yyyyMm }) : null)?.items?.[0];

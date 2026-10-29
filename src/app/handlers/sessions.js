@@ -1,6 +1,6 @@
 // 동작 불변 추출(WP-A1): src/server.js에서 옮긴 핸들러. 반환은 { status, body } 또는 { error, status }.
 import { randomUUID } from '../crypto.js';
-import { planGeneralQuestions } from '../../domain/plan.js';
+import { planGeneralQuestions, prependClaimQuestions } from '../../domain/plan.js';
 import { normalizeRole, ROLES } from '../../domain/roles.js';
 import { selectQuestions } from '../../domain/questions.js';
 import { INTERVIEW_TYPES, DURATIONS, normalizeInterviewType, validateCombination, questionCountForDuration } from '../../domain/interview-types.js';
@@ -98,6 +98,9 @@ export function createSessionHandlers(d) {
         questions = [...instQs, ...questions].slice(0, qCount);
         question_basis = institution.badge || '기관 맞춤 검토 가능';
       }
+      const tc = prependClaimQuestions(questions, version, version?.frozen_excluded_claim_ids, qCount);
+      questions = tc.questions;
+      if (tc.n) question_basis = `지원서 주장 검증 ${tc.n}건 · ${question_basis}`;
     } else if (interview_type === 'discussion') {
       // 토론: 사회자 + AI 2명 + 사용자. 질문 대신 토론 주제로 시작.
       const pickedTopic = DISCUSSION_TOPICS.find((t) => t.id === body.topic_id) || DISCUSSION_TOPICS[seedNum % DISCUSSION_TOPICS.length];
@@ -147,9 +150,10 @@ export function createSessionHandlers(d) {
       const roles = panel_roles_in && panel_roles_in.length >= 2 ? panel_roles_in.slice(0, 3)
         : (institution?.org_type === 'university' || institution?.org_type === 'highschool') ? PANEL_PRESETS.school : PANEL_PRESETS.default;
       const { picked } = selectQuestions(seedNum, qCount);
-      questions = picked.map((q, i) => ({ ...q, _panel_role: roles[i % roles.length] }));
+      const pc = prependClaimQuestions(picked.map((q) => ({ ...q })), version, version?.frozen_excluded_claim_ids, qCount);
+      questions = pc.questions.map((q, i) => ({ ...q, _panel_role: roles[i % roles.length] }));
       extra = { panel_roles: roles, participant_layout: 'panel', task_type: 'behavioral' };
-      question_basis = `panel-v1 · ${roles.map((r) => ROLES[r]?.label || r).join(' / ')}`;
+      question_basis = `panel-v1 · ${roles.map((r) => ROLES[r]?.label || r).join(' / ')}${pc.n ? ` · 지원서 주장 검증 ${pc.n}건` : ''}`;
       coverage = { panel: qCount };
     } else {
       // general: 질문 계획은 GET /profiles/:id/plan과 같은 함수를 쓴다. 제외·동결은 승인 시점 스냅샷 기준.

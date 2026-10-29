@@ -8,11 +8,15 @@ import { verifyClaimSpan } from './pii.js';
 
 export const CLAIM_PROMPT_VERSION = 'claim-probe-v1';
 const MIN_CP = 12;
+const MIN_BULLET_CP = 8;
+const BULLET = /^([-•*]|\d+[.)])\s+/;
 const MAX_QUOTE_CP = 200;
 const DISPLAY_QUOTE_CP = 80;
 
 // 경험·성과를 서술하는 문장 표지(없으면 소개·다짐 문장으로 보고 주장에서 제외)
 const EXPERIENCE = /(했|하였|맡았|맡아|담당|주도|이끌|참여|운영|기획|개발|제작|구축|설계|해결|조율|달성|수상|개선|진행|수행|도입|제안)/;
+// 부정·전언·수동·선호 문장은 지원자의 수행 주장이 아니다(오탐 감소, 코퍼스로 측정)
+const NOT_CLAIM = /(부족|없습니다|없었|없는|들었|에 의해|좋아했|느꼈|생각했)/;
 const ROLE = /(리더|팀장|회장|부장|총무|대표|담당|맡|역할|주도|책임|이끌|제가|저는|직접)/;
 const REASON = /(왜냐|이유|때문|기준|판단|대안|비교|따라서|그래서)/;
 const RESULT = /(결과|달성|증가|감소|향상|개선|수상|완료|성공|단축|절감|늘었|줄었|높아|낮아)/;
@@ -82,17 +86,20 @@ export function mergeModelClaims(ruleClaims, maskedText, quotes = []) {
   return { claims: out, discarded };
 }
 
-export function extractApplicantClaims(text = '') {
+// doc: { id, kind, revision } 이면 문서별 주장(span은 그 문서 revision 텍스트 기준). bullets: 이력서형 짧은 목록 줄 허용(최소 8자).
+export function extractApplicantClaims(text = '', { doc = null, bullets = false, startIndex = 0 } = {}) {
   const full = String(text || '').normalize('NFC');
   const claims = [];
   for (const s of splitSentences(full)) {
-    if (Array.from(s.quote).length < MIN_CP || !EXPERIENCE.test(s.quote)) continue;
+    const min = bullets && BULLET.test(s.quote) ? MIN_BULLET_CP : MIN_CP;
+    if (Array.from(s.quote).length < min || !EXPERIENCE.test(s.quote) || NOT_CLAIM.test(s.quote)) continue;
     const gaps = gapsOf(s.quote);
     const claim = {
-      id: `claim-${claims.length + 1}`,
+      id: `claim-${startIndex + claims.length + 1}`,
       kind: 'applicant_claim',
-      source_document_id: 'doc-application',
-      revision: 1,
+      source_document_id: doc ? doc.id : 'doc-application',
+      revision: doc ? doc.revision : 1,
+      ...(doc ? { document_id: doc.id, document_kind: doc.kind } : {}),
       start_cp: s.start_cp, end_cp: s.end_cp, quote: s.quote,
       gaps,
       status: 'user_supplied',
@@ -105,6 +112,18 @@ export function extractApplicantClaims(text = '') {
 
 const oneLine = (s) => String(s).replace(/\s+/g, ' ').trim();
 const cut = (s, n) => { const a = Array.from(s); return a.length > n ? `${a.slice(0, n).join('')}…` : s; };
+
+// 문서별 최신 revision(마스킹본) 주장. id는 startIndex부터 연번(버전 안에서 유일). posting은 제외.
+// docs: [{ id, kind, revision, text }]. span은 각 문서 revision 텍스트 기준.
+export function extractDocClaims(docs = [], startIndex = 0) {
+  const claims = [];
+  for (const d of docs) {
+    if (d.kind === 'posting') continue;
+    claims.push(...extractApplicantClaims(d.text, { doc: d, bullets: d.kind !== 'cover_letter', startIndex: startIndex + claims.length }));
+    if (claims.length >= MAX_CLAIMS * 3) break;
+  }
+  return claims;
+}
 
 // 공백이 많은 주장부터 최대 max개를 골라, 원문을 그대로 인용하는 질문을 만든다.
 // 질문 문장은 고정 템플릿+인용뿐이라 지원서에 없는 수치·사람·성과가 들어갈 수 없다.
@@ -128,7 +147,7 @@ export function buildClaimQuestions(claims = [], { max = 2 } = {}) {
       secondary: ['relevance'],
       target_competency: primary,
       application_evidence_ids: [c.id],
-      application_evidence: [{ id: c.id, quote: c.quote, start_cp: c.start_cp, end_cp: c.end_cp, gaps: c.gaps }],
+      application_evidence: [{ id: c.id, quote: c.quote, start_cp: c.start_cp, end_cp: c.end_cp, gaps: c.gaps, ...(c.document_id ? { document_id: c.document_id, revision: c.revision } : {}) }],
       institution_evidence_ids: [],
       source_status: 'user_supplied',
       prompt_version: CLAIM_PROMPT_VERSION,

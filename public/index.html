@@ -110,7 +110,13 @@
       <p class="hint" id="applicationHint">공고와 서류에서 확인된 내용만 사용합니다. 없으면 일반 기준으로 연습하며, 기관 맞춤 검증 배지는 표시하지 않습니다.</p>
     </div>
 
+    <div id="appStepper"></div>
     <form class="card form-card" id="applicationForm" novalidate>
+      <div class="actions sample-row">
+        <button class="ghost" type="button" id="loadFixtureBtn">합성 샘플 불러오기</button>
+        <span id="fixtureBadge" class="state-badge info" hidden>합성 샘플</span>
+        <small class="fine">가상의 기관·인물 자료로 체험합니다. 동의 없이 사용할 수 있습니다.</small>
+      </div>
       <div class="field-row">
         <label class="field">
           <span>지원 기관명</span>
@@ -135,11 +141,18 @@
       </label>
 
       <div class="field-row">
-        <label class="field">
-          <span>지원서 파일 (선택)</span>
-          <input type="file" id="docFile" accept=".pdf,.docx,.txt" />
-          <small class="fine" id="docStatus" role="status">PDF/DOCX/TXT · 5MB 이하. 서버에서 텍스트만 추출하며 외부 AI로 보내지 않습니다.</small>
-        </label>
+        <div class="field">
+          <label for="docKind"><span>서류 파일 (선택)</span></label>
+          <select id="docKind">
+            <option value="cover_letter">자기소개서·지원서</option>
+            <option value="posting">공고·모집요강</option>
+            <option value="resume">이력서</option>
+            <option value="other">기타</option>
+          </select>
+          <input type="file" id="docFile" accept=".pdf,.docx,.txt" aria-label="서류 파일 선택" />
+          <small class="fine" id="docStatus" role="status">PDF/DOCX/TXT · 5MB 이하. 서버에서 텍스트만 추출하고 개인정보 후보는 마스킹해 저장합니다. 원본 파일은 저장하지 않습니다.</small>
+          <div id="docCards" class="doc-cards"></div>
+        </div>
         <label class="field">
           <span>공식 출처 URL (선택, 한 줄에 하나)</span>
           <textarea name="source_urls" rows="3" maxlength="2000" placeholder="https://…  (서버가 접속하지 않고 출처 기록용으로만 저장)"></textarea>
@@ -463,6 +476,22 @@
 </footer>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="consentDialog" class="dialog" aria-labelledby="consentTitle">
+  <form method="dialog" class="dialog-inner" id="consentForm">
+    <h2 id="consentTitle">연령 확인 및 처리 안내</h2>
+    <ul class="consent-summary">
+      <li>저장: 지원 자료는 개인정보 후보를 마스킹한 텍스트만 저장하며, 원본 파일은 저장하지 않습니다.</li>
+      <li>보존: 30일 보존 후 파기되며, 기록 화면에서 언제든 삭제할 수 있습니다.</li>
+      <li id="consentAiLine">외부 AI: 확인 중…</li>
+    </ul>
+    <label class="check"><input type="checkbox" id="consentAge" /> 만 19세 이상입니다.</label>
+    <div class="actions">
+      <button class="primary" value="ok" id="consentOk" disabled>동의하고 계속</button>
+      <button class="ghost" value="cancel" id="consentCancel">샘플로 체험만 하기</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="confirmDialog" class="dialog" aria-labelledby="confirmTitle">
   <form method="dialog" class="dialog-inner">

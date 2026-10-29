@@ -475,3 +475,12 @@ details.dim[open] > summary { margin-bottom: .4rem; }
 .check { display: flex; gap: .5rem; align-items: center; margin: .25rem 0; }
 .danger.small { padding: .35rem .7rem; font-size: .82rem; }
 #trendMonths { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .6rem; }
+/* WP-D3 S2 application */
+.sample-row { margin: 0 0 var(--sp-3, .75rem); }
+.doc-cards { display: grid; gap: .6rem; margin-top: .5rem; }
+.doc-card { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: .7rem .8rem; background: var(--card); }
+.doc-head { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .4rem; }
+.doc-head strong { overflow-wrap: anywhere; }
+.doc-kind select { min-height: 44px; }
+.doc-head .ghost { min-height: 44px; }
+.consent-summary { margin: 0 0 .8rem; padding-left: 1.1rem; font-size: .9rem; line-height: 1.6; }

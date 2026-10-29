@@ -69,8 +69,7 @@ async function main() {
   await new Promise((r) => app.server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${app.server.address().port}`;
   console.log(`server ${base} · provider ${app.providerInfo().selected}`);
-  // WP-C6: 실데이터 프로필은 동의가 필요하다. UI 흐름 전에 시험 계정의 동의를 미리 기록한다(428 규칙은 그대로).
-  await fetch(base + '/api/v1/consents', { method: 'POST', headers: { Authorization: 'Bearer e2e-user-a', 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ age_19_confirmed: true, notice_version: 'e2e-1' }) });
+  // WP-D3: 동의는 UI의 연령·처리 안내 대화상자로 기록한다(사전 POST 없음).
 
   const browser = await pw.chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR' });
@@ -112,7 +111,14 @@ async function main() {
     await page.fill('#sourceText', '핵심가치: 고객 중심, 문제 해결, 협업. 면접은 10분 직무·인성 면접으로 진행합니다.');
     await page.fill('#applicationForm [name=experiences]', '팀 프로젝트에서 일정 조정\n고객 인터뷰 정리');
     await page.fill('#applicationText', '저는 동아리 회장을 맡아 행사를 운영했습니다. 팀 프로젝트에서 갈등을 해결했습니다.');
+    check(await page.locator('#appStepper [aria-current=step]').innerText().then((t) => /지원 정보/.test(t)), '스테퍼 1단계 표시');
+    await page.screenshot({ path: path.join(OUT, '02-application-1440.png'), fullPage: true });
     await page.click('#analyzeBtn');
+    await page.waitForSelector('#consentDialog[open]', { timeout: 10000 });
+    check(/30일/.test(await page.locator('#consentDialog').innerText()), '동의 대화상자 30일 보존 안내');
+    check(await page.locator('#consentOk').isDisabled(), '연령 체크 전 동의 버튼 비활성');
+    await page.check('#consentAge');
+    await page.click('#consentOk');
     await page.waitForSelector('#screen-evidence:not([hidden])', { timeout: 15000 });
 
     // ---------- 3. 근거 확인 ----------
@@ -295,6 +301,23 @@ async function main() {
     check(mobileOverflow <= 1, '지원 정보 화면 오버플로 없음 @390px', `overflow ${mobileOverflow}px`);
     await page.screenshot({ path: path.join(OUT, '10-application-390.png'), fullPage: true });
 
+    // ---------- 합성 샘플 경로 (동의 없이 fixture_id로 진행) ----------
+    console.log('\n[2b] 합성 샘플 경로');
+    {
+      const ctxF = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR' });
+      const pf = await ctxF.newPage();
+      await pf.addInitScript(() => localStorage.setItem('intervu.token', 'e2e-user-b'));
+      await pf.goto(base + '/#/dashboard', { waitUntil: 'networkidle' });
+      await pf.click('#journeyCompany');
+      await pf.click('#loadFixtureBtn');
+      await pf.waitForSelector('#fixtureBadge:not([hidden])');
+      check(await pf.locator('#fixtureBadge').innerText() === '합성 샘플', '합성 샘플 배지');
+      await pf.click('#analyzeBtn');
+      await pf.waitForSelector('#screen-evidence:not([hidden])', { timeout: 15000 });
+      check(!(await pf.locator('#consentDialog[open]').count()), '합성 샘플은 동의 대화상자 없이 진행');
+      await ctxF.close();
+    }
+
     // ---------- 접속 토큰 (내장 토큰 없음) ----------
     console.log('\n[10b] 접속 토큰');
     {
@@ -314,13 +337,15 @@ async function main() {
     console.log('\n[11] 브라우저 오류');
     // 잘못된 관리자 토큰 시도는 의도된 403이므로 예상 실패로 분류한다.
     const isExpectedProbe = (b) => /^403 \w+ .*\/api\/v1\/admin\//.test(b);
+    const isConsent428 = (b) => /^428 POST .*\/api\/v1\/profiles$/.test(b); // 동의 전 첫 제출의 의도된 428
     const probes = badResponses.filter(isExpectedProbe);
     // 근거 화면의 선택 API(claims/plan, WP-C8 전)는 404면 섹션을 숨기는 기능 감지이므로 예상 실패로 분류한다.
     const isOptional404 = (b) => /^404 GET .*\/api\/v1\/profiles\/[^/]+\/(claims|plan)$/.test(b);
     const opt404 = badResponses.filter(isOptional404).length;
-    const unexpected = badResponses.filter((b) => !isExpectedProbe(b) && !isOptional404(b));
+    check(badResponses.filter(isConsent428).length === 1, '동의 전 428은 정확히 1회');
+    const unexpected = badResponses.filter((b) => !isExpectedProbe(b) && !isOptional404(b) && !isConsent428(b));
     check(probes.length === 1, '의도된 관리자 403은 정확히 1회', `${probes.length}회`);
-    const realConsole = consoleErrors.filter((t) => !/favicon/i.test(t) && !(/403 \(Forbidden\)/.test(t) && probes.length === 1) && !(/404 \(Not Found\)/.test(t) && opt404 > 0));
+    const realConsole = consoleErrors.filter((t) => !/favicon/i.test(t) && !(/403 \(Forbidden\)/.test(t) && probes.length === 1) && !(/404 \(Not Found\)/.test(t) && opt404 > 0) && !/428 \(Precondition/.test(t));
     check(realConsole.length === 0, '콘솔 오류 없음', realConsole.slice(0, 3).join(' | '));
     check(pageErrors.length === 0, '페이지 예외 없음', pageErrors.slice(0, 3).join(' | '));
     check(unexpected.length === 0, '예상 외 실패 응답 없음', unexpected.slice(0, 4).join(' | '));

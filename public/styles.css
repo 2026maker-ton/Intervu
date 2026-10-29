@@ -459,3 +459,9 @@ details.dim > summary { cursor: pointer; list-style: none; }
 details.dim > summary::-webkit-details-marker { display: none; }
 details.dim[open] > summary { margin-bottom: .4rem; }
 .comparison .actions { margin-top: .8rem; }
+/* WP-D7 history/admin */
+.trend-item .trend-sources-wrap, .trend-item .trend-item-error { grid-column: 1 / -1; }
+.trend-item-error { color: var(--red); margin: 0; }
+.check { display: flex; gap: .5rem; align-items: center; margin: .25rem 0; }
+.danger.small { padding: .35rem .7rem; font-size: .82rem; }
+#trendMonths { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .6rem; }

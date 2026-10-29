@@ -124,6 +124,7 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.profiles.getProfile(owner, id1()));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/approve$/.exec(pth)) && mth === 'POST') return send(h.profiles.approveProfile(owner, id1(), body));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/sources$/.exec(pth)) && mth === 'POST') return send(h.profiles.addInstitutionSource(owner, id1(), body));
+      if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/sources\/([^/]+)\/fetch$/.exec(pth)) && mth === 'POST') return send(await h.profiles.fetchInstitutionSource(owner, mm[1], mm[2]));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/institution$/.exec(pth)) && mth === 'GET') return send(h.profiles.getInstitution(owner, id1()));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/claims$/.exec(pth)) && mth === 'GET') return send(h.profiles.listClaims(owner, id1()));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/claims\/([^/]+)$/.exec(pth)) && mth === 'PATCH') return send(h.profiles.setClaimExcluded(owner, mm[1], decodeURIComponent(mm[2]), body));

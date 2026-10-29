@@ -9,6 +9,7 @@ import { loadConfig } from '../config.js';
 import { loadDotEnv } from '../env.js';
 import { createFileTrendStore } from './trends-file.js';
 import { createFileStore } from '../store/file.js';
+import { lookup as dnsLookup } from 'node:dns/promises';
 import { createCore } from '../app/core.js';
 import { randomUUID } from '../app/crypto.js';
 import { withCors } from '../app/cors.js';
@@ -42,7 +43,7 @@ export function createApp(overrides = {}) {
   const store = overrides.store || (env.STORE === 'file'
     ? createFileStore({ dir: path.resolve(root, env.DATA_DIR || 'data/store'), ttlDays: config.limits.dataTtlDaysDefault })
     : undefined);
-  const core = createCore({ env, store, ledger: overrides.ledger, trends, syntheticTraffic: overrides.syntheticTraffic === true });
+  const core = createCore({ env, store, ledger: overrides.ledger, trends, syntheticTraffic: overrides.syntheticTraffic === true, officialFetch: overrides.officialFetch || { resolveDns: async (h) => (await dnsLookup(h, { all: true })).map((r) => r.address) } });
 
   const coreFetch = async (request, e, ctx) => {
     const del = request.method === 'DELETE';

@@ -4,7 +4,7 @@
 export const STORE_METHODS = [
   // 프로필·기관
   'createProfile', 'getProfile', 'setExtracted', 'approveVersion', 'getVersion',
-  'addSource', 'listSources', 'setInstitution', 'getInstitution', 'recordProfileCall', 'recordRate', 'addConsent', 'getConsent',
+  'addSource', 'listSources', 'setSourceFetch', 'getSourceFetches', 'setInstitution', 'getInstitution', 'recordProfileCall', 'recordRate', 'addConsent', 'getConsent',
   // 문서(WP-C1)
   'createDocument', 'getDocument', 'listDocuments', 'addDocumentRevision', 'getDocumentRevisions',
   // 세션·턴·전사

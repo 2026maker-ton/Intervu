@@ -158,6 +158,7 @@ export function loadConfig(env = process.env) {
     rateLimits: {
       documents: { perMinute: num('DOCS_RATE_PER_MINUTE', 20), perDay: num('DOCS_RATE_PER_DAY', 300) },
       stt: { perMinute: num('STT_RATE_PER_MINUTE', 20), perDay: num('STT_RATE_PER_DAY', 300) },
+      fetch: { perMinute: num('OFFICIAL_FETCH_RATE_PER_MINUTE', 5), perDay: num('OFFICIAL_FETCH_RATE_PER_DAY', 30) },
       turns: { perMinute: num('TURN_RATE_PER_MINUTE', 60), perDay: num('TURN_RATE_PER_DAY', 2000) },
       tts: { perMinute: num('TTS_RATE_PER_MINUTE', 10), perDay: num('TTS_RATE_PER_DAY', 200) },
     },
@@ -168,6 +169,8 @@ export function loadConfig(env = process.env) {
       perDay: num('PROFILE_RATE_PER_DAY', 10),
       reserve: num('PROFILE_EXTRACT_RESERVE_USD', 0.01),
     },
+    // WP-C2: 공식 자료 수집. 허용 도메인(접미사, 쉼표) 기본 비어 있음 = 수집 비활성.
+    officialFetch: { allow: String(env.OFFICIAL_FETCH_ALLOW || ''), timeoutMs: num('OFFICIAL_FETCH_TIMEOUT_MS', 8000), maxBytes: num('OFFICIAL_FETCH_MAX_BYTES', 1048576) },
     // 킬 스위치(사양 §13·§12): 'gemini'가 포함되면 외부 호출을 차단하고 Mock으로 동작.
     killSwitch: String(env.KILL_PROVIDERS || env.INTERVU_KILL || 'none').toLowerCase(),
     // 관리자 인증 (PROJECT §2.3/§3): /admin/*·/metrics·/diagnostics 는 x-admin-token 헤더가 ADMIN_TOKEN과 일치할 때만 허용.

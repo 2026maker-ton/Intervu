@@ -384,15 +384,15 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 기업·대학 선택 UI | `[DONE]` | `public/app.js:241 startJourney`, `tools/check-project.mjs`가 `public|highschool` 여정 금지 검사, `tools/e2e-ui.mjs` | 서버는 `public/highschool/general` org_type도 계속 허용(`institution.js ORG_TYPES`). 고교는 Mock 강제 |
 | 직무·학과 입력 | `[DONE]` | `public/index.html:117~121` | 전형(대학) 별도 필드 없음 |
 | 공고·모집요강 붙여넣기 | `[DONE]`(Mock) | `source_text`(최대 20,000자) → `createProfile` | — |
-| 이력서·자소서 입력 | `[PARTIAL]` | 별도 문서 종류 없음. `experiences` 텍스트(최대 3개×2,000자)만 받음(`store.createProfile`) | 이력서/자소서/지원서 구분, revision(원본/추출/수정) 구분 `[TODO]` |
+| 이력서·자소서 입력 | `[PARTIAL]` | 자기소개서·지원서 본문 별도 입력 `application_text`(최대 20,000자, 마스킹본만 저장·분석, 계정 삭제 시 파기) — `server.js createProfile`, `store.js`, test P0-3 | 이력서/자소서/지원서 문서 종류 구분과 원본/추출/수정 revision 분리 `[TODO]`. 파일 업로드 추출 텍스트는 이 입력란으로 들어감 |
 | 문서 업로드·추출(PDF/DOCX/TXT) | `[PARTIAL]` | `src/domain/documents.js`, `POST /documents/extract`, `public/app.js:372`, test 880·920 | 직접 만든 최소 파서. 합성 샘플만 검증. **한글 PDF의 CID/ToUnicode 폰트는 처리하지 않아 실제 한국어 PDF는 추출 실패 가능** `[UNVERIFIED]`. 5MB 상한이 있으나 JSON 본문 한도 1,000,000바이트(`readBody`) 때문에 실제 허용 파일은 약 0.7MB 이하로 추정(코드 기준, 재현 미실시) `[BUG]` |
 | 추출 텍스트 확인·수정 | `[PARTIAL]` | 추출 텍스트가 입력란에 채워짐 | 원본/추출/수정 revision 분리 없음 |
-| **지원서 주장·공백 추출** | `[PARTIAL]` | `extractClaims`(`pii.js`)는 공고 본문에서 **고정 키워드 14개** 위치 찾기 + `experiences` 앞 20자 일치. Gemini `extract`는 "공고에서 역량 키워드" 요청 | 지원자 자소서 문장 단위 주장(역할·행동·결과·수치) 추출 **없음**. 제품 차별점 1단계가 사실상 미구현 |
+| **지원서 주장·공백 추출** | `[PARTIAL]` | 신규 `src/domain/claims.js extractApplicantClaims`: 자소서를 문장 단위로 나눠 경험·성과 서술 문장을 **원문 코드포인트 span과 함께** 추출하고(`verifyClaimSpan` 재검증) 문장에 없는 정보(역할·결과·판단 기준·수치)를 `gaps`로 표시. 규칙 기반이라 외부 전송 없음. test `P0-3: applicant claims…`, E2E "지원서 주장 원문 인용 표시" | **의미 이해가 아닌 정규식 표지 기반**: 표현이 다르면 놓치거나(미탐) 소개 문장을 잘못 주장으로 볼 수 있음(오탐). 한국어 자소서 실사례 정확도 미측정 `[UNVERIFIED]`. 모델(Claude Sonnet) 기반 추출은 `[TODO]`(P0-4). 공고 키워드(`claims`)와 지원자 주장(`applicant_claims`)은 분리 표기 |
 | 기관 프로필(핵심가치·평가가능/불가·권장질문) | `[DONE]`(규칙 기반) | `institution.js buildInstitutionProfile`, test 410·467, `tools/e2e-institution.mjs` 14 PASS | 키워드 16개 매칭 기반. 사용자 확인·수정·승인 흐름은 있음(`approveProfile`) |
 | 공식 홈페이지·공고 **실제 수집** | `[TODO]` | `sources.js`는 URL **메타데이터만** 기록, 서버는 접속하지 않음(파일 머리말) | 수집기·DNS/리디렉션 재검증·robots·크기/시간 제한 코드 없음 |
 | 출처 검증(SSRF·공식 여부·신선도) | `[PARTIAL]` | `validateSourceUrl`, `freshnessOf`, `detectConflicts`, test 477 | 호스트 **문자열** 검사만(실제 fetch가 없어 현재는 안전). 수집기를 만들 때 DNS 해석 후 재검사 필요. `official` 판정은 제목·URL 문자열 추정(`inferKind`)이며 `verified` 상태 없음 |
 | 월간 핵심 역량(관리자 초안→공개→롤백) | `[PARTIAL]` | `trends.js`, `/admin/trends*`, test 944·989, E2E [9] | 자동 수집·AI 후보 추출·편향 검수 없음. **출처·코멘트 없이 공개 가능**(`validateItems`)하며 `data/trends.json`에 `competency:"a"`, 출처 없음 항목이 공개 상태로 존재 `[BUG]`. 트렌드가 질문 생성·평가에 연결되지 않음(조회 화면 표시만) `[TODO]` |
-| 맞춤 질문 생성 | `[PARTIAL]` | 정적 8문항 팩(`questions.js`) + 기관 권장질문 최대 2개(역량 라벨 치환, `server.js createSession`) | 지원자 문장 인용 질문 없음. `question_id/application_evidence_ids/institution_evidence_ids/source_status/prompt_version` 스키마 미구현(질문에 `_institution_basis`, `_rationale`만) |
+| 맞춤 질문 생성 | `[PARTIAL]` | **일반 1:1 면접에서 지원서 주장 검증 질문 최대 2개를 맨 앞에 배치**(`buildClaimQuestions`): 고정 템플릿+자소서 문장 원문 인용, `application_evidence_ids`·`source_status`·`prompt_version(claim-probe-v1)` 포함, 질문에 새 수치·사실 추가 불가(test). 나머지는 정적 8문항 팩+기관 권장질문 최대 2개 | 기술·패널 등 다른 유형은 미적용. 공식 요구(`institution_evidence_ids`)와 월간 트렌드 연결 `[TODO]`. 질문 문장 품질은 템플릿 수준이며 사람 평가 없음 |
 | 꼬리질문 | `[PARTIAL]` | `followupReasonFor`(정규식) → Mock 고정 문장 / Gemini는 직전 답변·최근 4턴 전달(`adapters.js next`) | 질문당 1개·세션 3개 상한. Gemini 경로는 게이트 통과 시에만. 실모델 품질 평가 없음 |
 | 면접 유형 | `[PARTIAL]` | general/technical/discussion/pt/situational/panel 서버 구현, test 562~756 | `PROJECT.md` §3·§1.3은 기본 화면에서 제외하라고 하나 **설정 화면 select에 6종 모두 노출**(`index.html:237`). 일반·압박(`challenging`)·블라인드는 구현. 유형별 설계는 §2.8 |
 | 실시간 면접 대화·세션 관리 | `[PARTIAL]` | REST 명령(`session.start/pause/resume/finish`, `turn.text`), 서버 시계 시간 상한, 낙관적 버전 잠금, `command_id` 재생, test 85~264 | 실시간 스트리밍·WebSocket 없음(`/ws`는 티켓 스텁). 재시작 시 세션 소실 |
@@ -437,8 +437,8 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 
 | 문서 | 불일치 |
 |---|---|
-| `README.md` | 앞부분이 "통합 테스트 43개", "AI 기본 공급자는 Gemini", 만 19세·Mock→Gemini 중심. 실제 66개이며 목표 공급자 구성(§4.2)·배포 계획 미반영. 하단 "Current state"는 최신에 가까움 |
-| `IMPLEMENTATION_CHECKLIST.md` | 기준선이 "51 pass / check 3/3"(현재 66 pass / 가드 4 체크). P0 항목 일부(PII 회귀, 키워드 안티게이밍)는 테스트가 이미 있으나 미체크 |
+| `README.md` | 앞부분이 "통합 테스트 43개", "AI 기본 공급자는 Gemini", 만 19세·Mock→Gemini 중심. 실제 72개이며 목표 공급자 구성(§4.2)·배포 계획 미반영. 하단 "Current state"는 최신에 가까움 |
+| `IMPLEMENTATION_CHECKLIST.md` | 기준선이 "51 pass / check 3/3"(현재 72 pass / 가드 4 체크). P0 항목 일부(PII 회귀, 키워드 안티게이밍)는 테스트가 이미 있으나 미체크 |
 | `docs/project-intro.md`, `docs/master-plan.md`, `docs/implementation-spec.md`, `docs/decisions/2026-10-24-gemini-first.md` | 과거 목표·설정(31개 테스트, Gemini 우선, 토론 베타 등) — 이력으로 보존하되 사용자용 설명은 갱신 필요 |
 | `docs/cost-assumptions*.json`, `tools/cost-model*.mjs` | Gemini/레거시 Groq 가정뿐. 목표 구성 비용 가정 없음 |
 | `tools/e2e-ui.mjs` | Playwright 1.64.1 설치를 안내하나, 이 PC의 전역 Playwright는 1.61.1이고 브라우저 빌드가 달라 그대로는 실행 불가(§10) |
@@ -465,7 +465,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 검사 | 실행한 것 | 결과 |
 |---|---|---|
 | 문서·UI 구조 가드 | `npm run check:project` | PASS 4/4(PROJECT.md 헤딩·AGENTS.md·package 스크립트·UI 9화면/금지 패턴). **문서 구조 검사일 뿐 제품 적합성을 증명하지 않는다** |
-| 통합 테스트 | `npm test`(= 가드 + `node --test tests/run.mjs`) | **66 pass / 0 fail / 0 skipped**(P0-1·P0-2 수정 후; 수정 전 59), 약 2초. 테스트 서버는 로컬 `.env`의 키를 비우고 Mock으로만 동작 |
+| 통합 테스트 | `npm test`(= 가드 + `node --test tests/run.mjs`) | **72 pass / 0 fail / 0 skipped**(P0-1~P0-3 반영 후; 수정 전 59), 약 2초. 테스트 서버는 로컬 `.env`의 키를 비우고 Mock으로만 동작 |
 | 기관 맞춤 E2E(HTTP) | `node tools/e2e-institution.mjs` | 14 PASS / 0 FAIL (Mock) |
 | 브라우저 E2E | `tools/e2e-ui.mjs` | 47개 체크 전부 ok, "E2E 통과"(9화면 경로, 1440/768/390px 가로 오버플로 없음, 콘솔 오류·페이지 예외 0, 의도된 관리자 403 1회). **그대로는 실행 불가** — 스크립트가 안내하는 Playwright 1.64.1이 없고 전역 1.61.1은 맞는 브라우저 빌드가 없어서, 저장소 밖 임시 래퍼로 이미 설치된 `chromium_headless_shell-1248`을 `executablePath`로 지정해 실행. 헤드리스 Chromium 1종만, 마이크·SpeechSynthesis 실장치는 포함하지 않음 |
 | 설계 fixture 검사 | `node tools/verify-design.mjs` | PASS (문서 fixture·원가 산식 검사. 제품 품질·보안 검증 아님) |
@@ -515,7 +515,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 |---|---|---|---|---|---|---|
 | P0-1 | **완료(2026-10-29)** 공급자 게이트 복구(BUG-1) | `src/server.js`(`isServerSynthetic`,`providerForRequest`,`createProfile`,`runCommand`), `adapters.js selectProvider`, `store.js`(`free_test`), `tests/run.mjs` | 요청 본문의 합성 표시를 **전송 근거에서 제거**. 합성 허용은 서버가 보유한 데모 fixture ID(서버 환경설정)로만. 응답의 `provider`는 실제 호출 공급자를 반영. 이름·학교 PII 탐지 보강은 P1-8 | 없음 | 가짜 키+스텁 `fetch`로 위조 플래그 시 **외부 호출 0건** 단언 테스트(프로필·턴), 서버 fixture 경로만 호출됨 단언 | M |
 | P0-2 | **완료(2026-10-29)** 삭제 완전성(BUG-2) | `src/server.js`(`deleteSession`,`deleteAccount`,`exports`,`transferJobs`), `store.js` | 세션/계정 삭제 시 전이 작업·내보내기 캐시 파기(또는 소유 세션 ID로 연결해 연쇄 삭제) | 없음 | 삭제 후 `GET /transfer-comparisons/:id` 404, `exports` 404 테스트 | S |
-| P0-3 | **지원서 주장 검증 슬라이스** | 신규 `src/domain/claims.js`, `server.js`(`createProfile`,`createSession`), `public/app.js`(`renderEvidence`), `tests/run.mjs` | 자소서/지원서 텍스트를 별도 입력으로 받아 문장 단위 주장(역할·행동·결과·수치·공백) 추출, 원문 span·코드포인트 보존, 질문에 `application_evidence_ids`·`source_status`·`prompt_version` 연결, 자소서에 없는 사실 생성 금지. 1차는 결정적 규칙+Mock, 2차에 Claude Sonnet 연결 | P0-1 | 합성 자소서에서 질문이 인용 문장에 연결됨, 존재하지 않는 구절 거부, 프롬프트 인젝션 문장이 지시로 쓰이지 않음 | L |
+| P0-3 | **1차 완료(2026-10-29, 규칙 기반·Mock)** 지원서 주장 검증 슬라이스 — 모델 기반 2차는 P0-4에서 | 신규 `src/domain/claims.js`, `server.js`(`createProfile`,`createSession`), `public/app.js`(`renderEvidence`), `tests/run.mjs` | 자소서/지원서 텍스트를 별도 입력으로 받아 문장 단위 주장(역할·행동·결과·수치·공백) 추출, 원문 span·코드포인트 보존, 질문에 `application_evidence_ids`·`source_status`·`prompt_version` 연결, 자소서에 없는 사실 생성 금지. 1차는 결정적 규칙+Mock, 2차에 Claude Sonnet 연결 | P0-1 | 합성 자소서에서 질문이 인용 문장에 연결됨, 존재하지 않는 구절 거부, 프롬프트 인젝션 문장이 지시로 쓰이지 않음 | L |
 | P0-4 | 공급자 라우팅 + 목표 구성 최소 실모델 경로 | `config.js registry`, `server.js`, 신규 어댑터(DeepSeek 꼬리질문, Claude Sonnet 분석·질문 설계) | operation별 공급자 선택. 명시적 환경 플래그·예산 상한 없이는 호출 금지, 실패 시 Mock 폴백과 **"Mock 사용 중" 표시**, 유료 자동 승격 금지(§5 #8). 각 공급자 약관·데이터·연령 조건 확인 후 합성 데이터만 연결 | P0-1, §14 약관 확인 | 스텁 `fetch` 계약 테스트 + 합성 데이터 실호출 1회 스모크(개발자 승인 후) | L |
 | P0-5 | 배포 구조 결정·구현 | `public/`, 신규 `wrangler` 설정·Worker, `.github/workflows` | (a) Pages 정적 UI + Workers 프록시/백엔드로 갈지 (b) 대회 데모는 로컬 Node 서버로 시연할지 결정(`[미확정]`). (a)면 API 기본 URL 설정, CORS, 키는 Workers 비밀값, 영속 저장(KV/D1/Durable Objects 택1) 필요. 현 `server.js`는 그대로 Worker로 이식 불가 | 결정 | 배포 URL에서 §13 시나리오 완주, 번들에 키 없음 확인 | L |
 | P0-6 | 공개 전 필수 보안 정리 | `server.js`(`checkAdmin`,`/health`,`/metrics`,`/diagnostics`), `config.js`, `app.js:8` | 관리자 토큰 필수화(미설정 시 관리 기능 비활성), 토큰 쿼리 수신 제거, 진단·지표 엔드포인트 인증·제한, 기본 개발 토큰 제거·실제 인증 도입(또는 데모 전용 초대 토큰) | P0-5 | 무인증 호출 401/403 테스트 | M |
@@ -555,10 +555,10 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | # | 시연 단계 | 완료 조건 | 현재 |
 |---|---|---|---|
 | 1 | 기업/대학 선택, 공고·합성 자소서 입력 | 두 경로 모두 진행 | `[DONE]`(자소서 구분 입력 `[PARTIAL]`) |
-| 2 | 주장·공백 추출 결과 표시 | 자소서 **원문 문장 인용+위치** 표시, 없는 사실 없음 | `[PARTIAL]`(키워드 수준) → P0-3 |
+| 2 | 주장·공백 추출 결과 표시 | 자소서 **원문 문장 인용+위치** 표시, 없는 사실 없음 | `[DONE]`(규칙 기반, 정확도 미측정) — 근거 확인 화면 E2E 통과 |
 | 3 | 공식 기준·출처 확인·승인 | 출처 상태(공식 확인/사용자 제공/트렌드/미확인) 구분, 수집 실패 표시 | `[PARTIAL]`(수집 없음) → P1-6 |
 | 4 | 개인정보·연령 확인 | 합성 데이터만 외부 전송, 연령 안내 | `[PARTIAL]` → P0-1 |
-| 5 | 검증 질문·꼬리질문 | 질문이 근거 ID에 연결, 직전 답변 관련 꼬리질문 | `[PARTIAL]` → P0-3·P0-4 |
+| 5 | 검증 질문·꼬리질문 | 질문이 근거 ID에 연결, 직전 답변 관련 꼬리질문 | 질문 근거 연결 `[DONE]`(지원서 주장 한정), 꼬리질문은 `[PARTIAL]` → P0-4 |
 | 6 | 텍스트·음성 답변 | 음성은 전사 확인·교정 후 제출, 실패 시 텍스트 | 텍스트 `[DONE]`, 음성 `[UNVERIFIED]` |
 | 7 | 근거 기반 보고서 | 발언 인용·판단 보류, 평가기 종류 명시 | `[DONE]`(규칙 기반) |
 | 8 | 약점 집중 코칭 | 약한 역량 1개와 다음 행동 1개 | `[DONE]` |
@@ -645,6 +645,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 
 ## 17. 이번 점검의 변경 요약 (v1.0.0 → v1.1.0)
 
+- **2026-10-29 P0-3 코드(1차):** 신규 `src/domain/claims.js`(문장 단위 주장·공백 추출, 근거 인용 질문 생성), `server.js`(`application_text` 입력·마스킹, 일반 면접 앞쪽 주장 질문 2개, 보고서 `claim_links`), `store.js`(저장·계정 삭제 시 파기), `public/`(지원서 입력란, 근거 확인 화면의 "지원서 주장·공백", 면접실 질문 근거 표시, 보고서 "지원서 주장과 실제 답변"), `tools/e2e-ui.mjs` 확인 5건 추가. 테스트 6건 추가(span·공백·인젝션 문장·새 수치 금지·세션/보고서 연결·마스킹/삭제/외부 전송 0건). 결과: `npm test` 72/72, 브라우저 E2E 52 ok, 기관 E2E 14/14. **한계: 규칙 기반이라 의미 이해·정확도 미검증, 모델 연결은 P0-4.**
 - **2026-10-29 P0-2 코드 수정:** `src/server.js`(`purgeOwnedCaches`: 세션 삭제 시 해당 세션의 전이 작업·내보내기 캐시, 계정 삭제 시 소유자 전체 파기. 세션 삭제 시 재작성 연습·이의 제기도 파기). 신규 테스트 4건(기준·재연습 세션 삭제, 계정 삭제와 타 사용자 보존, 이의 제기), 수정 전 코드에서 3건 실패 확인. 결과: `npm test` 66/66, E2E 47 ok·기관 E2E 14/14, 오프라인 프로브에서 삭제 후 전이 작업 404. 영속 저장·백업은 없어 해당 범위 밖.
 - **2026-10-29 P0-1 코드 수정:** `src/server.js`(`isServerSynthetic`·`providerForRequest` 제거 → 서버 상태 기반 `providerFor`, 프로필 응답 `provider`는 실제 사용 공급자, highschool+`paidAck` 시 Gemini 호출되던 경로 차단), `src/store.js`(`free_test`는 요청 본문이 아닌 서버 값), `tools/gemini-e2e.mjs`(`syntheticTraffic:true`), `.env.example` 주석, `tests/run.mjs`(공허하던 test 815 제거, 위조 플래그 외부 호출 0건 등 신규 4건, `free_test` 영속 테스트를 위조 방어 테스트로 교체). 신규 테스트 4건은 수정 전 코드에서 실패함을 확인. 결과: `npm test` 62/62, E2E 47 ok, 기관 E2E 14/14. 실키 호출은 실행하지 않음.
 

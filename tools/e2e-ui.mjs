@@ -109,6 +109,7 @@ async function main() {
     await page.fill('#applicationForm [name=role]', '서비스 기획');
     await page.fill('#sourceText', '핵심가치: 고객 중심, 문제 해결, 협업. 면접은 10분 직무·인성 면접으로 진행합니다.');
     await page.fill('#applicationForm [name=experiences]', '팀 프로젝트에서 일정 조정\n고객 인터뷰 정리');
+    await page.fill('#applicationText', '저는 동아리 회장을 맡아 행사를 운영했습니다. 팀 프로젝트에서 갈등을 해결했습니다.');
     await page.click('#analyzeBtn');
     await page.waitForSelector('#screen-evidence:not([hidden])', { timeout: 15000 });
 
@@ -116,6 +117,8 @@ async function main() {
     console.log('\n[3] 근거 확인');
     const evText = await page.locator('#evidenceBody').innerText();
     check(evText.length > 10, '근거 본문 렌더');
+    check(/지원서 주장/.test(evText) && /팀 프로젝트에서 갈등을 해결했습니다/.test(evText), '지원서 주장 원문 인용 표시');
+    check(/문장에 없는 정보/.test(evText), '지원서 문장 공백 표시');
     check(await page.locator('#evidenceState').innerText() === '확인 필요', '승인 전 상태 표시');
     await page.fill('#evidenceNote', '핵심가치 3개 확인, 면접 형식 확인');
     await page.screenshot({ path: path.join(OUT, '02-evidence-1440.png'), fullPage: true });
@@ -136,6 +139,8 @@ async function main() {
     // ---------- 5. 실전 면접실 ----------
     console.log('\n[5] 실전 면접실');
     check((await page.locator('#roomTitle').innerText()).length > 5, '첫 질문 표시');
+    check(/자기소개서에 “/.test(await page.locator('#roomTitle').innerText()), '첫 질문이 지원서 문장을 인용');
+    check(/지원서 근거/.test(await page.locator('#roomHint').innerText()), '질문 근거(원문 위치) 표시');
     check(await page.locator('#clock').innerText().then((t) => /^\d{2}:\d{2}$/.test(t)), '타이머 표시');
     // 일시정지/재개
     await page.click('#pauseBtn');
@@ -161,6 +166,7 @@ async function main() {
     const reportText = await page.locator('#feedbackBody').innerText();
     check(/규칙 기반 참고 관찰/.test(reportText), '규칙 기반 고지');
     check(!/합격 확률|합격률/.test(reportText), '합격 예측 문구 없음');
+    check(/지원서 주장과 실제 답변/.test(reportText), '지원서 주장↔답변 연결 표시');
     check(/판단 보류|\/ 4/.test(reportText), '수준 또는 판단 보류 표시');
     const evidenceQuotes = await page.locator('#feedbackBody .evidence q').count();
     check(evidenceQuotes > 0, '실제 발언 인용', `${evidenceQuotes}개`);

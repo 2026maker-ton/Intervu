@@ -319,12 +319,13 @@ $('#applicationForm')?.addEventListener('submit', async (e) => {
       org_type: state.journey === 'university' ? 'university' : 'company',
       target_name: String(fd.get('target_name') || '').trim(),
       role: String(fd.get('role') || '').trim(),
-      source_text: `${String(fd.get('source_text') || '').trim()}${uploaded}`.trim(),
+      source_text: String(fd.get('source_text') || '').trim(),
+      application_text: `${String(fd.get('application_text') || '').trim()}${uploaded}`.trim(),
       sources: String(fd.get('source_urls') || '').split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 3).map((url) => ({ url, kind: 'official' })),
       experiences: String(fd.get('experiences') || '').split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 3),
     };
-    if (!payload.target_name && !payload.role && !payload.source_text) {
-      throw new Error('기관명, 직무/학과, 공고 본문 중 하나는 입력해야 합니다.');
+    if (!payload.target_name && !payload.role && !payload.source_text && !payload.application_text) {
+      throw new Error('기관명, 직무/학과, 공고 본문, 지원서 중 하나는 입력해야 합니다.');
     }
     const created = await api('/profiles', { method: 'POST', idempotent: true, body: payload });
     state.profile = created;
@@ -370,7 +371,7 @@ $('#docFile')?.addEventListener('change', async (e) => {
     let bin = '';
     for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
     const r = await api('/documents/extract', { method: 'POST', idempotent: true, body: { filename: f.name, mime_type: f.type, content_base64: btoa(bin) } });
-    const ta = $('#sourceText');
+    const ta = $('#applicationText');
     if (ta && !ta.value.trim()) {
       ta.value = r.text.slice(0, 20000);
       state.uploadedText = '';
@@ -398,13 +399,21 @@ function renderEvidence(detail, created) {
   const ex = v.extracted || {};
   const claims = ex.claims || [];
   const rows = claims.length
-    ? claims.map((c) => `<li><span class="val">${esc(c.value)}</span><span class="tag user">지원서 주장</span><span class="meta">출처: “${esc(c.quote || c.value)}” · 원문 위치 ${esc(String(c.start_cp))}–${esc(String(c.end_cp))}</span></li>`).join('')
+    ? claims.map((c) => `<li><span class="val">${esc(c.value)}</span><span class="tag user">공고 키워드</span><span class="meta">출처: “${esc(c.quote || c.value)}” · 원문 위치 ${esc(String(c.start_cp))}–${esc(String(c.end_cp))}</span></li>`).join('')
     : `<li><span class="val">확인된 기관 고유 역량 없음</span><span class="tag">일반 기준</span><span class="meta">공고가 없거나 추출하지 못했습니다. 일반 역량으로 연습하며 “기관 맞춤 검증 완료” 배지는 표시하지 않습니다.</span></li>`;
   const missing = (ex.missing_fields || []).map((f) => ({
     discussion_format: '토론면접 여부', interview_duration: '면접 시간', participant_count: '참여 인원', extraction_failed: '공고 분석(일반 기준 사용)',
   }[f] || f));
+  const GAP = { role: '본인 역할', result: '관찰된 결과', reason: '판단 기준', number: '수치·기록' };
+  const appClaims = ex.applicant_claims || [];
+  const appRows = appClaims.map((c) => `<li><span class="val">“${esc(c.quote)}”</span><span class="tag user">지원서 주장</span><span class="meta">원문 위치 ${esc(String(c.start_cp))}–${esc(String(c.end_cp))} · ${c.gaps?.length ? `문장에 없는 정보: ${c.gaps.map((g) => esc(GAP[g] || g)).join(', ')}` : '역할·결과·기준·수치가 문장에 모두 있음'}</span></li>`).join('');
+  const appBlock = ex.application_chars
+    ? `<h3>지원서 주장·공백 (규칙 기반)</h3>${appRows ? `<ul class="claims">${appRows}</ul><p class="fine">거짓 여부를 판정하지 않습니다. 문장에 근거가 적혀 있는지 보고 빠진 정보를 면접에서 묻습니다.</p>` : '<p class="missing">경험·성과를 서술한 문장을 찾지 못했습니다. 일반 질문으로 진행합니다.</p>'}`
+    : '<p class="fine">지원서를 입력하지 않아 지원서 주장 기반 질문은 만들지 않습니다.</p>';
   $('#evidenceBody').innerHTML = `
+    <h3>공고 키워드</h3>
     <ul class="claims">${rows}</ul>
+    ${appBlock}
     ${missing.length ? `<p class="missing">확인되지 않음: ${missing.map(esc).join(', ')} — 연습 가정으로 진행합니다.</p>` : ''}
     ${ex.rejected_spans ? `<p class="missing">출처 구간이 일치하지 않는 ${esc(String(ex.rejected_spans))}건은 제외했습니다.</p>` : ''}
     <p class="fine">분석 공급자: ${esc(created.provider || 'mock')} · 승인 전에는 면접을 시작할 수 없습니다.</p>`;
@@ -751,6 +760,14 @@ function appendTurn(speakerId, speakerName, text) {
 function setQuestion(q) {
   if (!q || !q.text) return;
   $('#roomTitle').textContent = q.text;
+  const ev = q.application_evidence?.[0];
+  if (ev) {
+    setHint(`지원서 근거: “${ev.quote}” (원문 위치 ${ev.start_cp}–${ev.end_cp})`);
+    state.evHint = true;
+  } else if (state.evHint) {
+    setHint('');
+    state.evHint = false;
+  }
   updateProgress();
   $('#aiReply').hidden = true;
 }
@@ -1216,6 +1233,7 @@ function renderReport(r) {
       <p class="fine">현재 평가는 <strong>규칙 기반 참고 관찰</strong>입니다. 검증된 AI 채점이나 사람 평가자를 대체하지 않습니다.</p>
       ${dims || '<p class="hint">평가할 수 있는 답변이 없습니다.</p>'}
       ${renderInstitutionLink(r.institution_link)}
+      ${renderClaimLinks(r.claim_links)}
       ${actions ? `<section class="actions-wrap"><h2>다음 행동</h2>${actions}</section>` : '<p class="hint">개선 행동을 제안할 만큼 관찰된 차원이 없습니다.</p>'}
       ${transferReady ? `
         <div class="action-card transfer-card">
@@ -1297,6 +1315,12 @@ function renderReport(r) {
 
   $$('[data-practice]').forEach((b) => b.addEventListener('click', () => startPractice(b.dataset.practice)));
   renderTransferBox(r);
+}
+
+function renderClaimLinks(links) {
+  if (!links?.length) return '';
+  const rows = links.map((l) => `<li><span class="val">“${esc(l.quote)}”</span><span class="tag user">지원서 주장</span><span class="meta">${l.answered ? `실제 답변: “${esc((l.answers?.[0]?.excerpt) || '')}”` : '이번 면접에서 이 주장은 질문되지 않았습니다.'}</span></li>`).join('');
+  return `<section><h2>지원서 주장과 실제 답변</h2><p class="hint">지원서 문장과 면접 답변을 나란히 보여줄 뿐 사실 여부를 판정하지 않습니다.</p><ul class="claims">${rows}</ul></section>`;
 }
 
 function renderInstitutionLink(link) {

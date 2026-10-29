@@ -36,6 +36,7 @@ export function createStore() {
         id, owner_id: owner, org_type: data.org_type, target_name: String(data.target_name || '').slice(0, 100),
         role: String(data.role || '').slice(0, 100),
         source_text: String(data.source_text || '').slice(0, 20000),
+        application_text: String(data.application_text || '').slice(0, 20000), // 마스킹본만 전달됨
         source_url: data.source_url || null, experiences: (data.experiences || []).slice(0, 3).map((e) => String(e).slice(0, 2000)),
         status: 'extracting', created_at: now(), expires_at: new Date(Date.now() + 30 * 864e5).toISOString(),
       };
@@ -172,6 +173,7 @@ export function createStore() {
       for (const [, p] of profiles) {
         if (p.owner_id !== owner) continue;
         p.source_text = '[삭제됨]';
+        p.application_text = '[삭제됨]';
         p.experiences = [];
         p.target_name = '';
         p.status = 'deleted';

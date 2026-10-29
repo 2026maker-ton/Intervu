@@ -128,6 +128,12 @@
         <small class="fine">20,000자 이하. 전화·이메일·주민번호는 자동 마스킹되지만 완전 익명화는 아닙니다.</small>
       </label>
 
+      <label class="field">
+        <span>자기소개서·지원서 본문 (선택)</span>
+        <textarea name="application_text" id="applicationText" rows="6" maxlength="20000" placeholder="본인이 쓴 경험·성과 문장을 붙여넣으세요. 문장 단위로 주장과 빠진 근거를 찾아 질문에 연결합니다."></textarea>
+        <small class="fine">20,000자 이하. 규칙 기반으로 서버에서만 분석하며 외부 AI로 보내지 않습니다. 전화·이메일·주민번호는 자동 마스킹됩니다.</small>
+      </label>
+
       <div class="field-row">
         <label class="field">
           <span>지원서 파일 (선택)</span>
@@ -166,7 +172,7 @@
 
     <div class="card" id="evidenceCard">
       <div class="card-head">
-        <h2 id="evidenceSourceTitle">지원서 주장</h2>
+        <h2 id="evidenceSourceTitle">추출된 근거</h2>
         <span class="state-badge" id="evidenceState">확인 필요</span>
       </div>
       <div id="evidenceBody" aria-live="polite"><p class="hint">불러오는 중…</p></div>

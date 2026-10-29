@@ -9,6 +9,7 @@ import { loadDotEnv } from './env.js';
 import { createStore } from './store.js';
 import { createLedger, estimateTokens } from './domain/ledger.js';
 import { detectPii, maskPii, buildBlindContext, extractClaims, verifyClaimSpan } from './domain/pii.js';
+import { extractApplicantClaims, buildClaimQuestions } from './domain/claims.js';
 import { normalizeSource, validateSourceUrl, freshnessOf } from './domain/sources.js';
 import { buildInstitutionProfile, linkAnswersToInstitution, normalizeOrgType, providerConstraintForOrg } from './domain/institution.js';
 import { normalizeRole, followupForRole, ROLES, ROLE_IDS } from './domain/roles.js';
@@ -181,7 +182,9 @@ export function createApp(overrides = {}) {
     }
     const source = String(body.source_text || '');
     if (source.length > 20000) return err('validation_error', '공고 본문은 20,000자 이하여야 합니다.', 422, { requestId });
-    if (!body.target_name && !body.role && !source) return err('validation_error', '기관/직무/공고 중 하나는 필요합니다.', 422, { requestId });
+    const application = String(body.application_text || '');
+    if (application.length > 20000) return err('validation_error', '자기소개서·지원서 본문은 20,000자 이하여야 합니다.', 422, { requestId });
+    if (!body.target_name && !body.role && !source && !application.trim()) return err('validation_error', '기관/직무/공고/지원서 중 하나는 필요합니다.', 422, { requestId });
     // 기관 구분: company·public·university·highschool (기존 general 호환)
     const orgType = normalizeOrgType(body.org_type);
     const mc = providerConstraintForOrg(orgType);
@@ -189,8 +192,10 @@ export function createApp(overrides = {}) {
       // 미성년자 이용 가능 기능: 외부 호출 없이 Mock으로만 처리
       body._forceMock = true;
     }
-    const pii = detectPii(source + (body.experiences || []).join(' '));
-    const { profile, version_id } = store.createProfile(owner, { ...body, org_type: orgType });
+    const pii = detectPii(source + application + (body.experiences || []).join(' '));
+    // 지원서 본문은 마스킹본만 저장·분석한다(원문 PII 비보관). 이 슬라이스는 규칙 기반이라 외부로 전송하지 않는다.
+    const maskedApplication = maskPii(application).normalize('NFC');
+    const { profile, version_id } = store.createProfile(owner, { ...body, application_text: maskedApplication, org_type: orgType });
     // 사용자 제공 기관 URL(출처 메타): SSRF 방어 검증 후 기록만 한다 (fetch 없음)
     const providedSources = [];
     const rawSources = Array.isArray(body.sources) ? body.sources.slice(0, 10) : (body.source_url ? [{ url: body.source_url, title: '지원 공고 URL' }] : []);
@@ -255,7 +260,9 @@ export function createApp(overrides = {}) {
     const claims = normalized.filter((c) => verifyClaimSpan(masked, c));
     const rejected = (extracted.claims || []).length - claims.length;
     if (rejected > 0) extracted.rejected_spans = rejected;
-    store.setExtracted(version_id, { ...extracted, claims, masked_text: masked, blind_context: blind });
+    // 지원자 주장·공백(문장 단위, 원문 span 검증 포함): 질문 설계의 근거(PROJECT.md §2.4)
+    const applicant_claims = extractApplicantClaims(maskedApplication);
+    store.setExtracted(version_id, { ...extracted, claims, applicant_claims, application_chars: Array.from(maskedApplication.trim()).length, masked_text: masked, blind_context: blind });
     // 기관 프로필 초안 생성(결정적 분석): 승인 전 사용자가 확인·수정한다
     const institution = buildInstitutionProfile({
       orgType, targetName: body.target_name, role: body.role,
@@ -263,7 +270,7 @@ export function createApp(overrides = {}) {
     });
     store.setInstitution(profile.id, institution, 'review');
     void pubNotice;
-    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, institution, institution_status: 'review' } };
+    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, applicant_claims_count: applicant_claims.length, institution, institution_status: 'review' } };
   }
 
   function getProfile(owner, id) {
@@ -462,6 +469,12 @@ export function createApp(overrides = {}) {
         questions = [...instQs, ...questions].slice(0, qCount);
         question_basis = institution.badge || '기관 맞춤 검토 가능';
       }
+      // 지원서 주장 검증 질문: 자소서 문장을 그대로 인용하며 맨 앞에 둔다(없으면 기존 구성 유지)
+      const claimQs = buildClaimQuestions(version?.extracted?.applicant_claims || []);
+      if (claimQs.length) {
+        questions = [...claimQs, ...questions].slice(0, qCount);
+        question_basis = `지원서 주장 검증 ${claimQs.length}건 · ${question_basis}`;
+      }
     }
     const s = store.createSession(owner, {
       ...body, free_test: syntheticTraffic, mode, interview_type,
@@ -492,7 +505,7 @@ export function createApp(overrides = {}) {
       question_basis: s.question_basis || 'general-template-v1',
       rubric_version: s.policy_snapshot?.rubric || rubricForInterviewType(s.interview_type || s.mode || 'general'),
       duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, input_mode: s.input_mode,
-      active_elapsed_ms: s.active_elapsed_ms + (s.state === 'active' && s.started_at ? Math.max(0, Date.now() - Date.parse(s.started_at)) : 0), questions: s.questions.map((q) => ({ id: q.id, text: q.text, primary: q.primary, secondary: q.secondary })), q_index: s.q_index,
+      active_elapsed_ms: s.active_elapsed_ms + (s.state === 'active' && s.started_at ? Math.max(0, Date.now() - Date.parse(s.started_at)) : 0), questions: s.questions.map((q) => ({ id: q.id, text: q.text, primary: q.primary, secondary: q.secondary, ...(q.application_evidence ? { application_evidence: q.application_evidence, source_status: q.source_status, prompt_version: q.prompt_version } : {}) })), q_index: s.q_index,
       current_question: s.questions[s.q_index] || null, followups_used: s.followups_used, llm_calls: s.llm_calls,
       coverage: s.coverage || null, degraded_reason: s.degraded_reason, last_seq: (store.events.get(s.id) || []).filter((e) => e.durable).length,
     };
@@ -870,7 +883,7 @@ export function createApp(overrides = {}) {
       if (Array.isArray(t.elicited_dims) && t.elicited_dims.length) elicited = [...t.elicited_dims];
       else if (t.followup) elicited = [...(q?.followup_dimensions || [q?.primary || 'reflection'])];
       else elicited = q ? [q.primary, ...(q.secondary || [])] : [];
-      turnsWithText.push({ turn_id: t.id, revision: rev.revision, text: rev.normalized_text, elicited });
+      turnsWithText.push({ turn_id: t.id, question_id: t.question_id, revision: rev.revision, text: rev.normalized_text, elicited });
     }
     // 평가 예산 예약(평가 슬롯 보존)
     let report = null;
@@ -924,6 +937,7 @@ export function createApp(overrides = {}) {
         role_label: s.interviewer_role ? (ROLES[s.interviewer_role]?.label || null) : null,
         institution: institution_profile,
         institution_link,
+        claim_links: buildClaimLinks(s, turnsWithText),
         badge: 'AI 생성 코칭 · 실제 합격 예측 아님',
         model_version: provider.name === 'gemini' ? config.gemini.textModel : 'mock-model-v1',
         interview_type: it,
@@ -943,6 +957,14 @@ export function createApp(overrides = {}) {
     const response = { command_id: commandId, state: 'completed', version: s.version, report_status: report.status };
     if (accept) accept(response);
     return { status: 202, body: response };
+  }
+
+  // 지원서 주장 ↔ 실제 답변을 나란히 보여준다. 사실 여부를 판정하지 않는다.
+  function buildClaimLinks(s, turnsWithText) {
+    return s.questions.filter((q) => q.application_evidence?.length).map((q) => {
+      const answers = turnsWithText.filter((t) => t.question_id === q.id).map((t) => ({ turn_id: t.turn_id, revision: t.revision, excerpt: Array.from(t.text).slice(0, 160).join('') }));
+      return { question_id: q.id, claim_id: q.application_evidence[0].id, quote: q.application_evidence[0].quote, start_cp: q.application_evidence[0].start_cp, end_cp: q.application_evidence[0].end_cp, gaps: q.application_evidence[0].gaps, answered: answers.length > 0, answers };
+    });
   }
 
   function getEvents(owner, id, afterSeq) {

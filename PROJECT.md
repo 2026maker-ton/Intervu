@@ -293,7 +293,7 @@
 | 7 | PII 마스킹 오탐/누락 검증 | `[PARTIAL]` 오탐 회귀(test 852). 이름·학교 미탐지 | DEBT-7 |
 | 8 | 429·장애 시 유료 자동 승격 금지, 예산·킬 스위치 | `[PARTIAL]` 무료 허용 목록·킬 스위치·세션/월 상한(test 330). 원장 인메모리, 429 시 세션 종료 | BUG-8 |
 | 9 | 음성 의사 없는 전송·장기 저장 금지 | `[PARTIAL]` 원음 전사 후 폐기 코드. 실동작 미검증 | `[UNVERIFIED]` |
-| 10 | 보관·내보내기·삭제와 UI 설명 일치 | `[BUG]` 삭제 후 전이 작업·내보내기 잔존 | BUG-2 |
+| 10 | 보관·내보내기·삭제와 UI 설명 일치 | `[PARTIAL]` 세션·계정 삭제가 전이 작업·내보내기 캐시·재작성 연습·이의 제기를 파기(P0-2 수정, tests/run.mjs 말미 P0-2 테스트). 인메모리 한정이며 백업·영속 저장소의 삭제 보장은 해당 없음/`[TODO]` | BUG-2 수정, DEBT-1 |
 | 11 | 인용 일치≠타당성 별도 검증 | `[TODO]` 의미 검수 시험 없음 | §6.2 |
 | 12 | 합격 예측·성격/거짓말 진단 금지 | `[DONE]` UI 문구 가드(E2E "합격 예측 문구 없음"), `checkFeedbackSafety` | `evaluation.js` |
 
@@ -404,7 +404,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 새 질문 전후 비교 | `[PARTIAL]` | `compareTransfer`, `POST /transfer-comparisons`, UI `app.js:1429`, test 866·1032 | 같은 루브릭·다른 질문·유사도(바이그램 Jaccard 0.55)·판단 보류는 구현. 비교 수준은 키워드 규칙 점수의 차이. 전이 작업(`transferJobs`)이 **메모리에만** 있고 삭제 시 지워지지 않음 `[BUG]` |
 | 답변 수정 이력 | `[DONE]` | `addRevision`(stt_correction은 새 revision, content_rewrite는 새 연습), test 301·313 | — |
 | 결과 저장·기록 | `[PARTIAL]` | `GET /sessions`, `loadHistory`, test 380 | 서버 재시작 시 전부 소실. 사용자별 장기 추이 저장 없음 |
-| 내보내기·삭제 | `[PARTIAL]` | `POST /exports`(JSON, 10분), `DELETE /sessions/:id`, `DELETE /account`, test 287·380 | 삭제가 `transferJobs`·`exports`를 지우지 않음 `[BUG]`(BUG-2) |
+| 내보내기·삭제 | `[DONE]`(인메모리 한정) | `POST /exports`(JSON, 10분), `DELETE /sessions/:id`, `DELETE /account`, test 287·380·P0-2 신규 4건 | 삭제 시 `transferJobs`·`exports`·재작성 연습·이의 제기 파기(`purgeOwnedCaches`, P0-2 수정). 내보내기는 JSON 10분 캐시뿐, 영속 저장·백업 삭제 절차 없음 |
 | 개인정보 처리 | `[PARTIAL]` | `detectPii`(이메일·전화·주민번호만), `maskPii`, 블라인드 마스킹, test 852 | **이름·학교·주소는 탐지하지 않음.** 블라인드는 휴리스틱(UI도 "완전하지 않을 수 있음" 고지) |
 | 연령·미성년자 보호 | `[PARTIAL]` | 서버: `highschool` Mock 강제(test 520). UI: "만 19세 이상" 정적 문구 | 연령 확인 **절차** 없음(Figma 6단계 `[TODO]`). 고교 경로가 UI에는 없음 |
 | 오류 복구 | `[PARTIAL]` | 공급자 실패→정적 꼬리질문 폴백+`degraded_reason`, STT 실패→텍스트 안내, 평가 실패 상태, 보고서 폴링 | 대화 중 429는 **정적 폴백으로 계속하지 않고 세션을 즉시 종료**(`server.js:807~813`). 클라이언트 자동 재시도·세션 복구 없음 |
@@ -420,7 +420,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 
 | 단계 | 평가 | 근거 |
 |---|---|---|
-| P0 제품 기준/안전 | `[PARTIAL]` | PROJECT/AGENTS/CI 가드·PII 회귀·키워드 안티게이밍 회귀·**공급자 게이트 위조 방어(P0-1 수정)**는 있음. **삭제 누락(BUG-2)이 열려 있음** |
+| P0 제품 기준/안전 | `[PARTIAL]` | PROJECT/AGENTS/CI 가드·PII 회귀·키워드 안티게이밍 회귀·**공급자 게이트 위조 방어(P0-1 수정)**는 있음. 삭제 누락(BUG-2)도 P0-2로 수정, **DEBT-1·2와 BUG-3·4는 열려 있음** |
 | P1 핵심 UI/서류 | `[PARTIAL]` | 9화면·반응형 E2E 통과(§10). 이력서/자소서 구분·실제 한글 PDF 추출·revision 미완 |
 | P2 공식 자료/트렌드 | `[PARTIAL]` | 관리자 월간 역량 초안·공개·롤백은 동작. **실제 수집 `[TODO]`**, 트렌드→질문 연결 `[TODO]` |
 | P3 질문·면접 | `[PARTIAL]` | 정적·기관 템플릿 질문 + 조건부 Gemini 꼬리질문. 근거 ID 연결·모델 A/B·STT 실측 미완 |
@@ -437,8 +437,8 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 
 | 문서 | 불일치 |
 |---|---|
-| `README.md` | 앞부분이 "통합 테스트 43개", "AI 기본 공급자는 Gemini", 만 19세·Mock→Gemini 중심. 실제 62개이며 목표 공급자 구성(§4.2)·배포 계획 미반영. 하단 "Current state"는 최신에 가까움 |
-| `IMPLEMENTATION_CHECKLIST.md` | 기준선이 "51 pass / check 3/3"(현재 62 pass / 가드 4 체크). P0 항목 일부(PII 회귀, 키워드 안티게이밍)는 테스트가 이미 있으나 미체크 |
+| `README.md` | 앞부분이 "통합 테스트 43개", "AI 기본 공급자는 Gemini", 만 19세·Mock→Gemini 중심. 실제 66개이며 목표 공급자 구성(§4.2)·배포 계획 미반영. 하단 "Current state"는 최신에 가까움 |
+| `IMPLEMENTATION_CHECKLIST.md` | 기준선이 "51 pass / check 3/3"(현재 66 pass / 가드 4 체크). P0 항목 일부(PII 회귀, 키워드 안티게이밍)는 테스트가 이미 있으나 미체크 |
 | `docs/project-intro.md`, `docs/master-plan.md`, `docs/implementation-spec.md`, `docs/decisions/2026-10-24-gemini-first.md` | 과거 목표·설정(31개 테스트, Gemini 우선, 토론 베타 등) — 이력으로 보존하되 사용자용 설명은 갱신 필요 |
 | `docs/cost-assumptions*.json`, `tools/cost-model*.mjs` | Gemini/레거시 Groq 가정뿐. 목표 구성 비용 가정 없음 |
 | `tools/e2e-ui.mjs` | Playwright 1.64.1 설치를 안내하나, 이 PC의 전역 Playwright는 1.61.1이고 브라우저 빌드가 달라 그대로는 실행 불가(§10) |
@@ -465,7 +465,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 검사 | 실행한 것 | 결과 |
 |---|---|---|
 | 문서·UI 구조 가드 | `npm run check:project` | PASS 4/4(PROJECT.md 헤딩·AGENTS.md·package 스크립트·UI 9화면/금지 패턴). **문서 구조 검사일 뿐 제품 적합성을 증명하지 않는다** |
-| 통합 테스트 | `npm test`(= 가드 + `node --test tests/run.mjs`) | **62 pass / 0 fail / 0 skipped**(P0-1 수정 후; 수정 전 59), 약 2초. 테스트 서버는 로컬 `.env`의 키를 비우고 Mock으로만 동작 |
+| 통합 테스트 | `npm test`(= 가드 + `node --test tests/run.mjs`) | **66 pass / 0 fail / 0 skipped**(P0-1·P0-2 수정 후; 수정 전 59), 약 2초. 테스트 서버는 로컬 `.env`의 키를 비우고 Mock으로만 동작 |
 | 기관 맞춤 E2E(HTTP) | `node tools/e2e-institution.mjs` | 14 PASS / 0 FAIL (Mock) |
 | 브라우저 E2E | `tools/e2e-ui.mjs` | 47개 체크 전부 ok, "E2E 통과"(9화면 경로, 1440/768/390px 가로 오버플로 없음, 콘솔 오류·페이지 예외 0, 의도된 관리자 403 1회). **그대로는 실행 불가** — 스크립트가 안내하는 Playwright 1.64.1이 없고 전역 1.61.1은 맞는 브라우저 빌드가 없어서, 저장소 밖 임시 래퍼로 이미 설치된 `chromium_headless_shell-1248`을 `executablePath`로 지정해 실행. 헤드리스 Chromium 1종만, 마이크·SpeechSynthesis 실장치는 포함하지 않음 |
 | 설계 fixture 검사 | `node tools/verify-design.mjs` | PASS (문서 fixture·원가 산식 검사. 제품 품질·보안 검증 아님) |
@@ -486,7 +486,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | ID | 우선 | 내용 | 근거·재현 |
 |---|---|---|---|
 | BUG-1 | ~~P0~~ **수정됨(2026-10-29, P0-1)** | **[원 결함·참고용]** 실사용자 텍스트가 클라이언트 위조 플래그로 Gemini에 전송될 수 있었음. `isServerSynthetic()`은 이름과 달리 **요청 본문의 `synthetic:true`와 `_synthetic_fixture:true`**만 본다. `GEMINI_ALLOW_UNPAID=true`이면(현재 로컬 `.env` 값) 선택기가 `gemini`를 반환한다. 방어는 이메일·전화·주민번호 정규식뿐이라 이름·학교는 통과. 프로필 경로는 응답에 `provider:"mock"`이라 적으면서 Gemini를 호출한다. `PROJECT.md` §5 #1·#3 위반 | `src/server.js:51~63,227~236,779~781`. 임시 프로브(스텁 fetch): 플래그 없음 → mock·호출 0, 위조 플래그 → `provider:"gemini"`·호출 1(턴), 프로필 → 응답 `mock`·호출 발생. 기존 테스트는 키를 비워 이 경로를 못 보고, test 815는 201/422 둘 다 통과시켜 공허함. 배포된 UI는 플래그를 보내지 않음(가드가 검사) — 직접 API 호출로만 악용 |
-| BUG-2 | P0 | **삭제 후 사용자 발언이 남음.** `DELETE /sessions/:id`·`DELETE /account`가 `transferJobs`(기준·재연습 발췌 원문)와 `exports`(10분)를 지우지 않는다. 계정 삭제 후에도 `GET /transfer-comparisons/:id`가 200과 발췌를 반환 | `server.js:74,1117,1369`. 프로브로 재현. `PROJECT.md` §5 #10 위반 |
+| BUG-2 | ~~P0~~ **수정됨(2026-10-29, P0-2)** | **[원 결함·참고용]** 삭제 후 사용자 발언이 남았음. `DELETE /sessions/:id`·`DELETE /account`가 `transferJobs`(기준·재연습 발췌 원문)와 `exports`(10분)를 지우지 않는다. 계정 삭제 후에도 `GET /transfer-comparisons/:id`가 200과 발췌를 반환 | `server.js:74,1117,1369`. 프로브로 재현. `PROJECT.md` §5 #10 위반 |
 | BUG-3 | P1 | `ADMIN_TOKEN`이 없으면 **모든 일반 개발 토큰 사용자가 월간 역량 초안·공개·롤백 가능**(프로브: 사용자 B가 초안 201). 관리자 토큰을 쿼리스트링(`?admin_token=`)으로도 받아 URL·로그에 남을 수 있음 | `server.js:78~89` |
 | BUG-4 | P1 | 인증 전 엔드포인트: `/health`(설정 불리언·모델명), `/metrics`(월 지출 원장), `/diagnostics/gemini-models`(**서버 Gemini 키로 외부 호출, 인증·속도 제한 없음**) | `server.js:1403~1448`, 프로브로 무인증 200 확인 |
 | BUG-5 | P1 | 월간 트렌드를 **출처·코멘트 없이** 공개 가능. `data/trends.json`에 `competency:"a"`, 출처 없음 항목이 공개 상태로 있고 `GET /trends/company/2026-10`이 그대로 노출. §2.3의 출처·검수 요건 미충족 | `trends.js validateItems`, `data/trends.json` |
@@ -514,7 +514,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | ID | 작업 | 대상 파일 | 필요한 변경 | 선행 | 검증 | 난이도 |
 |---|---|---|---|---|---|---|
 | P0-1 | **완료(2026-10-29)** 공급자 게이트 복구(BUG-1) | `src/server.js`(`isServerSynthetic`,`providerForRequest`,`createProfile`,`runCommand`), `adapters.js selectProvider`, `store.js`(`free_test`), `tests/run.mjs` | 요청 본문의 합성 표시를 **전송 근거에서 제거**. 합성 허용은 서버가 보유한 데모 fixture ID(서버 환경설정)로만. 응답의 `provider`는 실제 호출 공급자를 반영. 이름·학교 PII 탐지 보강은 P1-8 | 없음 | 가짜 키+스텁 `fetch`로 위조 플래그 시 **외부 호출 0건** 단언 테스트(프로필·턴), 서버 fixture 경로만 호출됨 단언 | M |
-| P0-2 | 삭제 완전성(BUG-2) | `src/server.js`(`deleteSession`,`deleteAccount`,`exports`,`transferJobs`), `store.js` | 세션/계정 삭제 시 전이 작업·내보내기 캐시 파기(또는 소유 세션 ID로 연결해 연쇄 삭제) | 없음 | 삭제 후 `GET /transfer-comparisons/:id` 404, `exports` 404 테스트 | S |
+| P0-2 | **완료(2026-10-29)** 삭제 완전성(BUG-2) | `src/server.js`(`deleteSession`,`deleteAccount`,`exports`,`transferJobs`), `store.js` | 세션/계정 삭제 시 전이 작업·내보내기 캐시 파기(또는 소유 세션 ID로 연결해 연쇄 삭제) | 없음 | 삭제 후 `GET /transfer-comparisons/:id` 404, `exports` 404 테스트 | S |
 | P0-3 | **지원서 주장 검증 슬라이스** | 신규 `src/domain/claims.js`, `server.js`(`createProfile`,`createSession`), `public/app.js`(`renderEvidence`), `tests/run.mjs` | 자소서/지원서 텍스트를 별도 입력으로 받아 문장 단위 주장(역할·행동·결과·수치·공백) 추출, 원문 span·코드포인트 보존, 질문에 `application_evidence_ids`·`source_status`·`prompt_version` 연결, 자소서에 없는 사실 생성 금지. 1차는 결정적 규칙+Mock, 2차에 Claude Sonnet 연결 | P0-1 | 합성 자소서에서 질문이 인용 문장에 연결됨, 존재하지 않는 구절 거부, 프롬프트 인젝션 문장이 지시로 쓰이지 않음 | L |
 | P0-4 | 공급자 라우팅 + 목표 구성 최소 실모델 경로 | `config.js registry`, `server.js`, 신규 어댑터(DeepSeek 꼬리질문, Claude Sonnet 분석·질문 설계) | operation별 공급자 선택. 명시적 환경 플래그·예산 상한 없이는 호출 금지, 실패 시 Mock 폴백과 **"Mock 사용 중" 표시**, 유료 자동 승격 금지(§5 #8). 각 공급자 약관·데이터·연령 조건 확인 후 합성 데이터만 연결 | P0-1, §14 약관 확인 | 스텁 `fetch` 계약 테스트 + 합성 데이터 실호출 1회 스모크(개발자 승인 후) | L |
 | P0-5 | 배포 구조 결정·구현 | `public/`, 신규 `wrangler` 설정·Worker, `.github/workflows` | (a) Pages 정적 UI + Workers 프록시/백엔드로 갈지 (b) 대회 데모는 로컬 Node 서버로 시연할지 결정(`[미확정]`). (a)면 API 기본 URL 설정, CORS, 키는 Workers 비밀값, 영속 저장(KV/D1/Durable Objects 택1) 필요. 현 `server.js`는 그대로 Worker로 이식 불가 | 결정 | 배포 URL에서 §13 시나리오 완주, 번들에 키 없음 확인 | L |
@@ -564,10 +564,10 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 8 | 약점 집중 코칭 | 약한 역량 1개와 다음 행동 1개 | `[DONE]` |
 | 9 | 새 질문 재연습 | 같은 역량의 **다른 질문**, 같은 루브릭 | `[PARTIAL]`(행동 4역량 한정) |
 | 10 | 답변 변화 비교 | `observed_change`/`no_clear_change`/판단 보류 + 발언 근거 | `[PARTIAL]` |
-| 11 | 기록·내보내기·삭제 | 삭제 후 잔존 없음 | `[PARTIAL]`(BUG-2) |
+| 11 | 기록·내보내기·삭제 | 삭제 후 잔존 없음 | `[PARTIAL]`(삭제는 수정됨, 영속 저장 없음 DEBT-1) |
 | 12 | 운영자: 월간 역량 초안→검수→공개 | 출처 필수, 공개본만 노출 | `[PARTIAL]`(BUG-5) |
 
-**데모 완료 조건:** 위 12단계가 같은 환경에서 중단 없이 수행되고, `npm run check:project`·`npm test`·브라우저 E2E가 통과하며, BUG-2·DEBT-2가 닫혀 있고(BUG-1은 2026-10-29 수정), 실모델 사용 여부가 화면·보고서에 정확히 표시될 것. 목표 AI 구성(DeepSeek·Claude·ElevenLabs)을 연결하지 못한 항목은 "미연결/Mock"으로 표시하고 완료로 세지 않는다.
+**데모 완료 조건:** 위 12단계가 같은 환경에서 중단 없이 수행되고, `npm run check:project`·`npm test`·브라우저 E2E가 통과하며, DEBT-2가 닫혀 있고(BUG-1·BUG-2는 2026-10-29 수정), 실모델 사용 여부가 화면·보고서에 정확히 표시될 것. 목표 AI 구성(DeepSeek·Claude·ElevenLabs)을 연결하지 못한 항목은 "미연결/Mock"으로 표시하고 완료로 세지 않는다.
 
 ## 14. 알려진 한계와 미확정 사항
 
@@ -618,7 +618,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | 9 근거 기반 관찰 | `[DONE]`(규칙) | 발언 인용 기반 관찰, 판단 보류 | 평가기 종류 표기(BUG-6) | 규칙 → Claude Sonnet(검증 후) | 인용 검증 유지, 사람 평가 비교 |
 | 10 약점 집중 코칭 | `[DONE]`(규칙) | 약한 역량 1개·다음 행동 1개 | — | 규칙 | — |
 | 11 새 질문 재연습 | `[PARTIAL]` 템플릿 3개/역량, 행동 4역량 | 같은 역량의 새·다른 질문 | 루브릭별 질문 은행/생성(BUG-7) | 규칙 → Claude Sonnet(선택) | 유사도 검사 유지 |
-| 12 답변 변화 비교 | `[PARTIAL]` `compareTransfer` | 같은 루브릭 비교, 판단 보류 | 영속 저장·삭제 연동(BUG-2) | 규칙 | 학습 효과 주장 금지 |
+| 12 답변 변화 비교 | `[PARTIAL]` `compareTransfer` | 같은 루브릭 비교, 판단 보류 | 영속 저장(삭제 연동은 P0-2로 수정) | 규칙 | 학습 효과 주장 금지 |
 
 ### 16.2 운영자(월간 역량) 흐름 4단계
 
@@ -645,6 +645,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 
 ## 17. 이번 점검의 변경 요약 (v1.0.0 → v1.1.0)
 
+- **2026-10-29 P0-2 코드 수정:** `src/server.js`(`purgeOwnedCaches`: 세션 삭제 시 해당 세션의 전이 작업·내보내기 캐시, 계정 삭제 시 소유자 전체 파기. 세션 삭제 시 재작성 연습·이의 제기도 파기). 신규 테스트 4건(기준·재연습 세션 삭제, 계정 삭제와 타 사용자 보존, 이의 제기), 수정 전 코드에서 3건 실패 확인. 결과: `npm test` 66/66, E2E 47 ok·기관 E2E 14/14, 오프라인 프로브에서 삭제 후 전이 작업 404. 영속 저장·백업은 없어 해당 범위 밖.
 - **2026-10-29 P0-1 코드 수정:** `src/server.js`(`isServerSynthetic`·`providerForRequest` 제거 → 서버 상태 기반 `providerFor`, 프로필 응답 `provider`는 실제 사용 공급자, highschool+`paidAck` 시 Gemini 호출되던 경로 차단), `src/store.js`(`free_test`는 요청 본문이 아닌 서버 값), `tools/gemini-e2e.mjs`(`syntheticTraffic:true`), `.env.example` 주석, `tests/run.mjs`(공허하던 test 815 제거, 위조 플래그 외부 호출 0건 등 신규 4건, `free_test` 영속 테스트를 위조 방어 테스트로 교체). 신규 테스트 4건은 수정 전 코드에서 실패함을 확인. 결과: `npm test` 62/62, E2E 47 ok, 기관 E2E 14/14. 실키 호출은 실행하지 않음.
 
 - 헤더에 버전·점검 범위를 갱신하고 §0에 상태 표기 표준을 추가했다.

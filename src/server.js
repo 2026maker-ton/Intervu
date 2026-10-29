@@ -1097,7 +1097,21 @@ export function createApp(overrides = {}) {
   }
 
   // 사양 §12: DELETE /account → 최근 재인증 토큰(30분 이내 생성된 명령)으로 계정 전체 삭제
+  // 삭제 시 서버 클로저에 남는 사용자 발언 사본(전이 작업 발췌·내보내기 캐시)도 함께 파기한다.
+  // sessionId가 없으면 소유자 전체(계정 삭제).
+  function purgeOwnedCaches(owner, sessionId = null) {
+    for (const [id, j] of transferJobs) {
+      if (j.owner_id !== owner) continue;
+      if (!sessionId || j.baseline_session_id === sessionId || j.retry_session_id === sessionId) transferJobs.delete(id);
+    }
+    for (const [id, e] of exports) {
+      if (e.owner_id !== owner) continue;
+      if (!sessionId || e.session_id === sessionId) exports.delete(id);
+    }
+  }
+
   function deleteAccount(owner) {
+    purgeOwnedCaches(owner);
     const job = store.deleteAccount(owner);
     return { status: 202, body: { deletion_id: job.id, state: 'completed', kind: 'account', backup_expiry: job.backup_expiry } };
   }
@@ -1361,7 +1375,13 @@ export function createApp(overrides = {}) {
     }
     const evs = store.events.get(id) || [];
     for (const e of evs) e.payload = {};
+    // 이 세션의 답변 재작성 연습(발언 원문)·이의 제기(코멘트)도 파기
+    const turnIds = new Set(store.sessionTurns(id).map((t) => t.id));
+    const evalId = store.evaluations.get(id)?.evaluation_id;
+    for (const [k, a] of store.attempts) if (a.owner_id === owner && turnIds.has(a.turn_id)) store.attempts.delete(k);
+    for (const [k, a] of store.appeals) if (a.owner_id === owner && evalId && a.evaluation_id === evalId) store.appeals.delete(k);
     store.evaluations.delete(id);
+    purgeOwnedCaches(owner, id);
     store.updateSession(s, { state: 'deleted' });
     const job = { id: deletionId, owner_id: owner, session_id: id, state: 'completed', requested_at: now(), completed_at: now(), access_revoked: true, primary_purged: true, backup_expiry: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10) };
     store.deletions.set(deletionId, job);

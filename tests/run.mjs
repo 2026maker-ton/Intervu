@@ -1168,3 +1168,66 @@ test('P4: transfer comparison end-to-end (baseline → retry → POST /transfer-
   const sameQ = await call('/api/v1/practice-attempts', { method: 'POST', body: { evaluation_id: rep.data.evaluation_id, competency_id: comp } });
   assert.ok([201, 409].includes(sameQ.status));
 });
+
+// P0-2: 삭제 완전성. 전이 작업(발언 발췌)·내보내기 캐시가 삭제 후 남으면 안 된다.
+async function makeTransferJob(token) {
+  const s = await newSession(token);
+  let version = s.version;
+  for (const text of ['제가 직접 일정을 조정했고 결과적으로 기한 안에 제출했습니다.', '대안을 비교한 기준은 비용이었고 그 이유는 예산 때문이었습니다.']) {
+    const r = await call(`/api/v1/sessions/${s.id}/commands`, { method: 'POST', token, body: { command_id: crypto.randomUUID(), expected_version: version, type: 'turn.text', payload: { text } } });
+    assert.equal(r.status, 202, JSON.stringify(r.data));
+    version = r.data.version;
+    if (r.data.state === 'completed') break;
+  }
+  await call(`/api/v1/sessions/${s.id}/commands`, { method: 'POST', token, body: { command_id: crypto.randomUUID(), expected_version: version, type: 'session.finish', payload: {} } });
+  const rep = await call(`/api/v1/sessions/${s.id}/report`, { token });
+  assert.equal(rep.data.status, 'ready', JSON.stringify(rep.data));
+  const p = await call('/api/v1/practice-attempts', { method: 'POST', token, body: { evaluation_id: rep.data.evaluation_id, competency_id: 'reasoning' } });
+  assert.equal(p.status, 201, JSON.stringify(p.data));
+  const job = await call(`/api/v1/transfer-comparisons/${p.data.transfer_id}`, { token });
+  assert.equal(job.status, 200);
+  assert.ok(job.data.baseline.excerpt, 'baseline excerpt stored before deletion');
+  const exp = await call('/api/v1/exports', { method: 'POST', token, body: { session_id: s.id } });
+  assert.equal(exp.status, 202, JSON.stringify(exp.data));
+  assert.equal((await call(exp.data.download_url, { token })).status, 200);
+  return { baselineId: s.id, retryId: p.data.id, transferId: p.data.transfer_id, exportUrl: exp.data.download_url };
+}
+
+test('P0-2: deleting baseline session purges transfer job and its export cache', async () => {
+  const j = await makeTransferJob(A);
+  const del = await call(`/api/v1/sessions/${j.baselineId}`, { method: 'DELETE' });
+  assert.equal(del.status, 202);
+  assert.equal((await call(`/api/v1/transfer-comparisons/${j.transferId}`)).status, 404, 'transfer job must not outlive its baseline session');
+  assert.equal((await call(j.exportUrl)).status, 404, 'export cache must not outlive its session');
+});
+
+test('P0-2: deleting retry session purges transfer job', async () => {
+  const j = await makeTransferJob(A);
+  await call(`/api/v1/sessions/${j.retryId}`, { method: 'DELETE' });
+  assert.equal((await call(`/api/v1/transfer-comparisons/${j.transferId}`)).status, 404);
+});
+
+test('P0-2: account deletion purges transfer jobs and exports; other users untouched', async () => {
+  const jb = await makeTransferJob(B);
+  const ja = await makeTransferJob(A);
+  const del = await call('/api/v1/account', { method: 'DELETE', token: B });
+  assert.equal(del.status, 202);
+  assert.equal((await call(`/api/v1/transfer-comparisons/${jb.transferId}`, { token: B })).status, 404);
+  assert.equal((await call(jb.exportUrl, { token: B })).status, 404);
+  assert.equal((await call(`/api/v1/transfer-comparisons/${ja.transferId}`)).status, 200, 'user A job survives user B deletion');
+  assert.equal((await call(ja.exportUrl)).status, 200);
+});
+
+test('P0-2: deleting a session also purges its appeals', async () => {
+  const s = await newSession();
+  let version = s.version;
+  const r = await call(`/api/v1/sessions/${s.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: version, type: 'turn.text', payload: { text: '제가 직접 일정을 조정했고 결과적으로 기한 안에 제출했습니다.' } } });
+  version = r.data.version;
+  await call(`/api/v1/sessions/${s.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: version, type: 'session.finish', payload: {} } });
+  const rep = await call(`/api/v1/sessions/${s.id}/report`);
+  const ap = await call(`/api/v1/evaluations/${rep.data.evaluation_id}/appeals`, { method: 'POST', body: { category: 'stt', comment: '개인 코멘트' } });
+  assert.equal(ap.status, 201, JSON.stringify(ap.data));
+  assert.equal((await call(`/api/v1/appeals/${ap.data.appeal_id}`)).status, 200);
+  await call(`/api/v1/sessions/${s.id}`, { method: 'DELETE' });
+  assert.equal((await call(`/api/v1/appeals/${ap.data.appeal_id}`)).status, 404);
+});

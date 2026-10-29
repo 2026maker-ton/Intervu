@@ -473,7 +473,7 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 | 문서·UI 구조 가드 | `npm run check:project` | PASS 4/4(PROJECT.md 헤딩·AGENTS.md·package 스크립트·UI 9화면/금지 패턴). **문서 구조 검사일 뿐 제품 적합성을 증명하지 않는다** |
 | 통합 테스트 | `npm test`(= 가드 + `node --test "tests/**/*.test.mjs"`) | **252 pass / 0 fail / 0 cancelled / 0 skipped**, 약 6.6초. 테스트 서버는 키를 비우고 Mock·스텁 fetch로만 동작(외부 호출 0) |
 | 기관 맞춤 E2E(HTTP) | `node tools/e2e-institution.mjs` | 14 pass / 0 fail (Mock) |
-| 브라우저 E2E | `npm run e2e`(`tools/run-e2e.mjs` → `tools/e2e-ui.mjs`) | **99개 체크 ok**, 실패 0, "E2E 통과"(9화면 경로, 1440/768/390px 가로 오버플로 없음, 콘솔 오류·페이지 예외 0, 의도된 관리자 403·동의 428 각 1회). 헤드리스 Chromium 1종·Mock 전용. 마이크·SpeechSynthesis 실장치 미포함 |
+| 브라우저 E2E | `npm run e2e`(`tools/run-e2e.mjs` → `tools/e2e-ui.mjs`) | **155개 체크 ok(D8 접근성 검사 포함)**, 실패 0, "E2E 통과"(9화면 경로, 1440/768/390px 가로 오버플로 없음, 콘솔 오류·페이지 예외 0, 의도된 관리자 403·동의 428 각 1회). 헤드리스 Chromium 1종·Mock 전용. 마이크·SpeechSynthesis 실장치 미포함 |
 | 설계 fixture 검사 | `node tools/verify-design.mjs` | PASS (문서 fixture·원가 산식 검사. 제품 품질·보안 검증 아님) |
 | 골든 불변식 하니스 | `tests/eval/golden.test.mjs`(`npm test`에 포함) | 합성 30건에 규칙 출력·스텁 공급자 출력 불변식 적용 통과. 실모델 출력에는 적용한 적 없음 |
 | 타입 검사·린트·빌드 | **미실행** | 해당 설정이 저장소에 없음(TypeScript·ESLint·번들러·빌드 단계 없음) |

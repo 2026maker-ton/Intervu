@@ -42,27 +42,17 @@ export function createApp(overrides = {}) {
   const groq = config.groq.apiKey ? createGroqWhisperAdapter({ apiKey: config.groq.apiKey, model: config.groq.model, timeoutMs: config.groq.timeoutMs, maxAudioBytes: config.groq.maxAudioBytes }) : null;
   const killed = String(config.killSwitch || '').split(/[,\s]+/).includes('gemini');
   const killedGroq = String(config.killSwitch || '').split(/[,\s]+/).includes('groq');
-  // 중요: 합성(synthetic) 요청과 실제 사용자 요청을 구분한다.
-  // - 합성(진단/개발 테스트 데이터): 서버 소유 fixture 경로에서만 gemini 허용
-  // - 실제 사용자 데이터: paidAck=true일 때만 gemini 허용, 그 외 Mock
-  // - PROJECT.md §5.3: 클라이언트의 synthetic=true 표시는 신뢰하지 않는다.
-  //   turn.text 경로의 body.synthetic은 외부 전송 근거가 되지 않는다.
-  const SYNTHETIC_FIXTURE_TOKENS = new Set(['__fixture__', '__synthetic_fixture__']);
-  function isServerSynthetic(body = {}) {
-    // 서버 소유 합성 경로: 명시적 fixture 마커 + 테스트 환경에서만.
-    // 운영 실사용자 요청은 항상 비합성으로 취급한다.
-    const marker = body._synthetic_fixture === true || SYNTHETIC_FIXTURE_TOKENS.has(String(body.synthetic_fixture || ''));
-    if (!marker) return false;
-    if (body.synthetic !== true && body._synthetic !== true) return false;
-    return true;
+  // 공급자 게이트(PROJECT.md §5 #1·#3): 외부 전송 허용 여부는 서버 상태로만 정한다.
+  // - paidAck=true: 운영자가 유료·DPA 확인을 선언한 배포.
+  // - syntheticTraffic: createApp 호출자가 코드로만 켜는 합성 전용 인스턴스(진단·E2E 도구).
+  //   HTTP 요청 본문·헤더·환경변수로는 켤 수 없고, 합성 인스턴스는 gemini-e2e 같은 도구만 만든다.
+  // 요청 본문의 synthetic/free_test 값은 어떤 경로에서도 전송 근거가 아니다.
+  const syntheticTraffic = overrides.syntheticTraffic === true;
+  function providerFor({ forceMock = false } = {}) {
+    const name = killed || forceMock ? 'mock' : selectProvider({ config, isSynthetic: syntheticTraffic });
+    return { name, provider: name === 'gemini' && gemini ? gemini : mock };
   }
-  function providerForRequest(body = {}) {
-    const synthetic = isServerSynthetic(body);
-    const name = killed ? 'mock' : selectProvider({ config, isSynthetic: synthetic });
-    return { name, provider: name === 'gemini' && gemini && !killed ? gemini : mock, synthetic };
-  }
-  // 기본 경로(Mock): isSynthetic=false → 키 존재만으로 외부 전송 없음
-  const { name: providerName, provider } = providerForRequest({});
+  const { name: providerName, provider } = providerFor();
   const idempotency = new Map();
   const requestLog = [];
   // WSS 대비 일회성 접속 티켓(30초 만료) + 내보내기 작업(10분 만료)
@@ -220,14 +210,11 @@ export function createApp(overrides = {}) {
     const masked = maskPii(source);
     const blind = buildBlindContext(masked);
     let extracted;
+    let usedProvider = 'mock';
     try {
       // 미성년자 가능 기관(highschool)은 항상 Mock 추출(외부 전송 금지)
-      // 그 외: 합성 요청(synthetic=true + allowUnpaid)이거나 paidAck일 때만 gemini.
-      // body.synthetic은 개발/진단용 합성 데이터 표시이며, 실제 개인정보 포함 시 서버가 차단한다.
-      const { provider: useProvider, synthetic } = providerForRequest(body);
-      if (body._forceMock) {
-        extracted = extractClaims(masked, body.experiences || []);
-      } else if (synthetic && detectPii(source).length > 0) {
+      const useProvider = providerFor({ forceMock: !!body._forceMock }).provider;
+      if (syntheticTraffic && useProvider.name === 'gemini' && detectPii(source).length > 0) {
         throw Object.assign(new Error('synthetic traffic must not contain PII'), { code: 422 });
       }
       if (useProvider.name === 'gemini') {
@@ -235,6 +222,7 @@ export function createApp(overrides = {}) {
         const caught = await useProvider.extract({ sourceText: masked, blindContext: blind });
         ledger.settle(`profile:${profile.id}`, 0.01, priceOf(caught.model, caught.usage));
         extracted = caught;
+        usedProvider = 'gemini';
       } else {
         extracted = extractClaims(masked, body.experiences || []);
       }
@@ -275,7 +263,7 @@ export function createApp(overrides = {}) {
     });
     store.setInstitution(profile.id, institution, 'review');
     void pubNotice;
-    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: body._forceMock ? 'mock' : provider.name, institution, institution_status: 'review' } };
+    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, institution, institution_status: 'review' } };
   }
 
   function getProfile(owner, id) {
@@ -476,7 +464,7 @@ export function createApp(overrides = {}) {
       }
     }
     const s = store.createSession(owner, {
-      ...body, mode, interview_type,
+      ...body, free_test: syntheticTraffic, mode, interview_type,
       duration_minutes, duration_seconds,
       interviewer_role: role,
       questions,
@@ -772,13 +760,8 @@ export function createApp(overrides = {}) {
       }
       try {
         ledger.reserve(`session:${s.id}`, 0.005);
-        // highschool 세션은 Mock 강제(미성년자 보호)
-        // 외부 전송은 paidAck 경로 또는 서버 소유 합성 fixture 경로에서만 허용.
-        // 클라이언트 free_test/synthetic 표시는 전송 근거가 아니다 — 실제 개인정보 포함 입력은
-        // 외부 전송 전 차단 → 안전한 로컬 Mock 경로.
-        const fixtureTurn = isServerSynthetic(body) || isServerSynthetic(body.payload || {});
-        const syntheticTurn = fixtureTurn && detectPii(text).length === 0;
-        const { provider: useProvider } = s.highschool_mock ? { provider: mock } : providerForRequest({ synthetic: syntheticTurn, _synthetic_fixture: fixtureTurn, synthetic_fixture: fixtureTurn ? '__fixture__' : '' });
+        // highschool 세션은 Mock 강제(미성년자 보호). 공급자는 서버 상태로만 정한다(요청 본문 무시).
+        const { provider: useProvider } = providerFor({ forceMock: !!s.highschool_mock });
         // 최근 대화(최대 4턴)를 문맥으로 전달: Gemini가 답변 근거를 활용하도록
         const pastTurns = store.sessionTurns(s.id).slice(-5, -1);
         const history = pastTurns.map((t) => {

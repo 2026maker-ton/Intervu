@@ -8,6 +8,8 @@ const env = loadDotEnv(process.cwd());
 if (!env.GEMINI_API_KEY) { console.error('GEMINI_API_KEY missing'); process.exit(2); }
 
 const app = createApp({
+  // 합성 전용 인스턴스는 코드로만 켠다(HTTP·환경변수로는 불가). PROJECT.md §5 #3.
+  syntheticTraffic: true,
   env: {
     GEMINI_API_KEY: env.GEMINI_API_KEY,
     GEMINI_TEXT_MODEL: env.GEMINI_TEXT_MODEL || 'gemini-3.5-flash-lite',

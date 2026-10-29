@@ -93,7 +93,7 @@ export function createStore() {
         participant_layout: data.participant_layout || 'one_to_one', blind: !!data.blind, persona: data.persona || 'standard',
         interviewer_role: data.interviewer_role || 'practitioner',
         question_basis: data.question_basis || 'general-template-v1',
-        free_test: data.synthetic === true, // 무료 테스트 세션: 합성 데이터 표시, Gemini 무료 경로 허용
+        free_test: data.free_test === true, // 서버가 정한 합성 전용 인스턴스 표시(요청 본문 값 아님)
         panel_roles: data.panel_roles || null,
         topic_id: data.topic_id || null, topic_title: data.topic_title || null, topic_brief: data.topic_brief || null,
         discussion: data.discussion || null,

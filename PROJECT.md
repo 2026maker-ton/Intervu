@@ -1,6 +1,6 @@
 # Intervu — 제품 전체 기획 및 구현 기준서
 
-> **Version:** 1.0.0 | **기준일:** 2026-10-29 | **상태:** 목표 제품 명세(현재 구현 완료를 뜻하지 않음)
+> **Version:** 1.1.0 | **기준일:** 2026-10-29 | **상태:** 목표 제품 명세 + 2026-10-29 전수 점검 결과(§7·§10~§17). 목표 설계는 구현 완료를 뜻하지 않는다.
 >
 > **핵심 정의:** 지원서의 주장을 검증하고, 부족한 답변을 집중 훈련한 뒤, **처음 보는 다른 질문**에서 개선 여부를 확인하는 근거 기반 AI 면접 코치.
 >
@@ -20,6 +20,16 @@
 과거 ADR의 보안상 제한은 **더 안전한 대안 및 근거가 승인되기 전까지 유효**하다. 기능 구현을 편하게 하려고 개인정보 전송 차단, 사용 연령 제한, 비용 상한을 제거하지 않는다.
 
 **프로젝트 방향을 수정할 때에는 반드시 같은 변경에서 `PROJECT.md`와 관련 테스트를 수정한다.** 코드에 맞춰 문서만 몰래 완화하는 행위를 금지한다. 모든 설명은 `현재 구현`, `시제품`, `개발 예정`, `실험으로 검증됨`을 엄격히 구별한다.
+
+**상태 표기 표준(§7 이후 전 구간 공통).** 코드 경로 또는 테스트 근거가 없는 상태 판정은 쓰지 않는다.
+
+| 표기 | 의미 |
+|---|---|
+| `[DONE]` | 구현되어 있고 자동 테스트·브라우저 E2E 등으로 실제 동작을 확인함(Mock 경로 한정이면 그렇게 명시) |
+| `[PARTIAL]` | 일부만 구현됐거나 목표 동작과 다름(차이를 같이 적는다) |
+| `[TODO]` | 코드 없음 |
+| `[BUG]` | 결함을 재현·확인함 |
+| `[UNVERIFIED]` | 코드는 있으나 실키 호출·실사용자 환경 등 이번 점검에서 확인하지 못함 |
 
 ## 1. 제품 전략
 
@@ -47,6 +57,18 @@
 ### 1.4 하지 않을 것
 
 합격 가능성 예측, 실제 합격 판정, 비공개 평가 기준 추정, 거짓말·성격·감정·외모 분석, 자동 경력·성과 조작, 검증되지 않은 기출이라고 주장하기, 총점·백분위 과장, 카메라 감시, 무단 웹 수집, 개인정보 포함 답변의 무료 AI API 무단 전송, 유료 모델 자동 승격을 하지 않는다.
+
+### 1.5 프로젝트 개요·SDGs 연계·사용자 시나리오
+
+- **프로젝트 성격:** 목표는 상용 출시가 아니라 **AI 경진대회에 제출할 수 있는, 처음부터 끝까지 정상 동작하는 작동형 데모**이다. 기능 수보다 한 줄기 데모 시나리오(§13)의 완주를 우선한다.
+- **해결하려는 문제(가설):** 지원서에 쓴 주장을 면접에서 뒷받침하지 못하는 문제, 막연한 피드백으로는 다음 답변이 실제로 나아졌는지 확인할 수 없는 문제. 사용자 인터뷰·실측으로 검증된 것이 아니다(`docs/project-intro.md`도 가설로 분류).
+- **SDGs 연계 `[미확정]`:** 저장소에는 SDGs 문서가 없다. 아래는 제출용 **연계 가설**이며 측정된 효과가 아니다. 제출 전에 공식 목표·세부목표 번호를 직접 확인한다.
+  - SDG 4 양질의 교육(청년의 취업·진학 역량 개발): 면접 준비 기회를 근거 기반 코칭으로 확장.
+  - SDG 8 양질의 일자리와 경제성장(청년 고용 진입): 공개 채용·모집 기준에 맞춘 준비.
+  - SDG 10 불평등 감소: 고가 사설 면접 코칭에 접근하기 어려운 지원자의 비용 장벽 완화(무료·저비용 구성 목표). 단, 현재 데모는 **Mock/무료 티어 중심이라 실사용자 대상 효과를 주장하지 않는다.**
+  - 기대 효과는 §6.2의 사람 평가 실험으로 측정하기 전까지 "기대"로만 쓴다.
+- **주요 사용자:** ① 기업 취업 준비생(만 19세 이상), ② 대입 지원자 중 성인(미성년자는 §5 #2에 따라 합성 예제만), ③ 운영자(월간 역량 검수·승인; 현재 1인 개발 데모에서는 개발자 본인).
+- **대표 시나리오(데모 기준):** 지원자가 기업/대학을 고르고 공고와 합성 자소서를 넣으면 → 서버가 원문에서 근거를 추출·표시 → 사용자가 확인 → 면접 → 근거 인용 보고서에서 약한 역량 1개 확인 → 같은 역량의 **다른 질문**으로 재연습 → 전후 발언 비교(또는 판단 보류) → 기록 내보내기·삭제.
 
 ## 2. 사용자 전체 여정
 
@@ -138,6 +160,22 @@
 - 90초 집중 연습은 초기 방식으로 허용하되, 그것만으로 학습 효과가 입증됐다고 주장하지 않는다.
 - 인과적 향상을 주장하려면 별도의 사람 평가자·대조 설계가 필요하다.
 
+### 2.8 면접 유형별 동작 설계 (현재 구현 vs 목표)
+
+핵심 제품 경로는 **기업·대학 1:1 면접**이다. 나머지 유형은 코드에 있으나 §1.3에 따라 핵심 흐름이 아니다. 아래 "현재"는 Mock(규칙) 경로 기준이며 근거는 `tests/run.mjs`의 해당 테스트다.
+
+| 유형 | 현재 구현 | 목표 설계 |
+|---|---|---|
+| 일반·인성(1:1) | `[DONE]` 정적 팩+기관 템플릿 질문, 시간별 3/4/5문항(test 572), 규칙 평가 | 지원서 주장·공식 요구에 연결된 질문(§2.4), 목표 모델의 꼬리질문 |
+| 면접관 성향: 친절/보통/압박(논리 검증) | `[PARTIAL]` 설정 값은 검증·저장됨. **Mock `next`는 성향을 사용하지 않고(`adapters.js:37`) Gemini 프롬프트에서만 어조를 바꾼다.** 즉 Mock에서는 성향 차이가 없다 | DeepSeek 프롬프트에서 성향별 압박 수준 구현, 모욕·인신공격·출신 질문 금지(`roles.js`) |
+| 블라인드 | `[PARTIAL]` 저장·평가 텍스트에서 학교·출신·성별·연령 단서 마스킹(test 734). 마스킹은 완전하지 않음 | 안전하게 동작할 때만 선택 노출, 질문 생성 입력도 마스킹 |
+| 직무·기술 | `[PARTIAL]` 기술 질문 팩+기술 루브릭(test 599) | 직무별 질문은 근거 연결 후 확장(P2) |
+| 토론(사용자+AI 2+사회자) | `[PARTIAL]` **결정적 규칙 기반**(`discussion.js`, LLM 미사용), 4회 발언 기회, 부족 시 협업 차원 보류(test 610·637·652) | 핵심 흐름 밖. 실모델 연결은 P2 이후 |
+| PT | `[PARTIAL]` 과제→준비→발표→Q&A 단계 강제(test 661) | 핵심 흐름 밖(P2) |
+| 상황·역할극 | `[PARTIAL]` 고정 시나리오·검수된 고정 후속 문장(test 688) | 핵심 흐름 밖(P2) |
+| 패널 | `[PARTIAL]` 역할 2~3명 순환(test 708) | 핵심 흐름 밖(P2) |
+| 재연습(90초) | `[PARTIAL]` 1문항 세션+새 질문 템플릿(§7.2) | 같은 역량·다른 질문·같은 루브릭 비교(§2.7) |
+
 ## 3. UI/UX 정보 구조
 
 기존의 '입력·설정·진행을 한 화면 양쪽에 동시에 표시'하는 UI는 새 목표 구조가 아니다. 다음 화면으로 전면 재설계한다.
@@ -172,18 +210,31 @@
 - **Admin Trends:** 월간 역량 게시·검수.
 - **Storage/Auth:** 현재 인메모리 저장·개발 토큰 상태를 유지할 수 있으나 **운영 서비스 전 영속 저장 및 실제 인증으로 교체 필수**.
 
-### 4.2 LLM과 음성 공급자
+### 4.2 LLM과 음성 공급자 — 현재 구현 vs 목표 설계
 
-- **Gemini:** 현재 코드에 조건부 연결된 자료 분석/꼬리질문 공급자.
-- **Groq Whisper:** 현재 STT 어댑터와 서버 엔드포인트 존재.
-- **Groq GPT-OSS 120B:** 면접관·질문 생성용 **성능 비교 후보**. 아직 저장소에 연결됐다고 가정하지 않는다.
-- **평가용 LLM:** 추후 사람 평가자와 비교·검증 후 선택. 현재는 의미 기반 LLM 평가가 아니다.
-- **Browser SpeechSynthesis:** 음성 질문 읽기 초기 수단.
-- **Mock:** 합성 데모·공급자 장애용 정적 대체. 실제 모델이라고 표기 금지.
+**목표 구성(2026-10-29 개발자 지시; 구현·결제 완료를 뜻하지 않음).** 모델 ID·엔드포인트·가격·무료 티어·지원 기능·데이터 약관은 아직 확인하지 않았으므로 확정값을 적지 않는다.
 
-모델은 언제든 교체 가능하도록 operation별 provider adapter를 분리한다. **Gemini와 GPT-OSS를 실제 한국어 사례에 대해 블라인드 A/B 비교**한 후 질문 품질·꼬리질문 적합성·응답 시간·비용·개인정보 처리 적합성으로 선정한다.
+| 역할 | 목표 서비스 | 현재 저장소 상태 | 근거 |
+|---|---|---|---|
+| 실시간 AI 면접관·꼬리질문 | DeepSeek API | `[TODO]` 어댑터 없음. 현재는 Gemini(조건부)·Mock | `src/providers/adapters.js`에 `deepseek` 없음 |
+| 이력서 분석·질문 설계·종합 평가 | Claude Sonnet API | `[TODO]` 어댑터 없음. 분석=키워드 휴리스틱(`extractClaims`)/Gemini 공고 키워드 추출, 평가=규칙 기반(Gemini `evaluate`는 501) | `src/domain/pii.js`, `adapters.js:192` |
+| 지원자 음성 인식 | Groq Whisper | `[UNVERIFIED]` 어댑터·엔드포인트·브라우저 녹음 UI 있음. 실키 호출은 이번 점검에서 실행하지 않음 | `createGroqWhisperAdapter`, `POST /sessions/:id/transcriptions`, `public/app.js:921~1040` |
+| 면접관 음성 합성 | ElevenLabs | `[TODO]` 없음. 현재는 브라우저 `SpeechSynthesis`만 | `public/app.js:831` |
+| 정적 프런트엔드 | GitHub Pages | `[TODO]` 배포 설정 없음. UI는 같은 오리진의 `/api/v1` 상대경로를 호출 | `app.js:61`, `.github/workflows`는 `project-guard.yml`뿐 |
+| API 키 보호·서버리스 프록시 | Cloudflare Workers | `[TODO]` `wrangler` 설정·Worker 코드 없음. 현재 백엔드는 Node `http` 단일 프로세스·인메모리 저장 | `git ls-files` 확인, `src/server.js` |
 
-실제 키는 서버 `.env`에서만 읽는다. 기존 `.env.example`의 `GEMINI_API_KEY`, `GROQ_WHISPER_KEY`/`GROQ_API_KEY`, 데이터 전송·유료확인·킬 스위치를 확인한다. GPT-OSS용 텍스트 모델 키를 추가할 때는 별도 명명 또는 명시적 재사용 계약을 정의한다. **키가 존재하는 것만으로 실제 자소서를 전송하지 않는다.**
+**현재 구현된 공급자:** Gemini(`gemini-3.5-flash-lite`, 대체 `gemini-3.6-flash`, 환경설정 기준; 실제 응답 가능 여부는 이번에 호출하지 않아 `[UNVERIFIED]`), Groq Whisper, Mock, 브라우저 SpeechSynthesis. 앞의 `Groq GPT-OSS 120B 비교 후보`는 개발자의 목표 구성에서 제외되었으므로 **현재 목표가 아니다**(이력으로만 유지).
+
+**마이그레이션 원칙(Gemini → 목표 구성).**
+1. 어댑터 인터페이스(`extract / next / evaluate / transcribe`)를 operation별 공급자 라우팅(`config.registry`)으로 연결해 교체한다. 현재 `registry`는 정의돼 있으나 서버가 읽지 않는다(`server.js`는 `gemini`/`mock`을 직접 선택) — `[BUG]` 기술 부채.
+2. 신규 유료 공급자 도입은 개발자의 **명시적 설정·확인 플래그**로만 켜고, 장애·429 시 다른 유료 모델로 자동 승격하지 않는다(§5 #8).
+3. 공급자별로 **개인정보 전송 전제 조건**을 먼저 확인한다: 약관상 학습·인간검토 여부, 데이터 보존, 국외 이전 고지, 연령 제한. 현재 DeepSeek·Claude·ElevenLabs 각각에 대해 `[UNVERIFIED]`이며, 확인 전까지 실제 지원자 문서는 전송하지 않고 합성 fixture만 사용한다.
+4. 키는 Cloudflare Workers 비밀값(또는 서버 `.env`)에만 두고 Pages 번들에 넣지 않는다. Workers 이전 시 CORS·Idempotency-Key·인증·영속 저장(KV/D1/Durable Objects 중 선택 `[미확정]`)을 함께 설계해야 하며, 현재 `src/server.js`(약 1,700줄)를 그대로 Worker로 올릴 수 없다.
+5. 모델 선정은 실제 한국어 사례 블라인드 비교 후 확정한다(질문 품질·꼬리질문 적합성·응답 시간·비용·개인정보 적합성). 비교 결과는 아직 없다.
+
+**기타:** 평가용 LLM(Claude Sonnet)은 사람 평가자와 비교·검증하기 전에는 "AI 정밀 평가"로 표기하지 않는다. **Mock**은 합성 데모·장애 대체용이며 실제 모델이라고 표기하지 않는다.
+
+실제 키는 서버 `.env`에서만 읽는다(`.env.example`: `GEMINI_API_KEY`, `GROQ_WHISPER_KEY`/`GROQ_API_KEY`, 유료확인·킬 스위치). 신규 공급자 키는 별도 이름으로 추가하고 `.env.example`에 같은 변경으로 반영한다. **키가 존재하는 것만으로 실제 자소서를 전송하지 않는다.**
 
 ### 4.3 핵심 데이터 구조
 
@@ -200,6 +251,20 @@
 
 모든 참조는 소유권 검증, 버전 정합, 원문 역추적을 통과해야 한다.
 
+### 4.4 AI 호출 구조 (operation별, 현재 vs 목표)
+
+| operation | 현재 호출 경로 | 목표 공급자 | 비고 |
+|---|---|---|---|
+| 자료 분석(`profile.extract`) | `createProfile` → 게이트 통과 시 Gemini `extract`, 아니면 `extractClaims`(키워드) | Claude Sonnet | 서버가 모델 좌표를 믿지 않고 원문에서 span 재계산·검증(`createProfile`, 유지) |
+| 질문 설계 | AI 호출 없음(정적 팩+기관 템플릿) | Claude Sonnet | 근거 ID·지원서에 없는 사실 금지 검증 필요 |
+| 실시간 꼬리질문(`dialogue.next`) | `runCommand`(turn.text) → 게이트 통과 시 Gemini `next`, 아니면 Mock 고정 문장, 실패 시 정적 폴백 | DeepSeek | 질문당 1개·세션 3개 상한, 호출 14회/세션 상한 유지(`config.budgets`) |
+| STT(`speech.transcribe`) | 브라우저 녹음 → `POST /sessions/:id/transcriptions` → Groq Whisper(서버 키). Gemini `transcribeAudio`는 정의만 있고 라우트 없음 | Groq Whisper | 원음은 전사 후 폐기, 전사 확인·교정 후 제출 |
+| 종합 평가(`evaluation.generate`) | 규칙 기반(`buildMockEvaluation`/`buildTypedEvaluation`), Gemini `evaluate`는 501 | Claude Sonnet(검증 후) | 인용·span 검증 통과 출력만 채택 |
+| 새 질문 생성 | 템플릿 선택+유사도 검사 | Claude Sonnet(선택) | 유사도·역량 일치 검사 유지 |
+| TTS | 브라우저 `SpeechSynthesis` | ElevenLabs | 서버 프록시, 실패 시 브라우저 TTS 폴백 |
+
+모든 외부 호출은 서버(현재 Node, 목표 Cloudflare Workers)에서만 수행하고, 키·실제 지원자 데이터·예산 상한·킬 스위치는 §5의 불변 조건을 따른다.
+
 ## 5. 보안·개인정보·안전의 불변 조건
 
 1. **실제 지원서/지원자 답변을 무료 API로 자동 전송하지 않는다.** 무료·유료 데이터 사용 약관은 활성화 직전에 재검증하고, 사전 안내·적절한 동의·처리 기반을 갖춘 후 전송한다.
@@ -214,6 +279,23 @@
 10. 보관 기간, 열람/내보내기, 세션·계정 삭제 등 실제 동작과 UI 설명을 일치시킨다. 인메모리 상태에서는 재시작 후 기록 보존을 보장하지 않는다.
 11. 인용 문자열이 일치하더라도 논리적 평가가 맞는지 별도 검증한다. 개인정보·불리한 고정관념·차별적 평가를 지양한다.
 12. 합격 예측·채용 결정·성격/거짓말 진단을 하지 않는다.
+
+### 5.1 불변 조건의 현재 이행 상태 (2026-10-29)
+
+| # | 조건 | 상태 | 근거 |
+|---|---|---|---|
+| 1 | 실제 지원서의 무료 API 자동 전송 금지 | `[DONE]` 위조 플래그로 외부 호출 0건(스텁 시험). 실호출 경로는 `[UNVERIFIED]` | P0-1, `tests/run.mjs` `P0 gate:` |
+| 2 | 미성년자 제공사 조건 우회 금지 | `[PARTIAL]` 고교 유형 Mock 강제(test 520). 연령 확인 절차 없음 | §7.2 |
+| 3 | 클라이언트 `synthetic` 불신 | `[DONE]` `isServerSynthetic` 제거, 공급자는 서버 상태로만 결정 | P0-1 |
+| 4 | API 키 서버 전용 | `[DONE]` 번들·추적 파일에 키 없음(코드 검토). `/health` 설정 노출은 BUG-4 | §10 |
+| 5 | 웹 수집 SSRF 방어 | `[PARTIAL]` 수집기가 없어 현재 위험 없음, 호스트 문자열 검사만 | DEBT-9 |
+| 6 | 문서·모델 출력 비신뢰, 프롬프트 인젝션 방어 | `[PARTIAL]` 평가가 결정적이라 인젝션 영향 없음(test 264). LLM 경로의 인젝션 방어는 프롬프트 지시문뿐이며 미시험 | `adapters.js` |
+| 7 | PII 마스킹 오탐/누락 검증 | `[PARTIAL]` 오탐 회귀(test 852). 이름·학교 미탐지 | DEBT-7 |
+| 8 | 429·장애 시 유료 자동 승격 금지, 예산·킬 스위치 | `[PARTIAL]` 무료 허용 목록·킬 스위치·세션/월 상한(test 330). 원장 인메모리, 429 시 세션 종료 | BUG-8 |
+| 9 | 음성 의사 없는 전송·장기 저장 금지 | `[PARTIAL]` 원음 전사 후 폐기 코드. 실동작 미검증 | `[UNVERIFIED]` |
+| 10 | 보관·내보내기·삭제와 UI 설명 일치 | `[BUG]` 삭제 후 전이 작업·내보내기 잔존 | BUG-2 |
+| 11 | 인용 일치≠타당성 별도 검증 | `[TODO]` 의미 검수 시험 없음 | §6.2 |
+| 12 | 합격 예측·성격/거짓말 진단 금지 | `[DONE]` UI 문구 가드(E2E "합격 예측 문구 없음"), `checkFeedbackSafety` | `evaluation.js` |
 
 ## 6. 구현 단계 및 완료 기준
 
@@ -271,24 +353,95 @@
 
 데모는 실제 키 연결 시에도 개인정보 보호 게이트를 통과한 승인된 데이터만 전송한다. 키가 없으면 Mock 사용 사실을 숨기지 않는다. 테스트를 실행하지 못한 경우에는 “미실행”으로 보고한다.
 
-## 7. 저장소의 실제 구현 상태 (2026-10-29 확인 기준)
+## 7. 저장소의 실제 구현 상태 (2026-10-29 전수 점검 기준)
 
-| 항목 | 확인된 현황 | 이행 대상 |
+### 7.0 점검 방법과 범위
+
+- **기준 커밋:** `79e803c`(main, 작업 트리 clean 상태에서 시작). 코드·설정·테스트·Git 이력을 직접 읽고, 외부 API를 호출하지 않는 비파괴 검사만 실행했다(§10).
+- **코드와 실제 동작이 우선**이다. 기존 `PROJECT.md` v1.0.0 §7, `README.md`, `IMPLEMENTATION_CHECKLIST.md`와 어긋나는 부분은 아래 표·§7.5에 기록한다.
+- 실키 호출(Gemini·Groq), 실제 PDF/DOCX 업로드, 모바일 실기기 마이크·TTS, 배포 환경은 **확인하지 않았다**.
+- 이 문서를 위해 `PROJECT.md` 외의 파일은 수정하지 않았다.
+
+### 7.1 현재 시스템 구조
+
+| 계층 | 현재 구현 | 근거 |
 |---|---|---|
-| Node 서버·REST·세션 상태·정적 UI | 구현됨 | 새 UI와 연동, 상태·보안 회귀 보존 |
-| 공고 문구 추출·출처 URL 메타 등록 | 일부 구현 | 공식 웹 실제 수집·근거 검증 |
-| 기관 기준 확인·승인 | 일부 구현 | 정보의 정확한 출처·사용자 검토 확장 |
-| PDF/DOCX 지원서 업로드 | 미확인/현 UI 미제공 | 안전 파서·교정 UI |
-| Gemini 꼬리질문 | 정책 게이트 충족 시 구현 | 품질 비교·선택적 업그레이드 |
-| Groq Whisper STT | 어댑터·서버 엔드포인트 구현 | 통합 UX 검증 |
-| GPT-OSS 120B 면접관 | 미구현 | 모델 비교 후 선택적 통합 |
-| 현재 평가 보고서 | 휴리스틱/규칙 기반 | 정확한 표시, 반례 테스트, 추가 검증 |
-| 발언 구간 검증 | 구현됨 | 의미 타당성 검증 추가 |
-| 90초 재연습 | 일부 구현 | **다른 질문 간 비교** 추가 |
-| 월간 트렌드 승인·버전 | 미구현 | 관리자 기능 개발 |
-| 지속 데이터베이스·실서비스 인증 | 미구현 | 운영 배포 이전 구축 |
+| 런타임 | Node.js ≥20, **외부 의존성 0**(`package.json`에 dependencies 없음), 타입스크립트·린터·번들러 없음 | `package.json` |
+| 프런트엔드 | 순수 HTML/CSS/JS 단일 페이지, 해시 라우터 9화면(`#/dashboard`…`#/admin`). 같은 오리진 `/api/v1` 호출 | `public/index.html`(462줄), `public/app.js`(1,780줄) |
+| 백엔드 | Node `http` 단일 프로세스 REST 서버(`createApp`), 정적 파일 서빙·CSP 헤더 포함 | `src/server.js`(1,697줄) |
+| 저장소 | **인메모리 `Map` 전부**(프로필·세션·턴·평가·전이작업·원장). 파일 영속은 월간 트렌드(`data/trends.json`, git 제외)만 | `src/store.js`, `src/domain/trends.js` |
+| 공급자 | Mock(기본), Gemini(게이트 통과 시 꼬리질문·공고 추출), Groq Whisper(STT), 브라우저 SpeechSynthesis(TTS) | `src/providers/adapters.js` |
+| 배포 | **없음.** GitHub Pages·Cloudflare Workers 설정 없음. CI는 `project-guard.yml`(`check:project` + `npm test`)뿐 | `git ls-files`, `.github/workflows/` |
+| 환경변수 | `.env.example` 기준 Gemini/Groq/예산/킬스위치/`ADMIN_TOKEN`/`TRENDS_FILE`. DeepSeek·Claude·ElevenLabs 변수 없음 | `.env.example`, `src/config.js` |
+| 로컬 `.env` 상태 | Gemini·Groq 키 **존재**(값은 기록하지 않음), `GEMINI_ALLOW_UNPAID=true`, `GEMINI_PAID_ACK=false`, `GEMINI_FREE_ONLY=true`, `ADMIN_TOKEN` 없음. `.env`는 `.gitignore` 대상이며 Git 이력에 커밋된 적 없고 추적 파일에서 키 패턴도 발견되지 않음 | `git log -- .env` 빈 결과, `git grep` |
 
-`README.md`, `docs/project-intro.md`, `docs/master-plan.md`, `docs/implementation-spec.md`, `docs/decisions/2026-10-24-gemini-first.md`는 과거 목표·설정을 포함한다. 바로 삭제하지 말고 새로운 구현 단계에서 해당 사용자 문서와 제품 설명을 본 문서에 맞춰 갱신하며, 과거 의사결정은 이력으로 보존한다.
+### 7.2 기능별 구현 상태
+
+Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함수 또는 테스트이다. `test N`은 `tests/run.mjs` N번째 줄에서 시작하는 테스트를 뜻한다.
+
+| 기능 | 상태 | 근거 | 미완성·차이 |
+|---|---|---|---|
+| 기업·대학 선택 UI | `[DONE]` | `public/app.js:241 startJourney`, `tools/check-project.mjs`가 `public|highschool` 여정 금지 검사, `tools/e2e-ui.mjs` | 서버는 `public/highschool/general` org_type도 계속 허용(`institution.js ORG_TYPES`). 고교는 Mock 강제 |
+| 직무·학과 입력 | `[DONE]` | `public/index.html:117~121` | 전형(대학) 별도 필드 없음 |
+| 공고·모집요강 붙여넣기 | `[DONE]`(Mock) | `source_text`(최대 20,000자) → `createProfile` | — |
+| 이력서·자소서 입력 | `[PARTIAL]` | 별도 문서 종류 없음. `experiences` 텍스트(최대 3개×2,000자)만 받음(`store.createProfile`) | 이력서/자소서/지원서 구분, revision(원본/추출/수정) 구분 `[TODO]` |
+| 문서 업로드·추출(PDF/DOCX/TXT) | `[PARTIAL]` | `src/domain/documents.js`, `POST /documents/extract`, `public/app.js:372`, test 880·920 | 직접 만든 최소 파서. 합성 샘플만 검증. **한글 PDF의 CID/ToUnicode 폰트는 처리하지 않아 실제 한국어 PDF는 추출 실패 가능** `[UNVERIFIED]`. 5MB 상한이 있으나 JSON 본문 한도 1,000,000바이트(`readBody`) 때문에 실제 허용 파일은 약 0.7MB 이하로 추정(코드 기준, 재현 미실시) `[BUG]` |
+| 추출 텍스트 확인·수정 | `[PARTIAL]` | 추출 텍스트가 입력란에 채워짐 | 원본/추출/수정 revision 분리 없음 |
+| **지원서 주장·공백 추출** | `[PARTIAL]` | `extractClaims`(`pii.js`)는 공고 본문에서 **고정 키워드 14개** 위치 찾기 + `experiences` 앞 20자 일치. Gemini `extract`는 "공고에서 역량 키워드" 요청 | 지원자 자소서 문장 단위 주장(역할·행동·결과·수치) 추출 **없음**. 제품 차별점 1단계가 사실상 미구현 |
+| 기관 프로필(핵심가치·평가가능/불가·권장질문) | `[DONE]`(규칙 기반) | `institution.js buildInstitutionProfile`, test 410·467, `tools/e2e-institution.mjs` 14 PASS | 키워드 16개 매칭 기반. 사용자 확인·수정·승인 흐름은 있음(`approveProfile`) |
+| 공식 홈페이지·공고 **실제 수집** | `[TODO]` | `sources.js`는 URL **메타데이터만** 기록, 서버는 접속하지 않음(파일 머리말) | 수집기·DNS/리디렉션 재검증·robots·크기/시간 제한 코드 없음 |
+| 출처 검증(SSRF·공식 여부·신선도) | `[PARTIAL]` | `validateSourceUrl`, `freshnessOf`, `detectConflicts`, test 477 | 호스트 **문자열** 검사만(실제 fetch가 없어 현재는 안전). 수집기를 만들 때 DNS 해석 후 재검사 필요. `official` 판정은 제목·URL 문자열 추정(`inferKind`)이며 `verified` 상태 없음 |
+| 월간 핵심 역량(관리자 초안→공개→롤백) | `[PARTIAL]` | `trends.js`, `/admin/trends*`, test 944·989, E2E [9] | 자동 수집·AI 후보 추출·편향 검수 없음. **출처·코멘트 없이 공개 가능**(`validateItems`)하며 `data/trends.json`에 `competency:"a"`, 출처 없음 항목이 공개 상태로 존재 `[BUG]`. 트렌드가 질문 생성·평가에 연결되지 않음(조회 화면 표시만) `[TODO]` |
+| 맞춤 질문 생성 | `[PARTIAL]` | 정적 8문항 팩(`questions.js`) + 기관 권장질문 최대 2개(역량 라벨 치환, `server.js createSession`) | 지원자 문장 인용 질문 없음. `question_id/application_evidence_ids/institution_evidence_ids/source_status/prompt_version` 스키마 미구현(질문에 `_institution_basis`, `_rationale`만) |
+| 꼬리질문 | `[PARTIAL]` | `followupReasonFor`(정규식) → Mock 고정 문장 / Gemini는 직전 답변·최근 4턴 전달(`adapters.js next`) | 질문당 1개·세션 3개 상한. Gemini 경로는 게이트 통과 시에만. 실모델 품질 평가 없음 |
+| 면접 유형 | `[PARTIAL]` | general/technical/discussion/pt/situational/panel 서버 구현, test 562~756 | `PROJECT.md` §3·§1.3은 기본 화면에서 제외하라고 하나 **설정 화면 select에 6종 모두 노출**(`index.html:237`). 일반·압박(`challenging`)·블라인드는 구현. 유형별 설계는 §2.8 |
+| 실시간 면접 대화·세션 관리 | `[PARTIAL]` | REST 명령(`session.start/pause/resume/finish`, `turn.text`), 서버 시계 시간 상한, 낙관적 버전 잠금, `command_id` 재생, test 85~264 | 실시간 스트리밍·WebSocket 없음(`/ws`는 티켓 스텁). 재시작 시 세션 소실 |
+| STT(Groq Whisper) | `[UNVERIFIED]` | `createGroqWhisperAdapter`, `POST /sessions/:id/transcriptions`, 브라우저 `MediaRecorder` UI(`app.js:921~1040`), 키 없음/비오디오 경로 test 762~791 | 실키 호출 미실행. 전사 확인·교정 UI는 존재. 한국어 오류율·지연 측정 없음. `input_mode:'voice'`(브라우저 인식) 경로는 E2E 미확인 |
+| TTS | `[PARTIAL]` | 브라우저 `SpeechSynthesis`(`app.js:831`) | ElevenLabs `[TODO]`. 브라우저·OS별 한국어 음성 편차 미확인 |
+| 답변 분석·평가 | `[DONE]`(규칙 기반) | `mock-eval*.js`, 인용·span 검증(`evaluation.js`), test 85·132·859 | 의미 기반 평가 아님. UI는 "규칙 기반 참고 관찰" 고지(E2E 확인). API 응답 `badge`는 "AI 생성 코칭"(아래 BUG-6) |
+| 근거 인용·판단 보류 | `[DONE]` | `validateEvaluation`, `insufficient_evidence`, test 132·637 | 의미 타당성 검증 없음 |
+| 약점 집중 코칭·재연습 | `[PARTIAL]` | `POST /practice-attempts`, `generateTransferQuestion`, UI `app.js:1338~1401` | 새 질문은 역량당 **고정 템플릿 3개**에서 선택(`transfer.js`). 행동 루브릭 4역량 외 역량은 `reflection` 템플릿으로 대체 `[BUG]`. 90초·1문항 세션 |
+| 새 질문 전후 비교 | `[PARTIAL]` | `compareTransfer`, `POST /transfer-comparisons`, UI `app.js:1429`, test 866·1032 | 같은 루브릭·다른 질문·유사도(바이그램 Jaccard 0.55)·판단 보류는 구현. 비교 수준은 키워드 규칙 점수의 차이. 전이 작업(`transferJobs`)이 **메모리에만** 있고 삭제 시 지워지지 않음 `[BUG]` |
+| 답변 수정 이력 | `[DONE]` | `addRevision`(stt_correction은 새 revision, content_rewrite는 새 연습), test 301·313 | — |
+| 결과 저장·기록 | `[PARTIAL]` | `GET /sessions`, `loadHistory`, test 380 | 서버 재시작 시 전부 소실. 사용자별 장기 추이 저장 없음 |
+| 내보내기·삭제 | `[PARTIAL]` | `POST /exports`(JSON, 10분), `DELETE /sessions/:id`, `DELETE /account`, test 287·380 | 삭제가 `transferJobs`·`exports`를 지우지 않음 `[BUG]`(BUG-2) |
+| 개인정보 처리 | `[PARTIAL]` | `detectPii`(이메일·전화·주민번호만), `maskPii`, 블라인드 마스킹, test 852 | **이름·학교·주소는 탐지하지 않음.** 블라인드는 휴리스틱(UI도 "완전하지 않을 수 있음" 고지) |
+| 연령·미성년자 보호 | `[PARTIAL]` | 서버: `highschool` Mock 강제(test 520). UI: "만 19세 이상" 정적 문구 | 연령 확인 **절차** 없음(Figma 6단계 `[TODO]`). 고교 경로가 UI에는 없음 |
+| 오류 복구 | `[PARTIAL]` | 공급자 실패→정적 꼬리질문 폴백+`degraded_reason`, STT 실패→텍스트 안내, 평가 실패 상태, 보고서 폴링 | 대화 중 429는 **정적 폴백으로 계속하지 않고 세션을 즉시 종료**(`server.js:807~813`). 클라이언트 자동 재시도·세션 복구 없음 |
+| API 사용량·예산 | `[PARTIAL]` | `ledger.js`(예약→정산), 세션 $0.08·월 $30 상한, 프로필 분당2/일10 제한, 킬 스위치, test 330·356 | 원장이 **인메모리**(재시작 시 0). 월 경계 리셋 없음. 단가표는 Gemini 전용. 프로필 외 엔드포인트(문서 추출·STT·턴) 사용자별 속도 제한 없음. `config.registry`는 서버가 읽지 않음 |
+| 인증 | `[PARTIAL]` | 정적 개발 토큰 2개(`DEV_TOKEN_A/B`), 소유권 검사·교차 사용자 격리 test 277 | **실제 로그인 없음.** 브라우저가 기본 토큰 `dev-user-a-token`을 내장(`app.js:8`). 공개 배포 불가 |
+| 관리자 화면 | `[PARTIAL]` | `x-admin-token` 게이트(`checkAdmin`), E2E [9] | `ADMIN_TOKEN` 미설정이면 **모든 개발 토큰 사용자가 관리자 기능 사용 가능**(dev-open). 역할 모델 없음 |
+| 공급자 게이트(실데이터 외부 전송 차단) | `[DONE]`(2026-10-29 P0-1 수정, 스텁 fetch 시험) | `selectProvider`, `providerFor`(`server.js`), 테스트 `P0 gate:*` 3건+`forged synthetic/free_test…`, 오프라인 프로브 재실행 | 요청 본문의 `synthetic`·`free_test`는 전송 근거가 아님. 합성 전용 인스턴스는 `createApp({syntheticTraffic:true})` 코드 호출로만 켜짐. **실키·유료 경로(`paidAck=true`)는 실제 호출하지 않아 `[UNVERIFIED]`**. 요청별 동의·연령 게이트는 별도 `[TODO]` |
+| 보고서 공급자 표기 | `[BUG]` | `server.js:939~945` | 규칙 기반 평가 보고서에 전역 `provider.name`을 붙이고, `paidAck=true`면 `model_version`이 Gemini 모델명이 됨(BUG-6) |
+| DeepSeek / Claude Sonnet / ElevenLabs | `[TODO]` | 코드·환경변수 없음 | §4.2 |
+| GitHub Pages / Cloudflare Workers | `[TODO]` | 설정 파일 없음 | §4.2, §12 P0-5 |
+
+### 7.3 단계별 진행도(P0~P5, §6 표 기준)
+
+| 단계 | 평가 | 근거 |
+|---|---|---|
+| P0 제품 기준/안전 | `[PARTIAL]` | PROJECT/AGENTS/CI 가드·PII 회귀·키워드 안티게이밍 회귀·**공급자 게이트 위조 방어(P0-1 수정)**는 있음. **삭제 누락(BUG-2)이 열려 있음** |
+| P1 핵심 UI/서류 | `[PARTIAL]` | 9화면·반응형 E2E 통과(§10). 이력서/자소서 구분·실제 한글 PDF 추출·revision 미완 |
+| P2 공식 자료/트렌드 | `[PARTIAL]` | 관리자 월간 역량 초안·공개·롤백은 동작. **실제 수집 `[TODO]`**, 트렌드→질문 연결 `[TODO]` |
+| P3 질문·면접 | `[PARTIAL]` | 정적·기관 템플릿 질문 + 조건부 Gemini 꼬리질문. 근거 ID 연결·모델 A/B·STT 실측 미완 |
+| P4 핵심 차별화 | `[PARTIAL]` | 새 질문 전후 비교 골격은 동작(Mock). **지원서 주장 검증이 비어 있어 루프의 앞 고리가 없음** |
+| P5 데모 출시 | `[TODO]` | 배포·실모델 데모·기록 영속화 미완 |
+
+### 7.4 데모 완성도에 대한 근거 기반 평가
+
+- **되는 것(Mock 경로, 자동 테스트·E2E로 확인):** 기업/대학 여정 → 공고·자소서 붙여넣기/TXT 추출 → 기관 프로필 확인·승인 → 설정 → 면접(텍스트) → 규칙 기반 근거 인용 보고서 → 새 질문 재연습 → 전후 비교(또는 판단 보류) → 기록·내보내기·삭제 → 관리자 월간 역량 초안/공개/롤백.
+- **안 되는 것:** 지원서 **주장** 기반 질문, 공식 자료 실제 수집, 목표 AI 구성(DeepSeek/Claude/ElevenLabs), 배포(Pages/Workers), 영속 저장, 실제 인증, 실모델에서의 품질·보안 검증.
+- **판단:** 데모의 "골격"은 Mock으로 끝까지 동작하지만, 대회 제출용으로 내세울 **차별점(주장 검증)과 목표 기술 구성이 코드에 없다.** 따라서 현재는 "Mock 기반 UI·상태기계 시제품"이며 AI 경진대회용 완성 데모로 부르기 어렵다. 실모델 경로는 한 번도 이번 점검에서 호출하지 않았다.
+
+### 7.5 남은 문서 불일치(이번 작업에서 `PROJECT.md` 외 수정 금지로 미수정)
+
+| 문서 | 불일치 |
+|---|---|
+| `README.md` | 앞부분이 "통합 테스트 43개", "AI 기본 공급자는 Gemini", 만 19세·Mock→Gemini 중심. 실제 62개이며 목표 공급자 구성(§4.2)·배포 계획 미반영. 하단 "Current state"는 최신에 가까움 |
+| `IMPLEMENTATION_CHECKLIST.md` | 기준선이 "51 pass / check 3/3"(현재 62 pass / 가드 4 체크). P0 항목 일부(PII 회귀, 키워드 안티게이밍)는 테스트가 이미 있으나 미체크 |
+| `docs/project-intro.md`, `docs/master-plan.md`, `docs/implementation-spec.md`, `docs/decisions/2026-10-24-gemini-first.md` | 과거 목표·설정(31개 테스트, Gemini 우선, 토론 베타 등) — 이력으로 보존하되 사용자용 설명은 갱신 필요 |
+| `docs/cost-assumptions*.json`, `tools/cost-model*.mjs` | Gemini/레거시 Groq 가정뿐. 목표 구성 비용 가정 없음 |
+| `tools/e2e-ui.mjs` | Playwright 1.64.1 설치를 안내하나, 이 PC의 전역 Playwright는 1.61.1이고 브라우저 빌드가 달라 그대로는 실행 불가(§10) |
 
 ## 8. 매 실행 시 에이전트 강제 작업 규칙
 
@@ -306,6 +459,199 @@
 ## 9. 자동 검사 범위의 한계
 
 `npm run check:project`와 CI는 필수 문서·구조적 규칙의 **존재와 연결**만 자동 검사한다. 코드·UI·AI 모델의 실제 의미적 적합성은 증명하지 못한다. 향후 계약 기반 테스트, 실사용 브라우저 E2E, 자료 추출/인용 검증, 사람 평가 기반 품질 검사를 단계적으로 추가해야 한다.
+
+## 10. 현재 테스트·검증 결과 (2026-10-29 실행분)
+
+| 검사 | 실행한 것 | 결과 |
+|---|---|---|
+| 문서·UI 구조 가드 | `npm run check:project` | PASS 4/4(PROJECT.md 헤딩·AGENTS.md·package 스크립트·UI 9화면/금지 패턴). **문서 구조 검사일 뿐 제품 적합성을 증명하지 않는다** |
+| 통합 테스트 | `npm test`(= 가드 + `node --test tests/run.mjs`) | **62 pass / 0 fail / 0 skipped**(P0-1 수정 후; 수정 전 59), 약 2초. 테스트 서버는 로컬 `.env`의 키를 비우고 Mock으로만 동작 |
+| 기관 맞춤 E2E(HTTP) | `node tools/e2e-institution.mjs` | 14 PASS / 0 FAIL (Mock) |
+| 브라우저 E2E | `tools/e2e-ui.mjs` | 47개 체크 전부 ok, "E2E 통과"(9화면 경로, 1440/768/390px 가로 오버플로 없음, 콘솔 오류·페이지 예외 0, 의도된 관리자 403 1회). **그대로는 실행 불가** — 스크립트가 안내하는 Playwright 1.64.1이 없고 전역 1.61.1은 맞는 브라우저 빌드가 없어서, 저장소 밖 임시 래퍼로 이미 설치된 `chromium_headless_shell-1248`을 `executablePath`로 지정해 실행. 헤드리스 Chromium 1종만, 마이크·SpeechSynthesis 실장치는 포함하지 않음 |
+| 설계 fixture 검사 | `node tools/verify-design.mjs` | PASS (문서 fixture·원가 산식 검사. 제품 품질·보안 검증 아님) |
+| 오프라인 보안 프로브 | 저장소 밖 임시 스크립트, `fetch` 스텁·가짜 키로 외부 호출 없이 실행 | BUG-1~4 재현(BUG-1은 P0-1 수정 후 프로브 재실행에서 위조 플래그 호출 0건 확인) |
+| 타입 검사·린트·빌드 | **미실행** | 해당 설정이 저장소에 없음(TypeScript·ESLint·번들러·빌드 단계 없음) |
+| 실키 호출(`smoke:gemini`, `e2e:gemini`, Groq STT) | **미실행** | 외부 API 호출·무료 한도 소모 및 실제 데이터 전송 방지. 따라서 Gemini·Groq 실동작·지연·429 처리는 `[UNVERIFIED]` |
+| 비용 모델(`npm run cost*`) | **미실행** | Gemini 가정 산식이며 목표 구성과 무관 |
+| Gemini 어댑터 단위 테스트 | 없음 | `fetchFn` 주입점은 있으나 테스트가 사용하지 않음. 12초 타임아웃·1회 재시도·대체 모델 로직은 `[UNVERIFIED]` |
+| 다른 브라우저·모바일 실기기 | **미실행** | 390px 폭 에뮬레이션 레이아웃만 확인 |
+| API 키 클라이언트 노출 | 코드 검토 | `public/`에 키 참조 없음, 추적 파일에 키 패턴 없음, `/stt/status`는 키 비노출(test 762). 단 `/health`는 설정 불리언·모델명을 **무인증**으로 노출(BUG-4) |
+
+**상위 결론:** 위 PASS는 Mock·합성 데이터·문서 구조에 대한 것이다. 실모델 품질, 실제 한국어 문서/음성, 배포 환경, 보안 침투 시험은 검증되지 않았다.
+
+## 11. 발견된 버그와 기술 부채
+
+심각도는 데모 영향 기준(P0 데모 핵심·보안 / P1 품질 / P2 개선 / P3 확장). 재현 방식을 같이 적는다.
+
+| ID | 우선 | 내용 | 근거·재현 |
+|---|---|---|---|
+| BUG-1 | ~~P0~~ **수정됨(2026-10-29, P0-1)** | **[원 결함·참고용]** 실사용자 텍스트가 클라이언트 위조 플래그로 Gemini에 전송될 수 있었음. `isServerSynthetic()`은 이름과 달리 **요청 본문의 `synthetic:true`와 `_synthetic_fixture:true`**만 본다. `GEMINI_ALLOW_UNPAID=true`이면(현재 로컬 `.env` 값) 선택기가 `gemini`를 반환한다. 방어는 이메일·전화·주민번호 정규식뿐이라 이름·학교는 통과. 프로필 경로는 응답에 `provider:"mock"`이라 적으면서 Gemini를 호출한다. `PROJECT.md` §5 #1·#3 위반 | `src/server.js:51~63,227~236,779~781`. 임시 프로브(스텁 fetch): 플래그 없음 → mock·호출 0, 위조 플래그 → `provider:"gemini"`·호출 1(턴), 프로필 → 응답 `mock`·호출 발생. 기존 테스트는 키를 비워 이 경로를 못 보고, test 815는 201/422 둘 다 통과시켜 공허함. 배포된 UI는 플래그를 보내지 않음(가드가 검사) — 직접 API 호출로만 악용 |
+| BUG-2 | P0 | **삭제 후 사용자 발언이 남음.** `DELETE /sessions/:id`·`DELETE /account`가 `transferJobs`(기준·재연습 발췌 원문)와 `exports`(10분)를 지우지 않는다. 계정 삭제 후에도 `GET /transfer-comparisons/:id`가 200과 발췌를 반환 | `server.js:74,1117,1369`. 프로브로 재현. `PROJECT.md` §5 #10 위반 |
+| BUG-3 | P1 | `ADMIN_TOKEN`이 없으면 **모든 일반 개발 토큰 사용자가 월간 역량 초안·공개·롤백 가능**(프로브: 사용자 B가 초안 201). 관리자 토큰을 쿼리스트링(`?admin_token=`)으로도 받아 URL·로그에 남을 수 있음 | `server.js:78~89` |
+| BUG-4 | P1 | 인증 전 엔드포인트: `/health`(설정 불리언·모델명), `/metrics`(월 지출 원장), `/diagnostics/gemini-models`(**서버 Gemini 키로 외부 호출, 인증·속도 제한 없음**) | `server.js:1403~1448`, 프로브로 무인증 200 확인 |
+| BUG-5 | P1 | 월간 트렌드를 **출처·코멘트 없이** 공개 가능. `data/trends.json`에 `competency:"a"`, 출처 없음 항목이 공개 상태로 있고 `GET /trends/company/2026-10`이 그대로 노출. §2.3의 출처·검수 요건 미충족 | `trends.js validateItems`, `data/trends.json` |
+| BUG-6 | P1 | 보고서 표기 불일치: `badge:"AI 생성 코칭…"`이 규칙 기반 평가에도 붙음. `provider`는 전역값, `paidAck=true`면 `model_version`이 Gemini 모델명이 되어 **규칙 기반을 AI 평가로 오인시킬 수 있음**(UI 문구는 규칙 기반으로 정확). `PROJECT.md` §2.6 위반 소지 | `server.js:939~945` |
+| BUG-7 | P1 | 새 질문 템플릿이 행동 루브릭 4역량(`relevance/evidence_specificity/reasoning/reflection`)만 있음. 기술·토론·PT·상황 루브릭 역량은 `reflection` 질문으로 대체되어 **같은 역량 재검증이 성립하지 않음**. `server.js`의 `practiceText`는 미사용 코드 | `transfer.js transferTemplatesFor`, `server.js:1243` |
+| BUG-8 | P1 | 대화 중 429 → 정적 폴백으로 계속하지 않고 `finishSession` 호출. 이 경로에서 원장 예약(0.005)이 정산되지 않음. `createSession`의 예산 사전 확인은 `session:${owner}` 키를 써서 실제 세션 원장과 무관 | `server.js:381,807~813` |
+| BUG-9 | P1 | 업로드 한도 불일치: 서버 상한 5MB vs JSON 본문 한도 1,000,000바이트(base64 팽창) → 약 0.7MB 초과 파일은 413. UI 안내와 다를 수 있음(코드 기준, 재현 미실시) | `server.js:118,1603`, `documents.js MAX_BYTES` |
+| DEBT-1 | P0 | **영속 저장 없음** — 프로세스 재시작 시 세션·보고서·전이 작업·예산 원장 소실(데모 중 서버 재시작=데이터 유실) | `src/store.js` 머리말 |
+| DEBT-2 | P0 | **실제 인증 없음** — 정적 개발 토큰, 브라우저 기본 토큰 내장. 공개 배포 전에 반드시 교체 | `config.js`, `app.js:8` |
+| DEBT-3 | P0 | 공급자 라우팅 부재 — `config.registry`는 정의만 있고 미사용. 목표 구성(§4.2) 도입 시 어댑터 선택 구조 필요 | `grep registry src` |
+| DEBT-4 | P1 | `Idempotency-Key`는 필수 헤더지만 저장·재생하지 않음(`idempotency` Map 미사용). 명령은 `command_id`로 별도 보호 | `server.js:66,1477` |
+| DEBT-5 | P1 | `server.js` 1,700줄 단일 파일, UI `app.js` 1,780줄 — Workers 이전·테스트 분리 부담 | — |
+| DEBT-6 | P1 | 사용자별 속도 제한이 프로필 생성에만 있음(문서 추출·STT·턴 없음) | `store.recordProfileCall` |
+| DEBT-7 | P1 | 이름·학교·주소 PII 탐지 없음, 블라인드 마스킹은 휴리스틱 | `pii.js` |
+| DEBT-8 | P2 | 6개 면접 유형이 기본 설정 화면에 노출(§3과 충돌) | `index.html:237` |
+| DEBT-9 | P2 | SSRF 검사는 호스트 문자열 기반 — **수집기를 만들 때 DNS 해석·리디렉션 재검사 필수** | `sources.js` |
+| DEBT-10 | P2 | 새 질문 비교가 1~2개 답변의 키워드 규칙 점수 차이에 의존 | `compareTransfer`, `mock-eval.js scoreHeuristic` |
+
+## 12. 구현 우선순위와 단계별 로드맵
+
+원칙: 기능 수보다 **처음부터 끝까지 정상 동작하는 데모 시나리오(§13)**. 난이도 S(≈반나절) / M(1~2일) / L(3일+) 은 대략 추정이다. 모든 변경은 `AGENTS.md` 종료 절차(`check:project`·`npm test`·브라우저 확인)를 따른다.
+
+### P0 — 데모 핵심 경로·보안을 막는 항목
+
+| ID | 작업 | 대상 파일 | 필요한 변경 | 선행 | 검증 | 난이도 |
+|---|---|---|---|---|---|---|
+| P0-1 | **완료(2026-10-29)** 공급자 게이트 복구(BUG-1) | `src/server.js`(`isServerSynthetic`,`providerForRequest`,`createProfile`,`runCommand`), `adapters.js selectProvider`, `store.js`(`free_test`), `tests/run.mjs` | 요청 본문의 합성 표시를 **전송 근거에서 제거**. 합성 허용은 서버가 보유한 데모 fixture ID(서버 환경설정)로만. 응답의 `provider`는 실제 호출 공급자를 반영. 이름·학교 PII 탐지 보강은 P1-8 | 없음 | 가짜 키+스텁 `fetch`로 위조 플래그 시 **외부 호출 0건** 단언 테스트(프로필·턴), 서버 fixture 경로만 호출됨 단언 | M |
+| P0-2 | 삭제 완전성(BUG-2) | `src/server.js`(`deleteSession`,`deleteAccount`,`exports`,`transferJobs`), `store.js` | 세션/계정 삭제 시 전이 작업·내보내기 캐시 파기(또는 소유 세션 ID로 연결해 연쇄 삭제) | 없음 | 삭제 후 `GET /transfer-comparisons/:id` 404, `exports` 404 테스트 | S |
+| P0-3 | **지원서 주장 검증 슬라이스** | 신규 `src/domain/claims.js`, `server.js`(`createProfile`,`createSession`), `public/app.js`(`renderEvidence`), `tests/run.mjs` | 자소서/지원서 텍스트를 별도 입력으로 받아 문장 단위 주장(역할·행동·결과·수치·공백) 추출, 원문 span·코드포인트 보존, 질문에 `application_evidence_ids`·`source_status`·`prompt_version` 연결, 자소서에 없는 사실 생성 금지. 1차는 결정적 규칙+Mock, 2차에 Claude Sonnet 연결 | P0-1 | 합성 자소서에서 질문이 인용 문장에 연결됨, 존재하지 않는 구절 거부, 프롬프트 인젝션 문장이 지시로 쓰이지 않음 | L |
+| P0-4 | 공급자 라우팅 + 목표 구성 최소 실모델 경로 | `config.js registry`, `server.js`, 신규 어댑터(DeepSeek 꼬리질문, Claude Sonnet 분석·질문 설계) | operation별 공급자 선택. 명시적 환경 플래그·예산 상한 없이는 호출 금지, 실패 시 Mock 폴백과 **"Mock 사용 중" 표시**, 유료 자동 승격 금지(§5 #8). 각 공급자 약관·데이터·연령 조건 확인 후 합성 데이터만 연결 | P0-1, §14 약관 확인 | 스텁 `fetch` 계약 테스트 + 합성 데이터 실호출 1회 스모크(개발자 승인 후) | L |
+| P0-5 | 배포 구조 결정·구현 | `public/`, 신규 `wrangler` 설정·Worker, `.github/workflows` | (a) Pages 정적 UI + Workers 프록시/백엔드로 갈지 (b) 대회 데모는 로컬 Node 서버로 시연할지 결정(`[미확정]`). (a)면 API 기본 URL 설정, CORS, 키는 Workers 비밀값, 영속 저장(KV/D1/Durable Objects 택1) 필요. 현 `server.js`는 그대로 Worker로 이식 불가 | 결정 | 배포 URL에서 §13 시나리오 완주, 번들에 키 없음 확인 | L |
+| P0-6 | 공개 전 필수 보안 정리 | `server.js`(`checkAdmin`,`/health`,`/metrics`,`/diagnostics`), `config.js`, `app.js:8` | 관리자 토큰 필수화(미설정 시 관리 기능 비활성), 토큰 쿼리 수신 제거, 진단·지표 엔드포인트 인증·제한, 기본 개발 토큰 제거·실제 인증 도입(또는 데모 전용 초대 토큰) | P0-5 | 무인증 호출 401/403 테스트 | M |
+| P0-7 | 데모 데이터 영속화 | `store.js` 또는 외부 저장소 | 최소한 세션·평가·전이 작업을 파일/KV에 저장해 재시작 후 기록 조회 | P0-5 | 서버 재시작 후 기록·비교 유지 테스트 | M |
+
+### P1 — 면접 품질·분석 정확성·평가·음성
+
+| ID | 작업 | 대상 파일 | 필요한 변경 | 선행 | 검증 | 난이도 |
+|---|---|---|---|---|---|---|
+| P1-1 | 평가기 고도화 | `mock-eval*.js`, 신규 평가 어댑터 | Claude Sonnet 평가는 **기존 인용·span 검증(`validateEvaluation`)을 통과한 출력만** 채택, 평가기 종류를 보고서에 표기. 사람 평가자 비교 전에는 "검증된 AI 평가" 금지 | P0-4 | 사람 2명 이상 독립 채점 20건 대비 일치도(§6.2), 키워드 주입 회귀 유지 | L |
+| P1-2 | 면접관 TTS(ElevenLabs) | `server.js`(프록시 엔드포인트), `app.js`(`speak`) | 서버 프록시로 합성, 키 비노출, 실패·한도 시 브라우저 TTS 폴백, 사람 음성 오인 금지 표기 | P0-5 | 스텁 계약 테스트, 폴백 E2E | M |
+| P1-3 | Groq STT 실검증 | `adapters.js`, `app.js` | 합성 음성으로 실호출(승인 후), 오류율·지연 기록, 교정 UI 점검 | 키·승인 | WER/CER·p95 지연 기록(§6.2) | S |
+| P1-4 | 새 질문 생성 개선(BUG-7) | `transfer.js`, `server.js createPractice` | 루브릭별 템플릿 또는 LLM 생성+유사도·역량 일치 검사, 전 루브릭 역량 지원 | P0-4 | 루브릭 6종 모두 같은 역량·다른 질문 테스트 | M |
+| P1-5 | 월간 트렌드 규칙 강화·연결(BUG-5) | `trends.js`, `server.js`, `questions`/`institution.js` | 출처·코멘트 필수, 공개 항목을 **보조 기준으로 표기**해 질문 설계에 반영, 미승인 노출 금지 유지 | 없음 | 출처 없는 공개 422, 공개본만 질문에 반영 | M |
+| P1-6 | 공식 자료 수집기 | 신규 `src/domain/fetcher.js`, `sources.js` | 허용 도메인 목록, 서버 fetch, DNS 해석 후 사설 IP 재검사, 리디렉션 재검증, 크기·시간·robots 제한, 상태 `official_verified/unavailable/stale/conflict` 분리. **미구현 시 데모에서는 큐레이션 fixture를 "사용자 제공/데모 fixture"로 표기** | P0-1 | SSRF 시험(사설 IP·리디렉션·DNS rebinding 모사), 수집 실패 상태 분리 테스트 | L |
+| P1-7 | 오류·한도 처리(BUG-8,9) | `server.js` | 429 시 정적 폴백으로 계속(또는 안내 종료)하며 원장 정산 누락 수정, 업로드 한도 정합, 사용자별 속도 제한 확대 | 없음 | 429·타임아웃 스텁 테스트 | M |
+| P1-8 | PII 탐지 보강 | `pii.js` | 이름·학교·주소 후보 탐지, 오탐(`이유`,`이번`,`21세기`) 회귀 유지 | 없음 | 정/오탐 코퍼스 테스트 | M |
+| P1-9 | 보고서 표기 정정(BUG-6) | `server.js`(보고서 생성) | 평가기 종류·실제 공급자 표기, `badge` 문구 정정 | 없음 | 보고서 필드 단언 테스트 | S |
+| P1-10 | 실제 PDF/DOCX 호환 | `documents.js` | 실제 한국어 PDF/DOCX 샘플(합성)로 시험, 실패 시 붙여넣기 안내 유지(필요 시 검증된 파서 도입 검토 — 의존성 추가는 개발자 승인 필요) | — | 실문서 샘플 추출 성공/실패율 기록 | M |
+
+### P2 — 추가 유형·UX·운영 편의
+
+- 비핵심 면접 유형(토론·PT·상황·패널)을 기본 화면에서 숨기고 "고급" 영역으로 이동(DEBT-8) — `public/index.html`, `app.js loadCatalog` / S.
+- 관리자 화면: 월간 후보 AI 추출 보조, 출처·신선도 검토 UI, 공개 중단 — `trends.js`, `app.js` / M.
+- 연령 확인 단계 UI(Figma 6단계)와 합성 예제 모드 안내 — `index.html`, `server.js` / M.
+- `server.js`·`app.js` 모듈 분리(DEBT-5), `Idempotency-Key` 재생(DEBT-4) / M~L.
+- 접근성·다른 브라우저(Safari/Firefox)·모바일 실기기 점검, 문서 재정비(§7.5) / M.
+
+### P3 — 상용화·확장성·장기 운영
+
+실제 계정·로그인, 관리형 DB와 행 수준 접근 제어, 실시간 스트리밍(WebSocket), 월간 수집 자동화 작업, 이의 제기 운영 절차, 미성년자 대상 법적 경로, 사용량 과금·팀 관리, 장기 학습 추이, 개인정보 처리방침·보존 정책 문서화.
+
+## 13. 데모데이 시연 범위와 완료 조건
+
+**범위:** 합성 지원자 1~2명(기업 1경로, 대학 1경로)으로 아래 시나리오를 **실제 UI에서 끝까지** 수행. 실사용자 데이터는 사용하지 않는다. 화면에는 **현재 공급자 모드(Mock / 실모델)와 평가기 종류**를 항상 표시한다.
+
+| # | 시연 단계 | 완료 조건 | 현재 |
+|---|---|---|---|
+| 1 | 기업/대학 선택, 공고·합성 자소서 입력 | 두 경로 모두 진행 | `[DONE]`(자소서 구분 입력 `[PARTIAL]`) |
+| 2 | 주장·공백 추출 결과 표시 | 자소서 **원문 문장 인용+위치** 표시, 없는 사실 없음 | `[PARTIAL]`(키워드 수준) → P0-3 |
+| 3 | 공식 기준·출처 확인·승인 | 출처 상태(공식 확인/사용자 제공/트렌드/미확인) 구분, 수집 실패 표시 | `[PARTIAL]`(수집 없음) → P1-6 |
+| 4 | 개인정보·연령 확인 | 합성 데이터만 외부 전송, 연령 안내 | `[PARTIAL]` → P0-1 |
+| 5 | 검증 질문·꼬리질문 | 질문이 근거 ID에 연결, 직전 답변 관련 꼬리질문 | `[PARTIAL]` → P0-3·P0-4 |
+| 6 | 텍스트·음성 답변 | 음성은 전사 확인·교정 후 제출, 실패 시 텍스트 | 텍스트 `[DONE]`, 음성 `[UNVERIFIED]` |
+| 7 | 근거 기반 보고서 | 발언 인용·판단 보류, 평가기 종류 명시 | `[DONE]`(규칙 기반) |
+| 8 | 약점 집중 코칭 | 약한 역량 1개와 다음 행동 1개 | `[DONE]` |
+| 9 | 새 질문 재연습 | 같은 역량의 **다른 질문**, 같은 루브릭 | `[PARTIAL]`(행동 4역량 한정) |
+| 10 | 답변 변화 비교 | `observed_change`/`no_clear_change`/판단 보류 + 발언 근거 | `[PARTIAL]` |
+| 11 | 기록·내보내기·삭제 | 삭제 후 잔존 없음 | `[PARTIAL]`(BUG-2) |
+| 12 | 운영자: 월간 역량 초안→검수→공개 | 출처 필수, 공개본만 노출 | `[PARTIAL]`(BUG-5) |
+
+**데모 완료 조건:** 위 12단계가 같은 환경에서 중단 없이 수행되고, `npm run check:project`·`npm test`·브라우저 E2E가 통과하며, BUG-2·DEBT-2가 닫혀 있고(BUG-1은 2026-10-29 수정), 실모델 사용 여부가 화면·보고서에 정확히 표시될 것. 목표 AI 구성(DeepSeek·Claude·ElevenLabs)을 연결하지 못한 항목은 "미연결/Mock"으로 표시하고 완료로 세지 않는다.
+
+## 14. 알려진 한계와 미확정 사항
+
+- **미확인 외부 사실:** DeepSeek·Claude Sonnet·ElevenLabs·Groq·Cloudflare·GitHub Pages의 현재 모델 ID, 엔드포인트, 가격, 무료 티어, 지원 기능(한국어 품질 포함), 데이터 학습·보존·국외 이전·연령 조건. 확인 전에는 코드·문서에 확정값을 쓰지 않는다.
+- **법·약관:** 실제 지원서(특히 미성년자 가능 대입 지원자)를 각 공급자에 보낼 수 있는지 `[UNVERIFIED]`. 확인 전까지 합성 fixture만.
+- **저장소·배포 아키텍처:** Workers에서의 영속 저장 방식(KV/D1/Durable Objects)과 백엔드 이전 범위 `[미확정]`. 대회 시연을 로컬 서버로 할지 배포로 할지 `[미확정]`.
+- **품질 미검증:** 한국어 STT 오류율, 꼬리질문 적합성, 평가 타당성, 새 질문 비교의 의미, 개선 효과(사람 평가 실험 필요 — §6.2). 현재 평가는 규칙 기반 참고 관찰이다.
+- **재현 못 한 것:** 실제 한글 PDF/DOCX 추출, 실기기 마이크·TTS, Safari/Firefox, 업로드 한도 BUG-9(코드 기준).
+- **SDGs 연계**는 가설이며(§1.5) 효과를 측정하지 않았다.
+- **Figma 원본**은 레이어 이름·구조만 확인했다(§16). 노드 안의 설명 문구와 시각 디자인은 읽지 않았다.
+- **결제·충전 상태:** §15 금액은 계획액이며 **결제 증빙이 저장소에 없어 결제 여부는 미확인**이다.
+
+## 15. 예산 (계획액, 결제 상태 미확인)
+
+총 데모 예산 **200,000원**. 아래는 개발자가 정한 **계획액**이며 실제 결제·충전 완료를 뜻하지 않는다(저장소에 증빙 없음 → 모두 `[UNVERIFIED]`).
+
+| 항목 | 계획액 | 비고 |
+|---|---|---|
+| DeepSeek API | $10 | 목표 실시간 면접관·꼬리질문 |
+| Claude Sonnet API | $10 | 목표 이력서 분석·질문 설계·종합 평가 |
+| Groq Whisper | $4 | 목표 STT |
+| ElevenLabs Creator | $22 | 목표 TTS |
+| GitHub Pages | 무료 | — |
+| Cloudflare Workers | 무료 티어 우선 | 한도 초과 시 유료 여부 `[미확정]` |
+| 개발용: Claude Pro | $20 | — |
+| 개발용: ChatGPT Business Standard | $50 | 월간 최소 2석 기준(개발자 계획) |
+| **합계(계획)** | **$116** (API·서비스 $46 + 개발 구독 $70) | |
+
+- 산술 참고: 합계 $116이 200,000원 이내이려면 환율·수수료·부가세 반영 후 약 **1,724원/USD 이하**여야 한다. 실제 환율·세금·결제 수수료는 확인하지 않았다.
+- 현재 코드의 예산 장치(`ledger.js`)는 Gemini 단가표 기준 세션 $0.08·월 $30 상한이며 인메모리다. **목표 구성에는 공급자별 상한이 없다** → 신규 공급자 연결 시 공급자별 월 상한·킬 스위치·자동 승격 금지를 같은 변경에 포함한다(P0-4). 기존 `docs/cost-assumptions*.json`은 목표 구성에 맞지 않는다(§7.5).
+
+## 16. Figma 워크플로우 대조
+
+**검증 범위.** Figma MCP로 `NcKWUyP3hhw6oKCC43UkJs`, 노드 `3:3`(프레임 "초안", 4532×1690)의 **메타데이터(레이어 이름·구조·위치)를 읽는 데 성공**했다. 확인한 구조: 주 흐름 12단계(요청 문서의 12단계와 이름·순서 일치), 운영자 흐름 4단계(웹 조사·자료 등록 → 근거·신선도 검토 → 관리자 승인 → 월간 역량 게시), 하위 분기 7개(자소서 원문 근거 / 미확인·수집 실패 / 실데이터 처리 차단 / 질문별 근거 연결 / 규칙 평가≠AI 평가 / 새 문항 유사도 검사 / 비교 가능 여부 판정), 트렌드 대체 경로, 재검증 루프. **각 노드의 설명 텍스트와 시각 디자인은 읽지 않았다**(스크린샷·`get_design_context` 미사용). 따라서 단계 설명 문구까지 직접 검증했다고 주장하지 않는다.
+
+### 16.1 사용자 흐름 12단계
+
+| 단계 | 현재 구현 | 목표 동작 | 누락된 데이터 흐름 | 모델·API (현재 → 목표) | 선행·제약 |
+|---|---|---|---|---|---|
+| 1 기업·대학 선택 | `[DONE]` `app.js:241` | 유형 선택 | — | 없음 | — |
+| 2 지원 자료 제출 | `[PARTIAL]` 공고 텍스트·TXT/PDF/DOCX 추출·경험 3개 | 공고·이력서·자소서 문서 구분, 원본/추출/수정 revision | 문서 종류·revision 저장 | 없음 | 실제 한글 PDF 미검증, 업로드 한도 BUG-9 |
+| 3 주장·공백 추출 | `[PARTIAL]` 키워드 14개 | 자소서 문장 단위 주장(역할·행동·결과·수치)과 공백, 원문 span | 지원자 주장 모델(`EvidenceClaim`) | 규칙/Gemini(공고 키워드) → Claude Sonnet | P0-3, 프롬프트 인젝션 방어 |
+| 4 공식 기준 탐색 | `[TODO]` URL 메타 기록만 | 서버 제어 수집기로 공식 페이지 수집·발췌 | 수집 결과·발췌 위치·확인일 저장 | 없음 → 수집기(+Claude Sonnet 요약은 선택) | SSRF·DNS·리디렉션 방어, 도메인 허용 목록(P1-6) |
+| 5 출처 검토·승인 | `[PARTIAL]` 기관 프로필 확인·승인(`approveProfile`) | 출처별 상태(공식 확인/사용자 제공/트렌드/미확인/수집 실패)와 승인 | `verified` 상태·수집 실패 구분 | 없음 | 4단계 선행 |
+| 6 개인정보·연령 확인 | `[PARTIAL]` PII 정규식·정적 연령 문구·고교 Mock 강제 | 연령 확인 절차, 실데이터 외부 전송 차단, 합성 모드 | 연령·동의 기록, 서버 소유 합성 fixture | 없음 | **BUG-1** 선행, 공급자 약관(§14) |
+| 7 검증 질문 설계 | `[PARTIAL]` 정적 팩+기관 템플릿 | 주장·공식 요구에 연결된 질문(근거 ID) | `question_id`/증거 ID/`prompt_version` | 없음 → Claude Sonnet | P0-3 |
+| 8 실전 면접 진행 | `[PARTIAL]` REST 명령, 텍스트·Groq 녹음, 브라우저 TTS | 실시간 꼬리질문, 음성 입출력 | 스트리밍(선택) | Gemini(조건부)/Mock → DeepSeek, Groq Whisper, ElevenLabs | P0-4, 약관 확인, 예산 상한 |
+| 9 근거 기반 관찰 | `[DONE]`(규칙) | 발언 인용 기반 관찰, 판단 보류 | 평가기 종류 표기(BUG-6) | 규칙 → Claude Sonnet(검증 후) | 인용 검증 유지, 사람 평가 비교 |
+| 10 약점 집중 코칭 | `[DONE]`(규칙) | 약한 역량 1개·다음 행동 1개 | — | 규칙 | — |
+| 11 새 질문 재연습 | `[PARTIAL]` 템플릿 3개/역량, 행동 4역량 | 같은 역량의 새·다른 질문 | 루브릭별 질문 은행/생성(BUG-7) | 규칙 → Claude Sonnet(선택) | 유사도 검사 유지 |
+| 12 답변 변화 비교 | `[PARTIAL]` `compareTransfer` | 같은 루브릭 비교, 판단 보류 | 영속 저장·삭제 연동(BUG-2) | 규칙 | 학습 효과 주장 금지 |
+
+### 16.2 운영자(월간 역량) 흐름 4단계
+
+| 단계 | 현재 구현 | 목표 동작 | 누락 | 비고 |
+|---|---|---|---|---|
+| 웹 조사·자료 등록 | `[PARTIAL]` 관리자가 직접 입력(`/admin/trends` 초안) | 허용된 공개 자료 수집·등록 | 수집기, 자료 저장 | P1-6 |
+| 근거·신선도 검토 | `[TODO]` 트렌드용 검토 없음(기관 출처 신선도 함수는 별도) | 출처·발행일·반복성·편향 검토 | 검토 데이터·UI | P2 |
+| 관리자 승인 | `[PARTIAL]` 공개 시 승인 | 역할 기반 승인 | **인증 개방(BUG-3)** | P0-6 |
+| 월간 역량 게시 | `[PARTIAL]` 공개·롤백·구버전 보존·공개본만 노출 | 분야별 최대 3개+출처+코멘트 | 출처·코멘트 필수 검증(BUG-5), 질문 설계 연동 | P1-5 |
+
+### 16.3 하위 분기·루프 대조
+
+| Figma 분기 | 현재 |
+|---|---|
+| 자소서 원문 근거 | `[PARTIAL]` 공고 키워드 span만 |
+| 미확인 / 수집 실패 | `[PARTIAL]` 기관 프로필에 "일반 템플릿" 폴백 표시. 수집 실패 상태 자체는 없음 |
+| 실데이터 처리 차단 | `[PARTIAL]` 위조 플래그 우회는 수정됨(P0-1). 연령·동의 확인 단계는 `[TODO]` |
+| 질문별 근거 연결 | `[PARTIAL]` 기관 질문 `rationale`만 |
+| 규칙 평가 ≠ AI 평가 | `[PARTIAL]` UI 고지는 정확, API 표기는 불일치(BUG-6) |
+| 새 문항 유사도 검사 | `[DONE]` `questionSimilarity` ≥0.55 거부 |
+| 비교 가능 여부 판정 | `[DONE]` 판단 보류 조건(동일 질문·유사 질문·루브릭 버전 불일치·근거 부족) |
+| 트렌드 대체 경로 | `[PARTIAL]` 공개본 없으면 `unavailable` 반환, 질문 설계에는 미반영 |
+| 재검증 루프 | `[PARTIAL]` 재연습 반복 가능하나 기록 영속화 없음 |
+
+## 17. 이번 점검의 변경 요약 (v1.0.0 → v1.1.0)
+
+- **2026-10-29 P0-1 코드 수정:** `src/server.js`(`isServerSynthetic`·`providerForRequest` 제거 → 서버 상태 기반 `providerFor`, 프로필 응답 `provider`는 실제 사용 공급자, highschool+`paidAck` 시 Gemini 호출되던 경로 차단), `src/store.js`(`free_test`는 요청 본문이 아닌 서버 값), `tools/gemini-e2e.mjs`(`syntheticTraffic:true`), `.env.example` 주석, `tests/run.mjs`(공허하던 test 815 제거, 위조 플래그 외부 호출 0건 등 신규 4건, `free_test` 영속 테스트를 위조 방어 테스트로 교체). 신규 테스트 4건은 수정 전 코드에서 실패함을 확인. 결과: `npm test` 62/62, E2E 47 ok, 기관 E2E 14/14. 실키 호출은 실행하지 않음.
+
+- 헤더에 버전·점검 범위를 갱신하고 §0에 상태 표기 표준을 추가했다.
+- §1.5(개요·SDGs 가설·사용자·시나리오), §2.8(면접 유형별 동작), §4.2(현재 vs 목표 공급자·마이그레이션), §4.4(AI 호출 구조), §5.1(현재 구현 대조), §7(실제 구현 상태 전면 개정), §10~§17을 추가·개정했다.
+- 기존 v1.0.0 §7의 "PDF/DOCX 지원서 업로드 미확인/현 UI 미제공"은 코드상 **구현됨(부분)**으로, "월간 트렌드 승인·버전 미구현"은 **부분 구현(관리자 초안·공개·롤백·영속)**으로, "90초 재연습 일부 구현 — 다른 질문 간 비교 추가"는 **전후 비교 골격 구현(Mock)**으로 정정했다.
+- 변경·삭제: "Groq GPT-OSS 120B 성능 비교 후보"는 개발자의 목표 구성(§4.2)에서 제외되어 이력으로만 남겼고, "Gemini↔GPT-OSS 블라인드 A/B" 항목은 목표 구성 기준의 모델 비교로 바꿨다. §1~§6·§8·§9의 제품 원칙·보안 불변 조건은 **완화하지 않고 유지**했다.
+- 이 변경은 코드·테스트를 수정하지 않는 문서 갱신이다. 신규 목표 구성(DeepSeek·Claude·ElevenLabs·Pages·Workers)은 `[TODO]`이며 구현·결제 완료가 아니다.
 
 ---
 

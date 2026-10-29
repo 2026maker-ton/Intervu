@@ -812,15 +812,6 @@ test('transcriptions rejects non-audio payload', async () => {
   }
 });
 
-test('synthetic turn never carries PII to provider path', async () => {
-  const s = await newSession();
-  // PII 포함 synthetic 표시는 서버에서 차단(422)되어야 하며 외부 전송이 일어나지 않는다
-  const p = await call('/api/v1/profiles', { method: 'POST', body: { role: '사무', source_text: '합성 테스트 문제 해결', synthetic: true, experiences: ['010-1234-5678'] } });
-  // experiences에 PII가 있으면 합성 요청이 거부된다
-  assert.ok([201, 422].includes(p.status));
-  if (p.status === 422) assert.match(p.data.error.message, /개인정보/);
-});
-
 test('turn response carries explicit provider flag (mock default)', async () => {
   const s = await newSession();
   const r = await call(`/api/v1/sessions/${s.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: s.version, type: 'turn.text', payload: { text: '제가 직접 일정을 조정했고 결과적으로 기한 안에 제출했습니다.' } } });
@@ -839,15 +830,93 @@ test('free test toggle still keeps mock when unchecked', async () => {
   assert.equal(r.data.provider, 'mock', 'unchecked free test must never call gemini');
 });
 
-test('free test session flag is persisted', async () => {
+test('forged synthetic/free_test body flags never set session free_test', async () => {
   await cleanupAll();
-  const s = await call('/api/v1/sessions', { method: 'POST', body: { interview_type: 'general', duration_minutes: 5, synthetic: true } });
+  const s = await call('/api/v1/sessions', { method: 'POST', body: { interview_type: 'general', duration_minutes: 5, synthetic: true, free_test: true } });
   assert.equal(s.status, 201, JSON.stringify(s.data));
-  assert.equal(s.data.free_test, true);
+  assert.equal(s.data.free_test, false, 'free_test is server state, not a request field');
   const got = await call(`/api/v1/sessions/${s.data.id}`);
-  assert.equal(got.data.free_test, true);
+  assert.equal(got.data.free_test, false);
 });
 
+// 게이트 시험: 가짜 키 + 스텁 fetch. Gemini 호스트로 나가는 요청 수를 센다.
+async function withGeminiStub(env, overrides, fn) {
+  const realFetch = globalThis.fetch;
+  const outbound = [];
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('generativelanguage.googleapis.com')) {
+      outbound.push(String(opts?.body || ''));
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"utterance":"STUB 꼬리질문?","claims":[],"missing_fields":[]}' }] } }], usageMetadata: {} }), { status: 200 });
+    }
+    return realFetch(url, opts);
+  };
+  const gated = createApp({ env: { GEMINI_API_KEY: 'fake-key', GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: A, TRENDS_FILE: '', PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100', ...env }, ...overrides });
+  await new Promise((r) => gated.server.listen(0, r));
+  const gbase = `http://127.0.0.1:${gated.server.address().port}`;
+  const gcall = async (path, { method = 'GET', body } = {}) => {
+    const h = { Authorization: `Bearer ${A}` };
+    if (body !== undefined) h['Content-Type'] = 'application/json';
+    if (method !== 'GET') h['Idempotency-Key'] = crypto.randomUUID();
+    const res = await realFetch(gbase + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: res.status, data: await res.json().catch(() => ({})) };
+  };
+  try { await fn({ gcall, outbound, app: gated }); } finally { globalThis.fetch = realFetch; gated.server.close(); }
+}
+const FORGED = { synthetic: true, _synthetic: true, _synthetic_fixture: true, synthetic_fixture: '__fixture__', free_test: true };
+const REAL_TEXT = '저는 한빛고 학생회장 김철수로서 팀 갈등을 직접 조율했고 기준을 세워 대안을 비교했습니다.';
+
+async function runForgedFlow(gcall, extra = {}) {
+  const pr = await gcall('/api/v1/profiles', { method: 'POST', body: { org_type: 'company', target_name: 'X', role: 'PM', source_text: '문제 해결 협업 인재상', ...FORGED, ...extra } });
+  assert.equal(pr.status, 201, JSON.stringify(pr.data));
+  const s = await gcall('/api/v1/sessions', { method: 'POST', body: { duration_minutes: 10, ...FORGED } });
+  assert.equal(s.status, 201, JSON.stringify(s.data));
+  const st = await gcall(`/api/v1/sessions/${s.data.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: s.data.version, type: 'session.start', payload: {} } });
+  // 위조 플래그를 본문 최상위와 payload 양쪽에 싣는다
+  const turn = await gcall(`/api/v1/sessions/${s.data.id}/commands`, { method: 'POST', body: { command_id: crypto.randomUUID(), expected_version: st.data.version, type: 'turn.text', ...FORGED, payload: { text: REAL_TEXT, ...FORGED } } });
+  assert.equal(turn.status, 202, JSON.stringify(turn.data));
+  return { pr, turn };
+}
+
+test('P0 gate: forged synthetic flags with allowUnpaid never reach Gemini (profile + turn)', async () => {
+  await withGeminiStub({ GEMINI_ALLOW_UNPAID: 'true', GEMINI_PAID_ACK: 'false' }, {}, async ({ gcall, outbound, app }) => {
+    assert.equal(app.providerName, 'mock');
+    const { pr, turn } = await runForgedFlow(gcall);
+    assert.equal(outbound.length, 0, 'no outbound Gemini request for client-flagged traffic');
+    assert.equal(pr.data.provider, 'mock');
+    assert.equal(turn.data.provider, 'mock');
+    assert.equal((await gcall('/api/v1/health')).data.provider.selected, 'mock');
+  });
+});
+
+test('P0 gate: highschool profile stays mock even when paidAck is set', async () => {
+  await withGeminiStub({ GEMINI_PAID_ACK: 'true' }, {}, async ({ gcall, outbound }) => {
+    const pr = await gcall('/api/v1/profiles', { method: 'POST', body: { org_type: 'highschool', target_name: 'X', role: '학업', source_text: '문제 해결 협업 진로' } });
+    assert.equal(pr.status, 201, JSON.stringify(pr.data));
+    assert.equal(pr.data.provider, 'mock');
+    assert.equal(outbound.length, 0);
+  });
+});
+
+test('P0 gate: server-owned syntheticTraffic instance may use free Gemini; real-looking PII still blocked', async () => {
+  await withGeminiStub({ GEMINI_ALLOW_UNPAID: 'true', GEMINI_PAID_ACK: 'false' }, { syntheticTraffic: true }, async ({ gcall, outbound, app }) => {
+    assert.equal(app.providerName, 'gemini');
+    const bad = await gcall('/api/v1/profiles', { method: 'POST', body: { org_type: 'company', role: 'PM', source_text: '문제 해결 협업 연락처 010-1234-5678' } });
+    assert.equal(bad.status, 422);
+    assert.equal(outbound.length, 0, 'PII blocked before any outbound call');
+    const ok = await gcall('/api/v1/profiles', { method: 'POST', body: { org_type: 'company', role: 'PM', source_text: '문제 해결 협업 인재상' } });
+    assert.equal(ok.status, 201, JSON.stringify(ok.data));
+    assert.equal(ok.data.provider, 'gemini');
+    assert.equal(outbound.length, 1);
+    const s = await gcall('/api/v1/sessions', { method: 'POST', body: { duration_minutes: 10 } });
+    assert.equal(s.data.free_test, true);
+  });
+});
+
+test('P0 gate: HTTP/env cannot enable synthetic mode (only createApp override)', async () => {
+  await withGeminiStub({ GEMINI_ALLOW_UNPAID: 'true', GEMINI_PAID_ACK: 'false', SYNTHETIC_TRAFFIC: 'true', INTERVU_SYNTHETIC: 'true' }, {}, async ({ app }) => {
+    assert.equal(app.providerName, 'mock');
+  });
+});
 
 test('P0: PII blind masking keeps common words', async () => {
   const { buildBlindContext } = await import('../src/domain/pii.js');

@@ -12,7 +12,7 @@ import { PT_TASKS, SITUATION_SCENARIOS, TECHNICAL_QUESTIONS, PANEL_PRESETS } fro
 const LEGACY_TYPE_ALIASES = ['structured', 'discussion_beta', 'pt_beta', 'presentation'];
 
 export function createSessionHandlers(d) {
-  const { config, store, ledger, err, now, provider, syntheticTraffic } = d;
+  const { config, store, ledger, trends, err, now, provider, syntheticTraffic } = d;
   function createSession(owner, body) {
     if (!body.profile_version_id) {
       if (body.profile_version_id === undefined) {
@@ -171,6 +171,19 @@ export function createSessionHandlers(d) {
         question_basis = `지원서 주장 검증 ${claimQs.length}건 · ${question_basis}`;
       }
     }
+    // 월간 트렌드(보조 기준): 공개본이 있을 때만 일반 질문 끝에 최대 1개. 기관 공식 요구로 표기하지 않는다.
+    if (interview_type === 'general' && trends?.published) {
+      const seg = { company: 'company', university: 'university' }[orgOf];
+      const pub = seg && trends.published({ segment: seg, yyyyMm: new Date().toISOString().slice(0, 7) });
+      const item = pub?.items?.[0];
+      if (item) {
+        questions = [...questions, {
+          id: `trend-${item.id}`, text: `최근 ${item.competency} 역량이 중요하게 언급됩니다. 이 역량을 보여 준 본인의 경험과 구체적 행동을 설명해 주세요.`,
+          primary: 'evidence_specificity', secondary: ['relevance'],
+          trend_ids: [item.id], source_status: 'monthly_trend', _institution_basis: '월간 트렌드(보조)',
+        }];
+      }
+    }
     const s = store.createSession(owner, {
       ...body, free_test: syntheticTraffic, mode, interview_type,
       duration_minutes, duration_seconds,
@@ -200,7 +213,7 @@ export function createSessionHandlers(d) {
       question_basis: s.question_basis || 'general-template-v1',
       rubric_version: s.policy_snapshot?.rubric || rubricForInterviewType(s.interview_type || s.mode || 'general'),
       duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, input_mode: s.input_mode,
-      active_elapsed_ms: s.active_elapsed_ms + (s.state === 'active' && s.started_at ? Math.max(0, Date.now() - Date.parse(s.started_at)) : 0), questions: s.questions.map((q) => ({ id: q.id, text: q.text, primary: q.primary, secondary: q.secondary, ...(q.application_evidence ? { application_evidence: q.application_evidence, source_status: q.source_status, prompt_version: q.prompt_version } : {}) })), q_index: s.q_index,
+      active_elapsed_ms: s.active_elapsed_ms + (s.state === 'active' && s.started_at ? Math.max(0, Date.now() - Date.parse(s.started_at)) : 0), questions: s.questions.map((q) => ({ id: q.id, text: q.text, primary: q.primary, secondary: q.secondary, ...(q.trend_ids ? { trend_ids: q.trend_ids, source_status: q.source_status, basis: q._institution_basis } : {}), ...(q.application_evidence ? { application_evidence: q.application_evidence, source_status: q.source_status, prompt_version: q.prompt_version } : {}) })), q_index: s.q_index,
       current_question: s.questions[s.q_index] || null, followups_used: s.followups_used, llm_calls: s.llm_calls,
       coverage: s.coverage || null, degraded_reason: s.degraded_reason, last_seq: (store.events.get(s.id) || []).filter((e) => e.durable).length,
     };

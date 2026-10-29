@@ -46,5 +46,23 @@ export function createAdminHandlers(d) {
     }
   }
 
-  return { draftTrend, publishTrend, rollbackTrend, parseTrendId };
+  async function unpublishTrend(owner, id, body, req) {
+    void owner; void body;
+    const gate = await checkAdmin(req);
+    if (gate) return gate;
+    try {
+      const { segment, yyyyMm } = parseTrendId(id);
+      return { status: 200, body: trends.unpublish({ segment, yyyyMm }) };
+    } catch (e) {
+      return err(e.code === 404 ? 'not_found' : 'validation_error', e.message, e.code || 422);
+    }
+  }
+  async function listTrends(owner, req) {
+    void owner;
+    const gate = await checkAdmin(req);
+    if (gate) return gate;
+    return { status: 200, body: { trends: trends.list(), legacy_invalid: trends.legacyInvalidReport() } };
+  }
+
+  return { unpublishTrend, listTrends, draftTrend, publishTrend, rollbackTrend, parseTrendId };
 }

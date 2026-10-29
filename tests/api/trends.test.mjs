@@ -34,7 +34,7 @@ test('P2: admin trends require token when ADMIN_TOKEN set; draft→publish→rol
     assert.equal(after.data.status, 'monthly_trend');
     assert.equal(after.data.items[0].competency, '문제 해결');
     // 두 번째 초안→공개 후 첫 버전으로 롤백하면 새 버전이 생긴다
-    await acall('/api/v1/admin/trends', { method: 'POST', body: { segment: 'company', yyyyMm: '2026-11', items: [{ competency: '협업' }] }, admin: true });
+    await acall('/api/v1/admin/trends', { method: 'POST', body: { segment: 'company', yyyyMm: '2026-11', items: [{ competency: '협업', comment: '협업 강조', sources: ['https://example.com/2'] }] }, admin: true });
     await acall(`/api/v1/admin/trends/${id}/publish`, { method: 'POST', body: { version: 2 }, admin: true });
     const rb = await acall(`/api/v1/admin/trends/${id}/rollback`, { method: 'POST', body: { version: 1 }, admin: true });
     assert.equal(rb.status, 200, JSON.stringify(rb.data));
@@ -43,7 +43,7 @@ test('P2: admin trends require token when ADMIN_TOKEN set; draft→publish→rol
     assert.equal(rolled.data.version, 3);
     assert.equal(rolled.data.items[0].competency, '문제 해결');
     // 4개 초과는 거부된다
-    const over = await acall('/api/v1/admin/trends', { method: 'POST', body: { segment: 'company', yyyyMm: '2026-12', items: [1, 2, 3, 4].map((i) => ({ competency: `c${i}` })) }, admin: true });
+    const over = await acall('/api/v1/admin/trends', { method: 'POST', body: { segment: 'company', yyyyMm: '2026-12', items: [1, 2, 3, 4].map((i) => ({ competency: `c${i}`, comment: 'c', sources: ['https://e.com'] })) }, admin: true });
     assert.equal(over.status, 422);
   } finally {
     adminApp.server.close();
@@ -59,7 +59,7 @@ test('P2: trends persist to TRENDS_FILE across restarts', async () => {
   await new Promise((r) => a1.server.listen(0, r));
   try {
     const b1 = `http://127.0.0.1:${a1.server.address().port}`;
-    const res = await fetch(`${b1}/api/v1/admin/trends`, { method: 'POST', headers: { Authorization: `Bearer ${A}`, 'x-admin-token': 'persist-admin', 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ segment: 'university', yyyyMm: '2026-10', items: [{ competency: '학업 역량' }] }) });
+    const res = await fetch(`${b1}/api/v1/admin/trends`, { method: 'POST', headers: { Authorization: `Bearer ${A}`, 'x-admin-token': 'persist-admin', 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ segment: 'university', yyyyMm: '2026-10', items: [{ competency: '학업 역량', comment: '학업 강조', sources: ['https://e.com'] }] }) });
     assert.equal(res.status, 201);
     assert.ok(existsSync(f), 'trends file must be written');
     const saved = JSON.parse((await import('node:fs')).readFileSync(f, 'utf8'));
@@ -78,7 +78,7 @@ test('P2: trends persist to TRENDS_FILE across restarts', async () => {
     const body = await res.json();
     assert.equal(body.status, 'unavailable');
     // 파일에서 버전 이력이 복원됐다면 다음 초안은 v2가 된다.
-    const next = await fetch(`${b2}/api/v1/admin/trends`, { method: 'POST', headers: h2, body: JSON.stringify({ segment: 'university', yyyyMm: '2026-10', items: [{ competency: '학업 역량' }] }) });
+    const next = await fetch(`${b2}/api/v1/admin/trends`, { method: 'POST', headers: h2, body: JSON.stringify({ segment: 'university', yyyyMm: '2026-10', items: [{ competency: '학업 역량', comment: '학업 강조', sources: ['https://e.com'] }] }) });
     assert.equal(next.status, 201);
     assert.equal((await next.json()).version, 2, 'version history must survive restart');
     const pub = await fetch(`${b2}/api/v1/admin/trends/${encodeURIComponent('university|2026-10')}/publish`, { method: 'POST', headers: h2, body: JSON.stringify({ version: 2 }) });

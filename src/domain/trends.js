@@ -17,16 +17,25 @@ export function createTrendStore({ filePath = '', onWarn = null } = {}) {
     try { onWarn?.(msg, extra); } catch { /* noop */ }
   };
 
-  function validateItems(items) {
-    if (!Array.isArray(items) || !items.length || items.length > 3) {
-      throw Object.assign(new Error('트렌드는 월·분야별 최대 3개까지만 승인할 수 있습니다.'), { code: 422 });
-    }
-    return items.slice(0, 3).map((it, i) => ({
-      id: String(it.id || `trend-${i + 1}`),
-      competency: String(it.competency || '').slice(0, 60),
-      comment: String(it.comment || '').slice(0, 200),
-      sources: Array.isArray(it.sources) ? it.sources.slice(0, 5).map((s) => String(s).slice(0, 500)) : [],
-    }));
+  const bad = (m) => Object.assign(new Error(m), { code: 422 });
+  // 항목마다 출처>=1, 코멘트, 역량 필수(BUG-5). 항목에 출처가 없으면 버전 공통 출처를 물려받는다.
+  function validateItems(items, fallbackSources = []) {
+    if (!Array.isArray(items) || !items.length || items.length > 3) throw bad('트렌드는 월·분야별 1~3개까지만 승인할 수 있습니다.');
+    const strs = (a, n) => (Array.isArray(a) ? a.map((x) => String(x).trim().slice(0, 500)).filter(Boolean).slice(0, n) : []);
+    return items.map((it, i) => {
+      const competency = String(it?.competency || '').trim().slice(0, 60);
+      const comment = String(it?.comment || '').trim().slice(0, 200);
+      const own = strs(it?.sources, 5);
+      const sources = own.length ? own : strs(fallbackSources, 5);
+      if (!competency) throw bad(`${i + 1}번째 항목의 역량명이 비어 있습니다.`);
+      if (!comment) throw bad(`${i + 1}번째 항목에 코멘트가 필요합니다.`);
+      if (!sources.length) throw bad(`${i + 1}번째 항목에 출처가 1개 이상 필요합니다.`);
+      return { id: String(it.id || `trend-${i + 1}`), competency, comment, sources };
+    });
+  }
+  // 영속 데이터(레거시 포함)가 규칙을 만족하는지. 공개 노출 직전에도 검사한다.
+  function isValidVersion(v) {
+    try { validateItems(v.items); return true; } catch { return false; }
   }
 
   function snapshot() {
@@ -66,10 +75,12 @@ export function createTrendStore({ filePath = '', onWarn = null } = {}) {
             items: Array.isArray(x.items) ? x.items : [],
             comment: String(x.comment || ''),
             sources: Array.isArray(x.sources) ? x.sources : [],
-            status: x.status === 'published' ? 'published' : 'draft',
+            status: ['published', 'unpublished'].includes(x.status) ? x.status : 'draft',
             created_at: x.created_at || null,
             published_at: x.published_at || null,
             rolled_back_from: x.rolled_back_from ?? null,
+            approved_by: x.approved_by ?? null,
+            unpublished_at: x.unpublished_at ?? null,
           })),
         });
       }
@@ -90,7 +101,7 @@ export function createTrendStore({ filePath = '', onWarn = null } = {}) {
       const row = store.get(k) || { segment, yyyyMm, versions: [] };
       const version = row.versions.length + 1;
       row.versions.push({
-        version, items: validateItems(items), comment: String(comment).slice(0, 500),
+        version, items: validateItems(items, sources), comment: String(comment).slice(0, 500),
         sources: Array.isArray(sources) ? sources.slice(0, 10) : [],
         status: 'draft', created_at: new Date().toISOString(), published_at: null,
       });
@@ -103,7 +114,10 @@ export function createTrendStore({ filePath = '', onWarn = null } = {}) {
       const row = store.get(key(segment, yyyyMm));
       const v = row?.versions.find((x) => x.version === Number(version));
       if (!v) throw Object.assign(new Error('해당 버전을 찾을 수 없습니다.'), { code: 404 });
+      if (v.status !== 'draft') throw bad('초안 상태의 버전만 공개할 수 있습니다.');
+      if (!isValidVersion(v)) throw bad('출처·코멘트 검증을 통과하지 못한 버전은 공개할 수 없습니다.');
       v.status = 'published';
+      v.approved_by = 'admin';
       v.published_at = new Date().toISOString();
       persist();
       return v;
@@ -111,9 +125,10 @@ export function createTrendStore({ filePath = '', onWarn = null } = {}) {
     // 관리자: 특정 공개 버전으로 롤백 (새 버전으로 복원 기록).
     rollback({ segment, yyyyMm, version }) {
       const row = store.get(key(segment, yyyyMm));
-      const v = row?.versions.find((x) => x.version === Number(version) && x.status === 'published');
+      const v = row?.versions.find((x) => x.version === Number(version) && ['published', 'unpublished'].includes(x.status));
       if (!v) throw Object.assign(new Error('롤백할 공개 버전을 찾을 수 없습니다.'), { code: 404 });
-      const copy = { ...v, version: row.versions.length + 1, status: 'published', published_at: new Date().toISOString(), rolled_back_from: v.version };
+      if (!isValidVersion(v)) throw bad('검증을 통과하지 못한 버전으로는 롤백할 수 없습니다.');
+      const copy = { ...v, version: row.versions.length + 1, status: 'published', published_at: new Date().toISOString(), rolled_back_from: v.version, approved_by: 'admin', unpublished_at: null };
       row.versions.push(copy);
       persist();
       return copy;
@@ -121,8 +136,31 @@ export function createTrendStore({ filePath = '', onWarn = null } = {}) {
     // 사용자 노출: 승인·공개된 최신 버전만. 없으면 null (임의 생성 금지).
     published({ segment, yyyyMm }) {
       const row = store.get(key(segment, yyyyMm));
-      const pubs = (row?.versions || []).filter((x) => x.status === 'published');
+      const pubs = (row?.versions || []).filter((x) => x.status === 'published' && isValidVersion(x));
       return pubs.length ? pubs[pubs.length - 1] : null;
+    },
+    // 관리자: 공개 중단. 공개 버전을 unpublished로 바꾸되 이력은 보존한다.
+    unpublish({ segment, yyyyMm }) {
+      const row = store.get(key(segment, yyyyMm));
+      const pubs = (row?.versions || []).filter((x) => x.status === 'published');
+      if (!pubs.length) throw Object.assign(new Error('공개 중인 버전이 없습니다.'), { code: 404 });
+      const at = new Date().toISOString();
+      for (const v of pubs) { v.status = 'unpublished'; v.unpublished_at = at; }
+      persist();
+      return { segment, yyyyMm, unpublished_versions: pubs.map((v) => v.version) };
+    },
+    // 관리자: 월·분야 목록과 현재 공개 버전.
+    list() {
+      return [...store.values()].map((r) => ({
+        segment: r.segment, yyyyMm: r.yyyyMm, versions: r.versions.length,
+        published_version: this.published({ segment: r.segment, yyyyMm: r.yyyyMm })?.version ?? null,
+      })).sort((a, b) => (a.yyyyMm + a.segment).localeCompare(b.yyyyMm + b.segment));
+    },
+    // 일회성 정리 보고: 규칙 위반인데 공개 상태인 레거시 버전(노출은 이미 차단). 삭제하지 않고 보고만 한다.
+    legacyInvalidReport() {
+      const out = [];
+      for (const r of store.values()) for (const v of r.versions) if (v.status === 'published' && !isValidVersion(v)) out.push({ segment: r.segment, yyyyMm: r.yyyyMm, version: v.version });
+      return out;
     },
     history({ segment, yyyyMm }) {
       return (store.get(key(segment, yyyyMm))?.versions || []).map((v) => ({ ...v }));

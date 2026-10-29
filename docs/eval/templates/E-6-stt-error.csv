@@ -1,0 +1,2 @@
+sample_id,date,speaker_type,audio_source,environment,duration_sec,reference_transcript,stt_transcript,normalization_rule,char_errors_sub_del_ins,ref_char_count,word_errors_sub_del_ins,ref_word_count,latency_ms,http_outcome,commit_hash,memo
+EXAMPLE-000,YYYY-MM-DD,synthetic_tts|consented_human,"(생성 도구·동의서 번호)","(마이크·소음·브라우저)",,"(예시 행 — 삭제 후 사용)","",공백·문장부호 제거|그대로,,,,,,200|429|timeout|empty,,

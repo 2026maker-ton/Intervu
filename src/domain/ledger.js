@@ -1,6 +1,7 @@
 // 예산 원장: 호출 단위 예약→정산. unknown 비용은 자동 반환하지 않는다.
-export function createLedger({ sessionHardCap, monthlyApiBudget }) {
-  const state = {
+export function createLedger({ sessionHardCap, monthlyApiBudget, state = null }) {
+  // state는 Store(ledgerState())가 소유할 수 있다. 없으면 로컬 상태.
+  state = state || {
     monthlySpent: 0,
     monthlyReserved: 0,
     sessions: new Map(), // sessionId -> {reserved, settled, unknown, calls}

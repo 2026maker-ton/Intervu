@@ -61,18 +61,40 @@ function pickSpan(chars) {
 
 function scoreHeuristic(dim, text) {
   const len = [...text].length;
-  const hasAction = /(제가|저는|직접|제시|비교|조정|합의|설득)/.test(text);
-  const hasReason = /(이유|근거|기준|왜냐|때문|대안)/.test(text);
-  const hasResult = /(결과|완료|제출|달라|바뀌|관찰)/.test(text);
-  const hasReflect = /(배웠|다음|바꾸|교훈|반성)/.test(text);
+  const t = String(text || '');
+  const hasAction = /(제가|저는|직접|제시|비교|조정|합의|설득)/.test(t);
+  const hasReason = /(근거|기준|왜냐|때문|대안)/.test(t) || /(이유)/.test(t);
+  const hasResult = /(결과|완료|제출|달라|바뀌|관찰)/.test(t);
+  const hasReflect = /(배웠|다음|바꾸|교훈|반성)/.test(t);
+  // P0 안티게이밍: 키워드만 나열한 짧고 근거 없는 답변은 상한을 강제한다.
+  // "저는 이유 결과" 같은 입력이 L3/L4를 받지 못해야 한다.
+  const substantive = substantiveScore(t);
   let s = 1;
-  if (len >= 12) s = 2;
-  if (dim === 'evidence_specificity' && hasAction && hasResult) s = 3;
-  if (dim === 'reasoning' && hasReason) s = Math.max(s, 3);
-  if (dim === 'relevance' && len >= 12) s = Math.max(s, 3);
-  if (dim === 'reflection' && hasReflect) s = Math.max(s, 3);
-  if (hasAction && hasReason && hasResult) s = 4;
+  if (len >= 12 && substantive >= 2) s = 2;
+  if (dim === 'evidence_specificity' && hasAction && hasResult && substantive >= 3 && len >= 30) s = 3;
+  if (dim === 'reasoning' && hasReason && substantive >= 3 && len >= 30) s = Math.max(s, 3);
+  if (dim === 'relevance' && len >= 12 && substantive >= 2) s = Math.max(s, 3);
+  if (dim === 'reflection' && hasReflect && substantive >= 2 && len >= 20) s = Math.max(s, 3);
+  // L4는 길고 구체적인 근거 + 이유 + 결과 + 성찰/대안 비교가 모두 있어야 한다.
+  if (hasAction && hasReason && hasResult && (hasReflect || /대안|비교|한계/.test(t)) && len >= 60 && substantive >= 5) s = 4;
   return Math.min(4, s);
+}
+
+// 실질성 점수: 서로 다른 근거 신호가 실제로 서술됐는지 본다.
+// 단순 키워드 2~3개 나열(substantive<2)은 L2 이상을 주지 않는다.
+function substantiveScore(t) {
+  const signals = [
+    /(제가|저는).{2,}(했|하였|수행|담당|제안|결정|주도)/.test(t),
+    /(직접|본인)/.test(t),
+    /(제시|비교|조정|합의|설득)/.test(t),
+    /(근거|기준|왜냐|때문)/.test(t) && t.replace(/\s/g, '').length >= 15,
+    /(결과|완료|제출|달라|바뀌|관찰)/.test(t) && t.replace(/\s/g, '').length >= 15,
+    /(배웠|다음|바꾸|교훈|반성)/.test(t),
+    /\d/.test(t),
+    /[.!?。]\s*.+/.test(t) || t.split(/\n/).filter((x) => x.trim().length >= 8).length >= 2,
+    [...t.replace(/\s/g, '')].length >= 40,
+  ];
+  return signals.filter(Boolean).length;
 }
 
 function nextActionFor(dim) {

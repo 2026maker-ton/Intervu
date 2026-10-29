@@ -2,292 +2,552 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Intervu — 한국어 AI 모의면접 연습</title>
-<meta name="description" content="지원 공고의 확인된 조건으로 연습하고, 내 발언 근거로 피드백을 받은 뒤, 다른 질문에서 개선을 확인하는 한국어 면접 코치." />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Intervu — 지원서 주장 검증 · 근거 코칭 · 새 질문 전이 확인</title>
+<meta name="description" content="지원서의 주장을 확인하고, 내 발언 근거로 코칭을 받은 뒤, 처음 보는 다른 질문에서 개선 여부를 확인하는 한국어 면접 코치." />
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
 <a class="skip" href="#main">본문으로 이동</a>
+
 <header class="topbar">
   <div class="brand">
     <span class="mark" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8.5 9.5c.8-1 2-1.6 3.5-1.6s2.7.6 3.5 1.6"/><path d="M9 13h.01M12 13h.01M15 13h.01"/></svg>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8.5 9.5c.8-1 2-1.6 3.5-1.6s2.7.6 3.5 1.6"/><path d="M9 13h.01M12 13h.01M15 13h.01"/></svg>
     </span>
-    <div><strong>Intervu</strong><small>한국어 AI 모의면접</small></div>
+    <div><strong>Intervu</strong><small>지원서 주장 → 근거 코칭 → 새 질문 확인</small></div>
   </div>
-  <nav aria-label="주요 메뉴">
-    <button class="tab active" data-view="home">연습하기</button>
-    <button class="tab" data-view="history">기록</button>
-    <button class="tab" data-view="privacy">데이터·안내</button>
+  <nav class="mainnav" aria-label="주요 화면">
+    <button class="navbtn" type="button" data-go="dashboard">대시보드</button>
+    <button class="navbtn" type="button" data-go="history">기록·데이터</button>
   </nav>
-  <div class="provider-chips">
-    <div class="provider-chip" id="providerChip" role="status" title="AI 공급자 상태">확인 중…</div>
-    <div class="provider-chip" id="sttChip" role="status" title="음성 인식 상태">STT 확인 중…</div>
+  <div class="topbar-right">
+    <span class="mode-chip" id="modeChip" role="status" aria-live="polite">모드 확인 중…</span>
+    <button class="ghost small" type="button" id="helpBtn" aria-expanded="false" aria-controls="helpPanel">이용 안내</button>
   </div>
 </header>
 
-<main id="main">
-  <section class="view active" id="view-home">
-    <!-- A안: 왼쪽 연습 흐름 / 오른쪽 라이브룸 -->
-    <div class="studio-layout">
-      <div class="flow-col">
-        <div class="hero">
-          <p class="eyebrow">Mock-first · 만 19세 이상 · 한국어</p>
-          <h1>질문 하나.<br />근거 하나.<br /><span class="accent-line">다음 행동 하나.</span></h1>
-          <p class="lede">합격 확률은 말하지 않습니다. 대신 공고에서 확인된 조건으로 묻고, 당신의 발언을 인용한 뒤, 다음 답변에서 바꿀 행동 하나를 정해줍니다.</p>
-          <div class="promise-row" role="list">
-            <div class="promise" role="listitem"><strong>공고 조건 구분</strong><span>확인 문장 위치 표시</span></div>
-            <div class="promise" role="listitem"><strong>발언 인용</strong><span>역량 앵커 연결</span></div>
-            <div class="promise" role="listitem"><strong>재연습 확인</strong><span>같은 역량, 다른 질문</span></div>
-          </div>
+<div class="help-panel" id="helpPanel" hidden>
+  <div class="help-inner">
+    <h2>이 서비스가 하는 일 / 하지 않는 일</h2>
+    <div class="help-grid">
+      <div>
+        <h3>하는 일</h3>
+        <ul class="plain">
+          <li>지원서·공고에서 확인된 문장과 <strong>출처 위치</strong>를 보여줍니다.</li>
+          <li>내 답변에서 <strong>실제 발언을 인용</strong>해 관찰만 기록합니다.</li>
+          <li>부족한 부분은 <strong>판단 보류</strong>로 표시합니다.</li>
+          <li>같은 역량의 <strong>처음 보는 질문</strong>으로 다시 확인합니다.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>하지 않는 일</h3>
+        <ul class="plain">
+          <li>합격 확률·백분위·성격/감정 진단은 하지 않음</li>
+          <li>얼굴·카메라·음성 감정 분석</li>
+          <li>없는 경험·성과 만들기</li>
+          <li>채용기관에 개인 점수 전달</li>
+        </ul>
+      </div>
+    </div>
+    <p class="fine">현재 코칭은 <strong>규칙 기반 참고 관찰</strong>입니다. 검증된 AI 채점이 아니며, 사람 평가자를 대체하지 않습니다. 만 19세 이상 대상입니다.</p>
+    <button class="ghost small" type="button" id="helpCloseBtn">닫기</button>
+  </div>
+</div>
+
+<main id="main" tabindex="-1">
+
+  <!-- 1. 대시보드 -->
+  <section class="screen" id="screen-dashboard" data-screen="dashboard" aria-labelledby="dashboardTitle">
+    <div class="screen-head">
+      <p class="eyebrow">Start</p>
+      <h1 id="dashboardTitle">어떤 면접을 준비하나요?</h1>
+      <p class="lede">지원서의 주장을 확인하고, 내 발언 근거로 코칭을 받은 뒤, 처음 보는 다른 질문에서 개선 여부를 확인합니다.</p>
+    </div>
+
+    <div class="journey-grid" role="group" aria-label="지원 분야 선택">
+      <button class="journey-card" type="button" id="journeyCompany" data-journey="company">
+        <span class="journey-tag">기업 취업</span>
+        <strong>채용 면접</strong>
+        <span>공고·직무기술서의 요구 역량과 지원서 주장을 연결합니다.</span>
+        <span class="journey-cta">기업 지원으로 시작 →</span>
+      </button>
+      <button class="journey-card" type="button" id="journeyUniversity" data-journey="university">
+        <span class="journey-tag">대학 입학</span>
+        <strong>입학·전형 면접</strong>
+        <span>모집요강·전형 자료와 학생부·자기소개서 주장을 연결합니다.</span>
+        <span class="journey-cta">대학 지원으로 시작 →</span>
+      </button>
+    </div>
+
+    <section class="card continue-card" id="continueCard" aria-labelledby="continueTitle" hidden>
+      <div class="card-head">
+        <div><h2 id="continueTitle">이어서 하기</h2><p class="meta" id="continueMeta"></p></div>
+        <button class="primary" type="button" id="continueBtn">면접실로 돌아가기</button>
+      </div>
+    </section>
+
+    <p class="fine"><a href="#/application" id="fixtureLink" hidden>샘플로 체험하기 (합성 샘플)</a></p>
+
+    <div class="panel-grid">
+      <section class="card" aria-labelledby="recentTitle">
+        <div class="card-head">
+          <h2 id="recentTitle">최근 연습</h2>
+          <button class="ghost small" type="button" data-go="history">전체 기록</button>
         </div>
-
-        <ol class="steps" aria-label="연습 순서">
-          <li class="card step" data-step="profile">
-            <div class="step-head"><span class="step-num" aria-hidden="true">1</span><div><h2>지원 정보</h2><p class="hint">공고가 없어도 시작할 수 있어요.</p></div><span class="step-state" data-state-label>대기</span></div>
-            <form id="profileForm">
-              <div class="row">
-                <label>지원 기관 구분
-                  <select name="org_type">
-                    <option value="company">일반기업</option>
-                    <option value="public">공공기관</option>
-                    <option value="university">대학교</option>
-                    <option value="highschool">고등학교</option>
-                  </select>
-                </label>
-                <label>지원 직무·학과 <input name="role" maxlength="100" placeholder="예: 사무·기획 / 경영학과 / 일반전형" autocomplete="off" /></label>
-              </div>
-              <label>기관 이름 <input name="target_name" maxlength="100" placeholder="예: ○○공사 / ○○대학교" autocomplete="off" /></label>
-              <label>공고 본문 붙여넣기 <textarea name="source_text" rows="5" maxlength="20000" placeholder="역량·전형·면접 형식 부분을 붙여넣으세요. (선택)"></textarea></label>
-              <label>공식 출처 URL (선택, 최대 3개·한 줄에 하나) <textarea name="source_urls" rows="2" maxlength="2000" placeholder="예: https://채용공고-URL (서버가 직접 접속하지 않고 출처 기록용으로만 사용)"></textarea></label>
-              <label>경험 메모 (선택, 한 줄에 하나씩 최대 3개) <textarea name="experiences" rows="2" maxlength="2000" placeholder="예: 팀 프로젝트에서 일정 조정"></textarea></label>
-              <div class="actions">
-                <button class="primary" type="submit">공고 분석하기</button>
-                <button class="ghost" type="button" id="skipProfileBtn">공고 없이 일반 연습</button>
-              </div>
-              <p class="fine">전화·이메일·주민번호는 자동 마스킹됩니다. 완전 익명화는 아닙니다.</p>
-            </form>
-          </li>
-
-          <li class="card step" data-step="extract" id="extractCard" hidden>
-            <div class="step-head"><span class="step-num" aria-hidden="true">2</span><div><h2>기관 자료 확인</h2><p class="hint">확인된 사항과 가정을 구분했어요. 승인 전 수정할 수 있어요.</p></div><span class="step-state" data-state-label>확인 필요</span></div>
-            <div id="extractBody"></div>
-            <div id="institutionBody"></div>
-            <label>확인 메모 (선택, 승인 시 함께 저장) <input id="institutionNote" maxlength="500" placeholder="예: 핵심가치 3개 확인, 면접 형식은 미확인" autocomplete="off" /></label>
-            <div class="actions">
-              <button class="primary" id="approveBtn" type="button">이 내용으로 승인</button>
-              <button class="ghost" type="button" id="backToProfileBtn">다시 입력</button>
-            </div>
-          </li>
-
-          <li class="card step" data-step="setup" id="setupCard" hidden>
-            <div class="step-head"><span class="step-num" aria-hidden="true">3</span><div><h2>면접 설정</h2><p class="hint">유형을 고르고, 필요한 설정만 조합하세요.</p></div><span class="step-state" data-state-label>대기</span></div>
-            <form id="sessionForm">
-              <fieldset class="type-fieldset">
-                <legend>면접 유형</legend>
-                <div class="type-grid" id="typeGrid" role="radiogroup" aria-label="면접 유형"></div>
-              </fieldset>
-              <div class="row3">
-                <label>시간
-                  <select name="duration_minutes"><option value="5">5분 (3문항)</option><option value="10">10분 (4문항)</option><option value="15" selected>15분 (5문항)</option></select>
-                </label>
-                <label>면접관 성향
-                  <select name="persona">
-                    <option value="supportive">친절형</option>
-                    <option value="standard" selected>일반형</option>
-                    <option value="challenging">논리 검증형</option>
-                  </select>
-                </label>
-                <label>면접관 역할
-                  <select name="interviewer_role">
-                    <option value="">기관에 맞춰 자동</option>
-                    <option value="hr">HR·인사 담당</option>
-                    <option value="practitioner" selected>현업 실무자</option>
-                    <option value="expert">기술·전공 면접관</option>
-                    <option value="executive">관리자·임원</option>
-                    <option value="admissions">입학전형위원</option>
-                    <option value="teacher">전공 담당 교사</option>
-                  </select>
-                </label>
-              </div>
-              <div class="row" id="panelRoleRow" hidden>
-                <label>패널 구성 (2~3명)
-                  <span class="check-group" id="panelRoleGroup"></span>
-                </label>
-                <label>패널 프리셋
-                  <select id="panelPreset">
-                    <option value="default">HR · 실무자 · 임원</option>
-                    <option value="tech">실무자 · 기술 · 임원</option>
-                    <option value="school">입학전형위원 · 교사</option>
-                  </select>
-                </label>
-              </div>
-              <label id="variantRow" hidden>과제·주제 선택
-                <select name="variant" id="variantSelect"></select>
-              </label>
-              <label>답변 방식
-                <select name="input_mode" id="inputModeSelect">
-                  <option value="text">텍스트</option>
-                  <option value="voice">음성 (브라우저 인식 + 텍스트 확인)</option>
-                  <option value="groq">음성 녹음 → Groq 전사 (무료 데모)</option>
-                </select>
-              </label>
-              <div class="mic-test" id="micTestBox">
-                <button class="ghost small" id="micTestBtn" type="button">🎙 마이크 테스트 (3초)</button>
-                <span id="micStatus" role="status">음성 인식 지원 여부를 확인합니다…</span>
-              </div>
-              <p class="hint">역할은 질문의 초점·꼬리질문 전략을 바꾸고, 성향은 말투·질문 강도를 조절합니다. 평가 기준은 동일합니다.</p>
-              <div id="freeTestRow">
-              <label class="check"><input type="checkbox" name="free_test" checked /> 무료 테스트 모드 — 합성 데이터로 Gemini 체험 (실명·연락처 등 개인정보 입력 금지)</label>
-              <p class="fine">무료 테스트 ON: 답변이 Gemini 무료 모델로 전송됩니다. 개인정보를 쓰면 서버가 차단하고 Mock으로 처리합니다. OFF: 외부 전송 없이 Mock으로만 연습합니다.</p>
-              </div>
-              <label class="check"><input type="checkbox" name="blind" /> 블라인드 모드 — 학교·출신·성별·연령 단서 제거</label>
-              <p class="blind-note" id="blindNote" hidden>블라인드 연습에서는 해당 단서를 저장·평가에서 마스킹하지만, 마스킹이 완전하지 않을 수 있어 실명·학교명은 쓰지 마세요.</p>
-              <div class="notice" role="note">
-                <strong>시작 전 확인</strong>
-                <ul>
-                  <li>AI가 생성한 질문·코칭이며 실제 평가가 아닙니다.</li>
-                  <li>브라우저 음성 인식은 원음이 서버로 전송되지 않습니다. Groq 녹음 전사는 MP3가 아닌 원음을 서버에서 처리 후 즉시 폐기합니다.</li>
-                  <li>답변 텍스트는 선택된 AI 공급자에게 전송될 수 있습니다. 실명·연락처 등 개인정보는 입력하지 마세요.</li>
-                  <li>Gemini 무료 전용 모드에서는 무료 한도 소진 시 정적 질문으로 전환되며 유료 모델로 자동 전환하지 않습니다.</li>
-                  <li>예산 한도 초과 시 질문이 중단되고 종료됩니다.</li>
-                  <li>기본 보관 30일 · 언제든 삭제할 수 있습니다.</li>
-                </ul>
-              </div>
-              <button class="primary block" type="submit">면접 시작</button>
-            </form>
-          </li>
+        <div id="recentList" class="list" aria-live="polite">
+          <p class="hint">불러오는 중…</p>
+        </div>
+      </section>
+      <section class="card" aria-labelledby="howTitle">
+        <h2 id="howTitle">진행 순서</h2>
+        <ol class="flow-list">
+          <li><span>1</span><div><strong>지원 정보</strong><p>기관·직무/학과와 공고·서류를 입력합니다.</p></div></li>
+          <li><span>2</span><div><strong>근거 확인</strong><p>확인된 문장과 출처, 확인 불가 항목을 구분해 승인합니다.</p></div></li>
+          <li><span>3</span><div><strong>면접 설정 · 실전</strong><p>시간과 답변 방식만 고르고 바로 시작합니다.</p></div></li>
+          <li><span>4</span><div><strong>피드백 · 재연습</strong><p>인용된 발언으로 다음 행동을 정하고, 새 질문에서 확인합니다.</p></div></li>
         </ol>
+      </section>
+    </div>
+  </section>
 
-        <div class="card" id="reportCard" hidden>
-          <div class="report-head">
-            <div><p class="eyebrow" id="reportBadge"></p><h2>근거 기반 코칭 보고서</h2></div>
-            <button class="ghost" id="newSessionBtn">새 연습</button>
-          </div>
-          <p class="hint">각 수준은 해당 답변에서 관찰된 정도입니다. 유효 답변이 2개 미만인 차원은 공개하지 않습니다.</p>
-          <div id="reportBody"></div>
-        </div>
+  <!-- 2. 지원 정보 -->
+  <section class="screen" id="screen-application" data-screen="application" aria-labelledby="applicationTitle" hidden>
+    <div class="screen-head">
+      <p class="eyebrow" id="applicationEyebrow">Application</p>
+      <h1 id="applicationTitle">지원 정보</h1>
+      <p class="hint" id="applicationHint">공고와 서류에서 확인된 내용만 사용합니다. 없으면 일반 기준으로 연습하며, 기관 맞춤 검증 배지는 표시하지 않습니다.</p>
+    </div>
+
+    <div id="appStepper"></div>
+    <form class="card form-card" id="applicationForm" novalidate>
+      <div class="actions sample-row">
+        <button class="ghost" type="button" id="loadFixtureBtn">합성 샘플 불러오기</button>
+        <span id="fixtureBadge" class="state-badge info" hidden>합성 샘플</span>
+        <small class="fine">가상의 기관·인물 자료로 체험합니다. 동의 없이 사용할 수 있습니다.</small>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>지원 기관명</span>
+          <input name="target_name" maxlength="100" autocomplete="organization" placeholder="예: ○○ 주식회사" />
+        </label>
+        <label class="field">
+          <span id="roleLabel">지원 직무</span>
+          <input name="role" maxlength="100" autocomplete="off" placeholder="예: 서비스 기획" />
+        </label>
       </div>
 
-      <!-- 오른쪽: 라이브룸(면접 진행) -->
-      <aside class="room-col" aria-label="면접 진행">
-        <div class="card room" id="roomIdle">
-          <div class="room-top">
-            <span class="live-dot" aria-hidden="true"></span>
-            <p class="eyebrow">Live room</p>
-            <span class="room-state" id="roomState">대기 중</span>
-          </div>
-          <h2 id="roomTitle">여기서 바로 답해요</h2>
-          <p class="hint" id="roomDesc">왼쪽에서 설정을 마치면 이 방이 열립니다. 질문이 나오면 텍스트로 답하고, 끝나면 근거 보고서를 받습니다.</p>
-          <div class="room-visual" aria-hidden="true">
-            <div class="wave" id="roomWave"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-            <p class="room-caption">질문 → 답변 → 꼬리질문 → 보고서</p>
-          </div>
-          <div class="room-meta">
-            <div><span>남은 시간</span><strong id="roomClockSide">--:--</strong></div>
-            <div><span>진행</span><strong id="roomProgressSide">0/5</strong></div>
-            <div><span>예산</span><strong id="roomBudgetSide">정상</strong></div>
-          </div>
-        </div>
+      <label class="field">
+        <span id="sourceLabel">공고·모집요강 본문 (선택)</span>
+        <textarea name="source_text" id="sourceText" rows="6" maxlength="20000" placeholder="요구 역량·전형 방식·면접 형식 부분을 붙여넣으세요."></textarea>
+        <small class="fine">20,000자 이하. 전화·이메일·주민번호는 자동 마스킹되지만 완전 익명화는 아닙니다.</small>
+      </label>
 
-        <div class="card room live" id="sessionCard" hidden>
-          <div class="room-top">
-            <span class="live-dot on" aria-hidden="true"></span>
-            <p class="eyebrow" id="sessionMeta">면접 진행 중</p>
-            <span class="room-state on">LIVE</span>
-          </div>
-          <div class="room-timer">
-            <div class="clock"><span id="clock">00:00</span><small>남은 시간</small></div>
-            <div class="progress" role="progressbar" aria-label="질문 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressWrap"><div id="progressBar"></div></div>
-            <p class="hint" id="turnHint" role="status"></p>
-          </div>
-          <h2 id="questionText">질문을 불러오는 중…</h2>
+      <label class="field">
+        <span>자기소개서·지원서 본문 (선택)</span>
+        <textarea name="application_text" id="applicationText" rows="6" maxlength="20000" placeholder="본인이 쓴 경험·성과 문장을 붙여넣으세요. 문장 단위로 주장과 빠진 근거를 찾아 질문에 연결합니다."></textarea>
+        <small class="fine">20,000자 이하. 규칙 기반으로 서버에서만 분석하며 외부 AI로 보내지 않습니다. 전화·이메일·주민번호는 자동 마스킹됩니다.</small>
+      </label>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="docKind"><span>서류 파일 (선택)</span></label>
+          <select id="docKind">
+            <option value="cover_letter">자기소개서·지원서</option>
+            <option value="posting">공고·모집요강</option>
+            <option value="resume">이력서</option>
+            <option value="other">기타</option>
+          </select>
+          <input type="file" id="docFile" accept=".pdf,.docx,.txt" aria-label="서류 파일 선택" />
+          <small class="fine" id="docStatus" role="status">PDF/DOCX/TXT · 5MB 이하. 서버에서 텍스트만 추출하고 개인정보 후보는 마스킹해 저장합니다. 원본 파일은 저장하지 않습니다.</small>
+          <div id="docCards" class="doc-cards"></div>
+        </div>
+        <label class="field">
+          <span>공식 출처 URL (선택, 한 줄에 하나)</span>
+          <textarea name="source_urls" rows="3" maxlength="2000" placeholder="https://…  (서버가 접속하지 않고 출처 기록용으로만 저장)"></textarea>
+          <small class="fine">최대 3개. 서버는 URL에 직접 접속하지 않습니다.</small>
+        </label>
+      </div>
+
+      <label class="field">
+        <span>경험 메모 (선택, 한 줄에 하나)</span>
+        <textarea name="experiences" rows="3" maxlength="2000" placeholder="예: 팀 프로젝트에서 일정 조정"></textarea>
+        <small class="fine">최대 3개. 지원서에 쓴 주장과 분리해 기록됩니다.</small>
+      </label>
+
+      <div class="actions">
+        <button class="primary" type="submit" id="analyzeBtn">근거 확인하기</button>
+        <button class="ghost" type="button" id="skipApplicationBtn">자료 없이 일반 연습</button>
+        <button class="ghost" type="button" data-go="dashboard">취소</button>
+      </div>
+      <p class="fine" id="applicationError" role="alert"></p>
+    </form>
+  </section>
+
+  <!-- 3. 근거 확인 -->
+  <section class="screen" id="screen-evidence" data-screen="evidence" aria-labelledby="evidenceTitle" hidden>
+    <div class="screen-head">
+      <p class="eyebrow">Evidence</p>
+      <h1 id="evidenceTitle">근거 확인</h1>
+      <p class="hint">확인된 사실과 연습 가정을 구분했습니다. 승인 전에는 면접을 시작할 수 없습니다.</p>
+    </div>
+
+    <div class="card" id="evidenceCard">
+      <div class="card-head">
+        <h2 id="evidenceSourceTitle">추출된 근거</h2>
+        <span class="state-badge" id="evidenceState">확인 필요</span>
+      </div>
+      <div id="evidenceBody" aria-live="polite"><p class="hint">불러오는 중…</p></div>
+      <div id="institutionBody"></div>
+      <label class="field">
+        <span>확인 메모 (선택)</span>
+        <input id="evidenceNote" maxlength="500" autocomplete="off" placeholder="예: 핵심가치 3개 확인, 면접 형식은 미확인" />
+      </label>
+      <div class="actions">
+        <button class="primary" type="button" id="approveBtn">이 내용으로 승인</button>
+        <button class="ghost" type="button" id="evidenceBackBtn">지원 정보 수정</button>
+      </div>
+      <p class="fine" id="evidenceError" role="alert"></p>
+    </div>
+  </section>
+
+  <!-- 4. 면접 설정 -->
+  <section class="screen" id="screen-setup" data-screen="setup" aria-labelledby="setupTitle" hidden>
+    <div class="screen-head">
+      <p class="eyebrow">Setup</p>
+      <h1 id="setupTitle">면접 설정</h1>
+      <p class="hint">필요한 것만 고르세요. 기본값으로 바로 시작할 수 있습니다.</p>
+      <ol class="stepper" aria-label="진행 단계"><li class="done">지원 정보</li><li class="done">근거 확인</li><li class="current" aria-current="step">면접 설정 · 3/3</li></ol>
+    </div>
+
+    <form class="card form-card" id="setupForm" novalidate>
+      <div class="summary" id="setupSummary" aria-live="polite"></div>
+
+      <fieldset class="field-group">
+        <legend>면접 시간</legend>
+        <div class="segmented" role="radiogroup" aria-label="면접 시간">
+          <label><input type="radio" name="duration_minutes" value="5" /><span>5분 · 3문항</span></label>
+          <label><input type="radio" name="duration_minutes" value="10" checked /><span>10분 · 4문항</span></label>
+          <label><input type="radio" name="duration_minutes" value="15" /><span>15분 · 5문항</span></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="field-group">
+        <legend>면접관 성향</legend>
+        <div class="segmented" role="radiogroup" aria-label="면접관 성향">
+          <label><input type="radio" name="persona" value="supportive" /><span>친절형</span></label>
+          <label><input type="radio" name="persona" value="standard" checked /><span>일반형</span></label>
+          <label><input type="radio" name="persona" value="challenging" /><span>논리 검증형</span></label>
+        </div>
+        <p class="fine">성향은 말투와 질문 강도만 바꿉니다. 평가 기준은 동일합니다.</p>
+      </fieldset>
+
+      <fieldset class="field-group">
+        <legend>답변 방식</legend>
+        <div class="segmented" role="radiogroup" aria-label="답변 방식">
+          <label><input type="radio" name="input_mode" value="text" checked /><span>텍스트</span></label>
+          <label><input type="radio" name="input_mode" value="voice" /><span>음성 인식</span></label>
+          <label><input type="radio" name="input_mode" value="groq" /><span>녹음 전사</span></label>
+        </div>
+        <p class="fine" id="inputModeUnavailable" role="note" hidden></p>
+        <p class="fine" id="inputModeHint">텍스트는 그대로 전송됩니다. 음성 인식은 브라우저에서 텍스트로 바꾼 뒤 확인·수정합니다.</p>
+      </fieldset>
+
+      <label class="check">
+        <input type="checkbox" name="blind" />
+        <span>블라인드 모드 — 학교·출신·성별·연령 단서를 저장·평가에서 마스킹</span>
+      </label>
+      <p class="fine" hidden id="blindNote" role="note">완전하지 않을 수 있습니다. 마스킹이 빠지는 단서가 있을 수 있으니 실명·학교명은 쓰지 마세요.</p>
+
+      <label class="check" id="ttsToggle">
+        <input type="checkbox" name="tts" />
+        <span>면접관 질문을 소리로 듣기 — 브라우저 합성 음성(사람 음성이 아닙니다). 켜지 않아도 “질문 듣기”를 눌러 들을 수 있습니다.</span>
+      </label>
+
+      <details class="advanced" id="advancedBox">
+        <summary>고급(실험) — 면접 유형·면접관 역할</summary>
+        <p class="fine">기본은 <strong>일반·인성</strong> 면접입니다. 토론·PT·상황·패널 등은 실험 기능이라 근거 연결과 평가가 덜 다듬어져 있습니다.</p>
+        <div class="field-row">
+          <label class="field">
+            <span>면접 유형</span>
+            <select name="interview_type" id="interviewTypeSelect"></select>
+          </label>
+          <label class="field">
+            <span>면접관 역할</span>
+            <select name="interviewer_role" id="interviewerRoleSelect"></select>
+          </label>
+        </div>
+        <p class="fine" id="advancedHint">기본값은 선택한 분야에 맞는 일반 면접입니다.</p>
+      </details>
+
+      <div class="notice" role="note">
+        <strong>시작 전 확인</strong>
+        <ul>
+          <li>AI가 생성한 질문·코칭이며 실제 평가나 합격 예측이 아닙니다.</li>
+          <li>현재 코칭은 규칙 기반 참고 관찰입니다.</li>
+          <li>답변 텍스트는 선택된 AI 공급자에게 전송될 수 있습니다. 실명·연락처는 입력하지 마세요.</li>
+          <li>기본 보관 30일 · 언제든 삭제할 수 있습니다.</li>
+        </ul>
+      </div>
+
+      <div class="actions">
+        <button class="primary" type="submit" id="startBtn">면접 시작</button>
+        <button class="ghost" type="button" data-go="evidence">근거 다시 보기</button>
+      </div>
+      <p class="fine" id="setupError" role="alert"></p>
+    </form>
+  </section>
+
+  <!-- 5. 실전 면접실 -->
+  <section class="screen" id="screen-room" data-screen="room" aria-labelledby="roomTitle" hidden>
+    <div class="room">
+      <div class="room-bar">
+        <div class="room-live"><span class="live-dot" aria-hidden="true"></span><span id="roomState">LIVE</span></div>
+        <p class="room-meta" id="roomMeta">면접 진행 중</p>
+        <div class="room-clock" id="roomClock"><span id="clock">00:00</span><small>남은 시간</small></div>
+        <span class="sr-only" id="clockAnnounce" role="status" aria-live="polite"></span>
+      </div>
+      <div class="progress" role="progressbar" aria-label="질문 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressWrap"><div id="progressBar"></div></div>
+      <div id="providerBanner" class="provider-banner warn" role="status" hidden></div>
+
+      <div class="room-body">
+        <div id="roomQA">
+          <p class="fine" id="roomProgressText" aria-hidden="true"></p>
+          <h1 id="roomTitle" class="question" tabindex="-1">질문을 불러오는 중…</h1>
+          <div id="roomHint" class="ev-chip" hidden></div>
           <div id="roomContext" class="room-context" hidden></div>
           <div id="phaseBar" class="phase-bar" hidden></div>
-          <div id="aiReply" class="ai-reply" hidden></div>
+          <div id="aiReply" class="ai-reply" hidden aria-live="polite"></div>
           <div id="discussionLog" class="discussion-log" hidden aria-live="polite"></div>
+
           <label class="sr-only" for="answerText">답변 입력</label>
-          <textarea id="answerText" rows="5" maxlength="4000" placeholder="답변을 입력하세요. (최대 4,000자)&#10;예: 제가 맡은 일 → 한 행동 → 관찰된 결과"></textarea>
-          <div class="voice-row" id="voiceRow" hidden>
-            <button class="ghost" id="voiceBtn" type="button" aria-pressed="false">🎙 말로 답하기</button>
-            <span id="voiceStatus" role="status" class="fine">음성 인식은 브라우저에서 텍스트로 변환됩니다.</span>
-          </div>
-          <div class="stt-row" id="sttRow" hidden>
-            <button class="ghost" id="sttRecBtn" type="button" aria-pressed="false">⏺ 녹음 시작</button>
-            <button class="ghost small" id="sttTranscribeBtn" type="button" disabled>전사 요청</button>
-            <span id="sttStatus" role="status">Groq 전사 상태를 확인하는 중…</span>
-          </div>
-          <div class="actions">
-            <button class="primary" id="answerBtn">답변 완료 ⏎</button>
-            <button class="ghost" id="pauseBtn">일시정지</button>
-            <button class="ghost" id="finishBtn">면접 종료</button>
+          <textarea id="answerText" rows="6" maxlength="4000" placeholder="답변을 입력하세요. (최대 4,000자)&#10;예: 제가 맡은 일 → 직접 한 행동 → 관찰된 결과"></textarea>
+          <div class="input-tools">
+            <div class="voice-box" id="voiceBox" data-state="idle" hidden>
+              <p class="fine" id="voiceNotice"></p>
+              <div class="voice-row" id="voiceRow" hidden>
+                <button class="ghost small" id="voiceBtn" type="button" aria-pressed="false">말로 답하기</button>
+              </div>
+              <div class="stt-row" id="sttRow" hidden>
+                <button class="ghost small" id="sttRecBtn" type="button" aria-pressed="false">녹음 시작</button>
+                <button class="ghost small" id="sttTranscribeBtn" type="button" hidden>다시 전사</button>
+              </div>
+              <span id="voiceStatus" role="status" class="fine"></span>
+            </div>
             <span class="counter"><span id="charCount">0</span>/4000</span>
           </div>
-          <div class="actions secondary">
-            <button class="ghost small" id="ttsBtn" type="button">🔊 질문 듣기</button>
-            <button class="ghost small" id="copyQBtn" type="button">질문 복사</button>
+          <p class="fine" id="roomBusy" role="status" hidden></p>
+        </div>
+        <div class="pause-overlay" id="pauseOverlay" role="group" aria-labelledby="pauseTitle" hidden>
+          <h2 id="pauseTitle">일시정지 중</h2>
+          <p>타이머가 멈췄습니다. 준비되면 이어서 진행하세요.</p>
+          <div class="actions">
+            <button class="primary" id="resumeBtn" type="button">면접 재개</button>
+            <button class="ghost" id="pauseFinishBtn" type="button">면접 종료</button>
           </div>
         </div>
-      </aside>
-    </div>
-  </section>
-
-  <section class="view" id="view-history">
-    <div class="page-head">
-      <div><p class="eyebrow">History</p><h1>연습 기록</h1></div>
-      <button class="ghost" id="exportAllBtn">전체 목록 내보내기(JSON)</button>
-    </div>
-    <p class="hint">같은 루브릭·질문 난도에서만 전후를 비교할 수 있습니다. 다른 모드의 점수를 한 선으로 연결하지 않습니다.</p>
-    <div id="historyBody" class="list"></div>
-  </section>
-
-  <section class="view" id="view-privacy">
-    <div class="page-head"><div><p class="eyebrow">Trust</p><h1>데이터·AI 안내</h1></div></div>
-    <div class="grid2">
-      <div class="card">
-        <h2>무엇을 저장하나요</h2>
-        <ul class="plain">
-          <li>답변 텍스트(전사), 보고서, 공고 승인본 — 기본 30일</li>
-          <li>원음은 서버에 장기 저장하지 않습니다(처리 후 폐기)</li>
-          <li>삭제 요청 시 활성 저장소에서 즉시 파기, 백업은 최장 30일</li>
-        </ul>
       </div>
-      <div class="card">
-        <h2>AI 공급자</h2>
-        <p id="providerDetail" class="hint"></p>
+
+      <p class="fine" id="roomError" role="alert" hidden></p>
+      <div class="actions room-actions" id="roomActions">
+        <button class="primary" id="answerBtn" type="button">답변 완료</button>
+        <button class="ghost" id="pauseBtn" type="button">일시정지</button>
+        <button class="ghost" id="finishBtn" type="button">면접 종료</button>
+      </div>
+      <div class="actions secondary">
+        <button class="ghost small" id="ttsBtn" type="button">질문 듣기</button>
+        <button class="ghost small" id="ttsStopBtn" type="button" hidden>듣기 중지</button>
+        <button class="ghost small" id="copyQBtn" type="button">질문 복사</button>
+      </div>
+      <p class="fine" id="ttsNote" role="status"></p>
+      <p class="fine" id="roomStatus" role="status"></p>
+    </div>
+  </section>
+
+  <!-- 6. 피드백 -->
+  <section class="screen" id="screen-feedback" data-screen="feedback" aria-labelledby="feedbackTitle" hidden>
+    <div class="screen-head">
+      <p class="eyebrow" id="feedbackBadge">Feedback</p>
+      <h1 id="feedbackTitle">근거 기반 코칭</h1>
+      <p class="hint">각 수준은 해당 답변에서 관찰된 정도입니다. 유효 답변이 부족한 차원은 판단을 보류합니다.</p>
+    </div>
+    <div id="feedbackBody" aria-live="polite"><p class="hint">보고서를 생성하고 있습니다…</p></div>
+  </section>
+
+  <!-- 7. 재연습 비교 -->
+  <section class="screen" id="screen-repractice" data-screen="repractice" aria-labelledby="repracticeTitle" hidden>
+    <div class="screen-head">
+      <p class="eyebrow">Transfer check</p>
+      <h1 id="repracticeTitle">새 질문에서 개선 확인</h1>
+      <p class="hint">같은 역량을 묻는 <strong>처음 보는 질문</strong>으로 다시 답하고, 같은 루브릭에서 두 답변의 근거를 나란히 비교합니다.</p>
+    </div>
+    <div id="repracticeBody" aria-live="polite"></div>
+  </section>
+
+  <!-- 8. 기록·데이터 -->
+  <section class="screen" id="screen-history" data-screen="history" aria-labelledby="historyTitle" hidden>
+    <div class="screen-head">
+      <p class="eyebrow">History &amp; data</p>
+      <h1 id="historyTitle">기록·데이터</h1>
+      <p class="hint">같은 루브릭·같은 질문 조건에서만 전후를 비교할 수 있습니다. 다른 모드의 점수를 한 선으로 연결하지 않습니다.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>연습 기록</h2>
+        <button class="ghost small" type="button" id="exportAllBtn">전체 목록 내보내기(JSON)</button>
+      </div>
+      <div id="historyBody" class="list" aria-live="polite"><p class="hint">불러오는 중…</p></div>
+      <p class="fine" id="restartNote">서버가 재시작되면 기록이 사라질 수 있습니다. 서버를 STORE=file로 실행한 경우에만 재시작 후에도 유지됩니다.</p>
+    </div>
+
+    <div class="panel-grid">
+      <section class="card">
+        <h2>저장하는 것 / 저장하지 않는 것</h2>
+        <ul class="plain">
+          <li>답변 텍스트(개인정보 마스킹 후), 코칭 보고서, 승인한 공고 버전 — 기본 30일</li>
+          <li>삭제 범위: 세션 삭제는 해당 세션의 답변·보고서·비교, 계정 삭제는 프로필·세션·보고서·이의 전체</li>
+          <li>원음은 전사 후 서버에서 즉시 폐기하며 장기 저장하지 않습니다.</li>
+          <li>삭제 요청 시 활성 저장소에서 즉시 파기, 백업은 최장 30일</li>
+          <li>얼굴·카메라·감정 분석은 하지 않습니다.</li>
+        </ul>
+      </section>
+      <section class="card">
+        <h2>AI 공급자와 한도</h2>
+        <p class="hint" id="providerDetail" role="status"></p>
+        <div id="providerOps" aria-live="polite"></div>
         <ul class="plain">
           <li>API 키는 서버에서만 사용하며 브라우저에 노출되지 않습니다.</li>
-          <li>무료 테스트 모드의 답변은 Gemini 무료 모델로 전송됩니다. 개인정보를 쓰면 서버가 차단하고 Mock으로 처리합니다.</li>
-          <li>유료 과금 모델로는 절대 전환하지 않습니다 (무료 모델 allowlist 강제).</li>
+          <li>Mock 모드에서는 외부 전송이 없습니다. 외부 AI는 서버 설정과 동의가 있을 때만 호출됩니다.</li>
+          <li>Gemini 무료 전용 설정에서는 유료 모델로 자동 전환하지 않습니다.</li>
         </ul>
-      </div>
-      <div class="card">
-        <h2>하지 않는 것</h2>
-        <ul class="plain">
-          <li>합격 확률·백분위·성격/감정 진단</li>
-          <li>얼굴·카메라 분석</li>
-          <li>채용기관에 개인 점수 전달</li>
-          <li>사용자 경험·성과 사실 생성</li>
-        </ul>
-      </div>
-      <div class="card">
-        <h2>내 데이터</h2>
-        <p class="hint">세션별 삭제는 보고서 화면의 삭제 버튼을 사용하세요. 계정 전체 삭제는 아래 버튼으로 즉시 처리됩니다.</p>
+      </section>
+      <section class="card">
+        <h2>내 데이터 삭제</h2>
+        <p class="fine">세션별 삭제는 위 기록 목록에서, 전체·계정 삭제는 아래에서 처리합니다. 삭제는 되돌릴 수 없으며 계정 삭제는 확인 문구 입력이 필요합니다.</p>
         <div class="actions">
-          <button class="ghost" id="deleteAllBtn">이 계정의 모든 세션 삭제</button>
-          <button class="danger" id="deleteAccountBtn">계정 전체 삭제</button>
+          <button class="danger" type="button" id="deleteAllBtn">모든 세션 삭제</button>
+          <button class="danger" type="button" id="deleteAccountBtn">계정 전체 삭제</button>
         </div>
-        <p id="deleteAllResult" class="fine" role="status"></p>
+        <p class="fine" id="deleteAllResult" role="status"></p>
+      </section>
+      <section class="card">
+        <h2>월간 역량 자료</h2>
+        <div class="field-row">
+          <label class="field"><span>분야</span><select id="trendSegment"><option value="company">기업 취업</option><option value="university">대학 입학</option></select></label>
+          <label class="field"><span>연월</span><input id="trendMonth" type="month" /></label>
+        </div>
+        <p class="fine">검수·공개된 월간 보조 기준만 표시합니다. 공식 요구가 아니며 점수에 반영되지 않습니다.</p>
+        <div id="trendResult" aria-live="polite"></div>
+      </section>
+    </div>
+  </section>
+
+  <!-- 9. 관리자 -->
+  <section class="screen" id="screen-admin" data-screen="admin" aria-labelledby="adminTitle" hidden>
+    <div class="screen-head">
+      <p class="eyebrow">Admin only</p>
+      <h1 id="adminTitle">월간 자료 검수·승인</h1>
+      <p class="hint">검수·승인된 자료만 사용자에게 노출됩니다. 일반 사용자 화면에는 이 메뉴가 표시되지 않습니다.</p>
+    </div>
+
+    <div class="card" id="adminGate">
+      <h2>관리자 인증</h2>
+      <p class="hint" id="adminGateNote">관리자 토큰이 필요합니다. 서버에 ADMIN_TOKEN이 없으면 관리 기능은 꺼져 있습니다.</p>
+      <label class="field">
+        <span>관리자 토큰</span>
+        <input id="adminTokenInput" type="password" autocomplete="off" placeholder="x-admin-token 값" />
+      </label>
+      <div class="actions">
+        <button class="primary" type="button" id="adminUnlockBtn">인증</button>
+        <button class="ghost" type="button" data-go="dashboard">대시보드로</button>
+      </div>
+      <p class="fine" id="adminError" role="alert"></p>
+    </div>
+
+    <div id="adminPanel" hidden>
+      <div class="card">
+        <div class="card-head"><h2>월간 역량 초안 등록</h2><span class="state-badge" id="adminStatus">인증됨</span></div>
+        <form id="trendForm">
+          <div class="field-row">
+            <label class="field"><span>분야</span><select name="segment"><option value="company">기업 취업</option><option value="university">대학 입학</option></select></label>
+            <label class="field"><span>연월</span><input name="yyyy_mm" type="month" required /></label>
+          </div>
+          <fieldset class="field-group">
+            <legend>역량 (최대 3개)</legend>
+            <div id="trendItems" class="trend-items"></div>
+            <button class="ghost small" type="button" id="addTrendItemBtn">역량 추가</button>
+          </fieldset>
+          <fieldset class="field-group" id="reviewChecklist">
+            <legend>검토 체크리스트 (저장 전 모두 확인)</legend>
+            <label class="check"><input type="checkbox" class="review-check" /> 출처를 직접 열어 확인했다</label>
+            <label class="check"><input type="checkbox" class="review-check" /> 발행일이 최근이다</label>
+            <label class="check"><input type="checkbox" class="review-check" /> 여러 공고·자료에서 반복된다</label>
+            <label class="check"><input type="checkbox" class="review-check" /> 편향·기관 공식 입장과의 충돌이 없다</label>
+          </fieldset>
+          <label class="field"><span>검수 코멘트</span><textarea name="comment" rows="2" maxlength="500"></textarea></label>
+          <label class="field"><span>공통 출처 (항목에 출처가 없으면 물려받음, 한 줄에 하나)</span><textarea name="sources" rows="2" maxlength="2000" placeholder="https://…"></textarea></label>
+          <div class="actions">
+            <button class="primary" type="submit">초안으로 저장</button>
+            <button class="ghost" type="button" id="trendLoadBtn">이 연월 이력 불러오기</button>
+          </div>
+          <p class="fine" id="trendError" role="alert"></p>
+        </form>
+      </div>
+      <div class="card">
+        <h2>버전 이력 · 공개·롤백</h2>
+        <div id="trendMonths" class="list"></div>
+        <div id="trendList" class="list" aria-live="polite"><p class="hint">분야와 연월을 선택한 뒤 “이력 불러오기”를 누르세요.</p></div>
+      </div>
+      <div class="card">
+        <h2>사용자 미리보기</h2>
+        <p class="fine">사용자에게는 이렇게 보입니다 (공개 중인 버전만).</p>
+        <div id="trendPreview" aria-live="polite"><p class="hint">이력을 불러오면 표시됩니다.</p></div>
       </div>
     </div>
   </section>
+
 </main>
 
 <footer>
-  <p>Intervu MVP · AI 생성 코칭이며 실제 합격 예측이 아닙니다 · 만 19세 이상</p>
+  <p>Intervu · 근거 기반 참고 코칭이며 합격 예측이 아닙니다 · 만 19세 이상 · 현재 평가는 규칙 기반입니다</p>
 </footer>
 
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="consentDialog" class="dialog" aria-labelledby="consentTitle">
+  <form method="dialog" class="dialog-inner" id="consentForm">
+    <h2 id="consentTitle">연령 확인 및 처리 안내</h2>
+    <ul class="consent-summary">
+      <li>저장: 지원 자료는 개인정보 후보를 마스킹한 텍스트만 저장하며, 원본 파일은 저장하지 않습니다.</li>
+      <li>보존: 30일 보존 후 파기되며, 기록 화면에서 언제든 삭제할 수 있습니다.</li>
+      <li id="consentAiLine">외부 AI: 확인 중…</li>
+    </ul>
+    <label class="check"><input type="checkbox" id="consentAge" /> 만 19세 이상입니다.</label>
+    <div class="actions">
+      <button class="primary" value="ok" id="consentOk" disabled>동의하고 계속</button>
+      <button class="ghost" value="cancel" id="consentCancel">샘플로 체험만 하기</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="confirmDialog" class="dialog" aria-labelledby="confirmTitle">
+  <form method="dialog" class="dialog-inner">
+    <h2 id="confirmTitle">확인</h2>
+    <p id="confirmMessage"></p>
+    <label class="field" id="confirmInputWrap" hidden>
+      <span id="confirmInputLabel">입력</span>
+      <input id="confirmInput" type="text" autocomplete="off" />
+      <textarea id="confirmText" rows="4" maxlength="4000" hidden></textarea>
+    </label>
+    <div class="actions">
+      <button class="primary" value="ok" id="confirmOk">확인</button>
+      <button class="ghost" value="cancel" id="confirmCancel">취소</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/config.js"></script>
 <script src="/app.js" type="module"></script>
 </body>
 </html>

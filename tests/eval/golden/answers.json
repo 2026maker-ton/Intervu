@@ -1,0 +1,13 @@
+{
+  "_note": "합성 면접 답변. elicited는 해당 답변이 유도한 평가 차원.",
+  "cases": [
+    { "id": "ans-01", "text": "제가 직접 일정을 조정했고 결과적으로 기한 안에 제출했습니다.", "elicited": ["relevance", "evidence_specificity"] },
+    { "id": "ans-02", "text": "팀원 의견이 갈려서 기준표를 만들어 비교했습니다. 비용보다 유지보수 용이성을 우선했습니다.", "elicited": ["reasoning", "relevance"] },
+    { "id": "ans-03", "text": "처음에는 제 방식만 고집했는데 팀원 피드백을 듣고 방식을 바꿨습니다. 다음에는 먼저 의견을 묻겠습니다.", "elicited": ["reflection", "reasoning"] },
+    { "id": "ans-04", "text": "구체적으로 로그를 확인해 원인이 캐시 만료라는 것을 찾았고 만료 시간을 조정했습니다.", "elicited": ["evidence_specificity", "reasoning"] },
+    { "id": "ans-05", "text": "잘 모르겠습니다. 생각할 시간이 필요합니다.", "elicited": ["relevance"] },
+    { "id": "ans-06", "text": "그 경험으로 협업에서 기록이 중요하다는 점을 배웠습니다. 이후 회의록을 직접 정리했습니다.", "elicited": ["reflection", "evidence_specificity"] },
+    { "id": "ans-07", "text": "질문과 관계없이 제 취미는 등산입니다. 주말마다 산에 갑니다.", "elicited": ["relevance", "reflection"] },
+    { "id": "ans-08", "text": "한 가지 대안은 외주였지만 일정이 맞지 않아 직접 개발했습니다. 그 판단의 근거는 마감일이었습니다.", "elicited": ["reasoning", "evidence_specificity", "relevance", "reflection"] }
+  ]
+}

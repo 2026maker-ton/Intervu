@@ -8,6 +8,8 @@ const env = loadDotEnv(process.cwd());
 if (!env.GEMINI_API_KEY) { console.error('GEMINI_API_KEY missing'); process.exit(2); }
 
 const app = createApp({
+  // 합성 전용 인스턴스는 코드로만 켠다(HTTP·환경변수로는 불가). PROJECT.md §5 #3.
+  syntheticTraffic: true,
   env: {
     GEMINI_API_KEY: env.GEMINI_API_KEY,
     GEMINI_TEXT_MODEL: env.GEMINI_TEXT_MODEL || 'gemini-3.5-flash-lite',
@@ -29,6 +31,7 @@ async function call(path, method, body) {
   return { status: res.status, data: await res.json() };
 }
 
+await call('/api/v1/consents', 'POST', { age_19_confirmed: true, notice_version: 'e2e-1' }); // WP-C6 동의 선기록
 const t0 = Date.now();
 const p = await call('/api/v1/profiles', 'POST', {
   org_type: 'public', target_name: '합성테스트기관', role: '사무',

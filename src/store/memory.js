@@ -2,7 +2,8 @@
 // 모든 행에 owner_id. 조회는 항상 owner scope 강제.
 const randomUUID = () => globalThis.crypto.randomUUID();
 
-export function createStore() {
+export function createStore({ ttlDays = 30 } = {}) {
+  const ttlMs = ttlDays * 864e5;
   const profiles = new Map();       // id -> {id, owner_id, ...}
   const profileVersions = new Map();// id -> version row
   const sessions = new Map();       // id -> session
@@ -44,7 +45,7 @@ export function createStore() {
         source_text: String(data.source_text || '').slice(0, 20000),
         application_text: String(data.application_text || '').slice(0, 20000), // 마스킹본만 전달됨
         source_url: data.source_url || null, experiences: (data.experiences || []).slice(0, 3).map((e) => String(e).slice(0, 2000)),
-        status: 'extracting', created_at: now(), expires_at: new Date(Date.now() + 30 * 864e5).toISOString(),
+        status: 'extracting', created_at: now(), expires_at: new Date(Date.now() + ttlMs).toISOString(),
       };
       profiles.set(id, doc);
       const version_id = randomUUID();
@@ -116,7 +117,7 @@ export function createStore() {
         state: 'ready', version: 1, active_elapsed_ms: 0, seed: (Math.random() * 2 ** 31) >>> 0,
         questions: data.questions || [], q_index: 0, followups_used: 0, llm_calls: 0,
         policy_snapshot: data.policy_snapshot || {}, created_at: now(),
-        expires_at: new Date(Date.now() + 30 * 864e5).toISOString(),
+        expires_at: new Date(Date.now() + ttlMs).toISOString(),
         degraded_reason: null,
       };
       sessions.set(id, s);
@@ -248,6 +249,27 @@ export function createStore() {
     },
     // 예산 원장 상태(createLedger가 이 객체를 그대로 사용)
     ledgerState() { return ledgerState; },
+
+    // WP-A2: 영속 계층용. 만료된 프로필·세션과 딸린 행을 모두 제거한다(티켓·내보내기는 자체 TTL).
+    purgeExpired(nowMs = Date.now()) {
+      let removed = 0;
+      const gone = new Set();
+      for (const [id, s] of sessions) if (Date.parse(s.expires_at) < nowMs) { gone.add(id); sessions.delete(id); removed++; }
+      const goneTurns = new Set();
+      for (const [id, t] of turns) if (gone.has(t.session_id)) { goneTurns.add(id); turns.delete(id); revisions.delete(id); }
+      for (const id of gone) { events.delete(id); evaluations.delete(id); }
+      for (const k of commands.keys()) if (gone.has(k.split(':')[0])) commands.delete(k);
+      for (const [k, a] of attempts) if (goneTurns.has(a.turn_id)) attempts.delete(k);
+      for (const [k, j] of transferJobs) if (gone.has(j.baseline_session_id) || gone.has(j.retry_session_id)) transferJobs.delete(k);
+      for (const [id, p] of profiles) if (Date.parse(p.expires_at) < nowMs) {
+        profiles.delete(id); instSources.delete(id); institutions.delete(id); removed++;
+        for (const [vid, v] of profileVersions) if (v.profile_id === id) profileVersions.delete(vid);
+      }
+      for (const [k, r] of idempotency) if (r.expires_at < nowMs) idempotency.delete(k);
+      return removed;
+    },
+    // WP-A2: 영속용 내부 맵(내보내기·티켓 제외 — 메모리 전용 TTL).
+    _maps: { profiles, profileVersions, sessions, turns, revisions, events, commands, evaluations, appeals, attempts, deletions, profileCalls, instSources, institutions, transferJobs, idempotency },
 
     // 호환: 컬렉션 맵을 직접 노출(테스트·삭제 경로가 사용). 새 코드는 메서드를 우선한다.
     events, pushEvent, commands, evaluations, appeals, attempts, deletions,

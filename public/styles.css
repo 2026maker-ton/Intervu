@@ -484,3 +484,6 @@ details.dim[open] > summary { margin-bottom: .4rem; }
 .doc-kind select { min-height: 44px; }
 .doc-head .ghost { min-height: 44px; }
 .consent-summary { margin: 0 0 .8rem; padding-left: 1.1rem; font-size: .9rem; line-height: 1.6; }
+/* WP-D9 dashboard / route announcer */
+.route-announcer{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.continue-card{border-left:4px solid var(--accent,#2f5bd8);margin-bottom:16px}

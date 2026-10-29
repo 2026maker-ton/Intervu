@@ -8,7 +8,7 @@ export function loadConfig(env = process.env) {
   const bool = (v) => String(v || 'false').toLowerCase() === 'true';
   const route = (op, d) => {
     const v = String(env[`ROUTE_${op}`] || d).toLowerCase();
-    return ['mock', 'gemini', 'groq'].includes(v) ? v : 'mock';
+    return ['mock', 'gemini', 'groq', 'claude'].includes(v) ? v : 'mock';
   };
   const paidAck = bool(env.GEMINI_PAID_ACK);
   const allowUnpaid = bool(env.GEMINI_ALLOW_UNPAID);
@@ -32,6 +32,12 @@ export function loadConfig(env = process.env) {
       // Google 실제 결제 상태는 제어하지 않으므로 AI Studio 결제 비활성 별도 확인 필요.
       freeOnly: String(env.GEMINI_FREE_ONLY ?? 'true').toLowerCase() !== 'false',
     },
+    claude: {
+      timeoutMs: num('CLAUDE_TIMEOUT_MS', 20000),
+      monthlyCapUsd: num('CLAUDE_MONTHLY_CAP_USD', 0), // 0 = 미설정. 공급자별 상한은 아직 미강제(전역 월 예산만 적용)
+      apiVersion: env.CLAUDE_API_VERSION || '',
+      price: { input: num('CLAUDE_PRICE_IN_PER_M_USD', 0), output: num('CLAUDE_PRICE_OUT_PER_M_USD', 0) },
+    },
     groq: {
       apiKey: env.GROQ_WHISPER_KEY || env.GROQ_API_KEY || '',
       model: env.GROQ_WHISPER_MODEL || 'whisper-large-v3-turbo',
@@ -45,7 +51,7 @@ export function loadConfig(env = process.env) {
     // 모델 ID는 공급자 블록(gemini.textModel 등)에만 있고, 외부(응답·상태 API)에는 alias만 노출한다.
     registry: {
       'dialogue.next': { provider: route('DIALOGUE_NEXT', 'gemini'), alias: 'gemini-text', maxOutputTokens: 500 },
-      'claims.extract': { provider: route('CLAIMS_EXTRACT', 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },
+      'claims.extract': { provider: route('CLAIMS_EXTRACT', env.LLM_ANALYSIS_PROVIDER || 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },
       // 평가는 규칙 기반이 기본(Gemini 평가는 사람 평가 검증 후, DG-8)
       'evaluation.generate': { provider: route('EVALUATION_GENERATE', 'mock'), alias: 'rule-based', maxOutputTokens: 2500 },
       'speech.transcribe': { provider: route('SPEECH_TRANSCRIBE', 'groq'), alias: 'groq-whisper', maxOutputTokens: 1000 },
@@ -63,6 +69,15 @@ export function loadConfig(env = process.env) {
         legacyRealData: paidAck,
         // 무료/미확인 등급이면 실데이터 차단 사유를 synthetic_only로 표기
         syntheticOnly: !paidAck,
+      },
+      claude: {
+        apiKey: env.CLAUDE_API_KEY || '',
+        baseUrl: env.CLAUDE_BASE_URL || '',
+        model: env.CLAUDE_MODEL || '',
+        liveAck: bool(env.CLAUDE_LIVE_ACK),
+        realDataAck: bool(env.CLAUDE_REAL_DATA_ACK),
+        legacyRealData: false,
+        syntheticOnly: true,
       },
       groq: {
         apiKey: env.GROQ_WHISPER_KEY || env.GROQ_API_KEY || '',

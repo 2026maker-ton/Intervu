@@ -50,16 +50,44 @@ export function splitSentences(text = '') {
   });
 }
 
+// 공백은 항상 규칙 엔진이 계산한다(모델 값 불신).
+export function gapsOf(quote) {
+  const gaps = [];
+  if (!ROLE.test(quote)) gaps.push('role');
+  if (!RESULT.test(quote)) gaps.push('result');
+  if (!REASON.test(quote)) gaps.push('reason');
+  if (!NUMBER.test(quote)) gaps.push('number');
+  return gaps;
+}
+
+export const MAX_CLAIMS = 20;
+// 규칙 결과(하한선) ∪ 검증된 모델 인용(WP-B3). 모델 인용은 마스킹된 원문의 그대로인 부분 문자열일 때만 채택하고,
+// 위치는 서버가 다시 계산(verifyClaimSpan), 공백은 규칙 엔진이 계산한다. 규칙 결과와 겹치거나 중복이면 버린다.
+export function mergeModelClaims(ruleClaims, maskedText, quotes = []) {
+  const full = String(maskedText || '').normalize('NFC');
+  const out = ruleClaims.slice();
+  let discarded = 0;
+  for (const raw of quotes) {
+    const quote = String(raw ?? '').normalize('NFC').trim();
+    const idx = quote ? full.indexOf(quote) : -1;
+    const len = Array.from(quote).length;
+    if (out.length >= MAX_CLAIMS || idx === -1 || len < MIN_CP || len > MAX_QUOTE_CP) { discarded += 1; continue; }
+    const start_cp = Array.from(full.slice(0, idx)).length;
+    const c = { id: '', kind: 'applicant_claim', source_document_id: 'doc-application', revision: 1, start_cp, end_cp: start_cp + len, quote, gaps: gapsOf(quote), status: 'user_supplied', origin: 'model' };
+    if (!verifyClaimSpan(full, c) || out.some((o) => c.start_cp < o.end_cp && o.start_cp < c.end_cp)) { discarded += 1; continue; }
+    out.push(c);
+  }
+  out.sort((a, b) => a.start_cp - b.start_cp);
+  out.forEach((c, i) => { c.id = `claim-${i + 1}`; });
+  return { claims: out, discarded };
+}
+
 export function extractApplicantClaims(text = '') {
   const full = String(text || '').normalize('NFC');
   const claims = [];
   for (const s of splitSentences(full)) {
     if (Array.from(s.quote).length < MIN_CP || !EXPERIENCE.test(s.quote)) continue;
-    const gaps = [];
-    if (!ROLE.test(s.quote)) gaps.push('role');
-    if (!RESULT.test(s.quote)) gaps.push('result');
-    if (!REASON.test(s.quote)) gaps.push('reason');
-    if (!NUMBER.test(s.quote)) gaps.push('number');
+    const gaps = gapsOf(s.quote);
     const claim = {
       id: `claim-${claims.length + 1}`,
       kind: 'applicant_claim',

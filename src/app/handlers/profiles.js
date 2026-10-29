@@ -1,13 +1,13 @@
 // 동작 불변 추출(WP-A1): src/server.js에서 옮긴 핸들러. 반환은 { status, body } 또는 { error, status }.
 import { randomUUID } from '../crypto.js';
 import { detectPii, maskPii, buildBlindContext, extractClaims, verifyClaimSpan } from '../../domain/pii.js';
-import { extractApplicantClaims } from '../../domain/claims.js';
+import { extractApplicantClaims, mergeModelClaims } from '../../domain/claims.js';
 import { normalizeSource } from '../../domain/sources.js';
 import { isSyntheticProfileBody } from '../../domain/fixtures.js';
 import { buildInstitutionProfile, normalizeOrgType, providerConstraintForOrg } from '../../domain/institution.js';
 
 export function createProfileHandlers(d) {
-  const { config, store, err, now, caller, requestContext } = d;
+  const { config, store, err, now, caller, requestContext, registry } = d;
   async function createProfile(owner, body, requestId) {
     // 프로필 API 속도 제한(사양 §15): 계정당 분당2회/일10회 기본값
     const counts = store.recordRate(owner, 'profile');
@@ -56,7 +56,9 @@ export function createProfileHandlers(d) {
     if (caller.plan('claims.extract', ctx).live && ctx.synthetic && detectPii(source).length > 0) {
       return err('validation_error', '합성 테스트 데이터에 개인정보를 포함할 수 없습니다.', 422, { requestId });
     }
-    const res = await caller.call('claims.extract', {
+    // claims.extract가 Claude로 라우팅되면 Claude는 지원서 주장 전용이므로 공고 키워드는 규칙 기반으로 처리한다.
+    const claudeRoute = registry.route('claims.extract').provider === 'claude';
+    const res = claudeRoute ? { value: extractClaims(masked, body.experiences || []), trace: null } : await caller.call('claims.extract', {
       ctx, mockAlias: 'rule-based',
       reserve: { key: `profile:${profile.id}`, amount: config.profileRate.reserve },
       invoke: (a) => a.extract({ sourceText: masked, blindContext: blind }),
@@ -64,8 +66,8 @@ export function createProfileHandlers(d) {
       validate: (o) => Array.isArray(o?.claims) && o.claims.length <= 50,
     });
     // 실패 폴백이어도 규칙 기반 결과로 계속한다(세션은 계속 가능). 사유는 degraded_reason으로 남긴다.
-    const extracted = res.trace.mode === 'fallback' ? { ...res.value, degraded_reason: res.trace.reason } : res.value;
-    const usedProvider = res.trace.mode === 'live' ? res.trace.provider : 'mock';
+    const extracted = res.trace?.mode === 'fallback' ? { ...res.value, degraded_reason: res.trace.reason } : res.value;
+    let usedProvider = res.trace?.mode === 'live' ? res.trace.provider : 'mock';
     // 서버가 span을 원문에서 직접 계산(모델 좌표를 신뢰하지 않음) 후 일치 검증
     const normalized = (extracted.claims || []).map((c) => {
       const quote = String(c.value || c.quote || '').normalize('NFC').trim();
@@ -89,7 +91,25 @@ export function createProfileHandlers(d) {
     const rejected = (extracted.claims || []).length - claims.length;
     if (rejected > 0) extracted.rejected_spans = rejected;
     // 지원자 주장·공백(문장 단위, 원문 span 검증 포함): 질문 설계의 근거(PROJECT.md §2.4)
-    const applicant_claims = extractApplicantClaims(maskedApplication);
+    let applicant_claims = extractApplicantClaims(maskedApplication);
+    const traces = res.trace ? [res.trace] : [];
+    if (claudeRoute && maskedApplication.trim()) {
+      // 마스킹본만 전송. 모델 인용은 원문 그대로일 때만 채택(서버가 span·gaps 재계산), 규칙 결과는 하한선. 실패 시 규칙만 남는다.
+      const cres = await caller.call('claims.extract', {
+        ctx: requestContext(owner, { forceMock: !!body._forceMock, synthetic }), mockAlias: 'rule-based',
+        reserve: { key: `profile:${profile.id}:claims`, amount: config.profileRate.reserve },
+        invoke: (a) => a.extractApplicantClaims({ maskedApplication }),
+        mock: () => ({ quotes: [] }),
+        validate: (o) => Array.isArray(o?.quotes) && o.quotes.length <= 50,
+      });
+      traces.push(cres.trace);
+      if (cres.trace.mode === 'live') {
+        usedProvider = cres.trace.provider;
+        const m = mergeModelClaims(applicant_claims, maskedApplication, cres.value.quotes);
+        applicant_claims = m.claims;
+        if (m.discarded) extracted.rejected_model_quotes = m.discarded;
+      } else if (cres.trace.mode === 'fallback') extracted.degraded_reason = cres.trace.reason;
+    }
     store.setExtracted(version_id, { ...extracted, claims, applicant_claims, application_chars: Array.from(maskedApplication.trim()).length, masked_text: masked, blind_context: blind });
     // 기관 프로필 초안 생성(결정적 분석): 승인 전 사용자가 확인·수정한다
     const institution = buildInstitutionProfile({
@@ -98,7 +118,7 @@ export function createProfileHandlers(d) {
     });
     store.setInstitution(profile.id, institution, 'review');
     void pubNotice;
-    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, synthetic, provider_trace: [res.trace], applicant_claims_count: applicant_claims.length, institution, institution_status: 'review' } };
+    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, synthetic, provider_trace: traces, applicant_claims_count: applicant_claims.length, institution, institution_status: 'review' } };
   }
 
   function getProfile(owner, id) {

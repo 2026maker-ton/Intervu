@@ -400,7 +400,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | TTS | `[PARTIAL]` | 브라우저 `SpeechSynthesis`(`app.js:831`) | ElevenLabs `[TODO]`. 브라우저·OS별 한국어 음성 편차 미확인 |
 | 답변 분석·평가 | `[DONE]`(규칙 기반) | `mock-eval*.js`, 인용·span 검증(`evaluation.js`), test 85·132·859 | 의미 기반 평가 아님. UI는 "규칙 기반 참고 관찰" 고지(E2E 확인). API 응답 `badge`는 "AI 생성 코칭"(아래 BUG-6) |
 | 근거 인용·판단 보류 | `[DONE]` | `validateEvaluation`, `insufficient_evidence`, test 132·637 | 의미 타당성 검증 없음 |
-| 약점 집중 코칭·재연습 | `[PARTIAL]` | `POST /practice-attempts`, `generateTransferQuestion`, UI `app.js:1338~1401` | 새 질문은 역량당 **고정 템플릿 3개**에서 선택(`transfer.js`). 행동 루브릭 4역량 외 역량은 `reflection` 템플릿으로 대체 `[BUG]`. 90초·1문항 세션 |
+| 약점 집중 코칭·재연습 | `[PARTIAL]` | `POST /practice-attempts`, `generateTransferQuestion`, UI `app.js:1338~1401` | 새 질문은 루브릭 5종 전 차원(15개) × **고정 템플릿 3개**에서 선택(`transfer.js TRANSFER_BANK`). 알 수 없는 역량은 422(대체 없음). 90초·1문항 세션 |
 | 새 질문 전후 비교 | `[PARTIAL]` | `compareTransfer`, `POST /transfer-comparisons`, UI `app.js:1429`, test 866·1032 | 같은 루브릭·다른 질문·유사도(바이그램 Jaccard 0.55)·판단 보류는 구현. 비교 수준은 키워드 규칙 점수의 차이. 전이 작업(`transferJobs`)이 **메모리에만** 있고 삭제 시 지워지지 않음 `[BUG]` |
 | 답변 수정 이력 | `[DONE]` | `addRevision`(stt_correction은 새 revision, content_rewrite는 새 연습), test 301·313 | — |
 | 결과 저장·기록 | `[PARTIAL]` | `GET /sessions`, `loadHistory`, test 380 | 서버 재시작 시 전부 소실. 사용자별 장기 추이 저장 없음 |
@@ -491,7 +491,7 @@ Mock 경로 한정 확인이면 "(Mock)"로 적는다. "근거"는 파일·함�
 | BUG-4 | ~~P1~~ **수정됨(2026-10-29, P0-6; `/health`는 비인증 시 `selected`만, 나머지는 인증 필요)** | **[원 결함·참고용]** 인증 전 엔드포인트: `/health`(설정 불리언·모델명), `/metrics`(월 지출 원장), `/diagnostics/gemini-models`(**서버 Gemini 키로 외부 호출, 인증·속도 제한 없음**) | `server.js:1403~1448`, 프로브로 무인증 200 확인 |
 | BUG-5 | P1 | 월간 트렌드를 **출처·코멘트 없이** 공개 가능. `data/trends.json`에 `competency:"a"`, 출처 없음 항목이 공개 상태로 있고 `GET /trends/company/2026-10`이 그대로 노출. §2.3의 출처·검수 요건 미충족 | `trends.js validateItems`, `data/trends.json` |
 | BUG-6 | P1 | 보고서 표기 불일치: `badge:"AI 생성 코칭…"`이 규칙 기반 평가에도 붙음. `provider`는 전역값, `paidAck=true`면 `model_version`이 Gemini 모델명이 되어 **규칙 기반을 AI 평가로 오인시킬 수 있음**(UI 문구는 규칙 기반으로 정확). `PROJECT.md` §2.6 위반 소지 | `server.js:939~945` |
-| BUG-7 | P1 | 새 질문 템플릿이 행동 루브릭 4역량(`relevance/evidence_specificity/reasoning/reflection`)만 있음. 기술·토론·PT·상황 루브릭 역량은 `reflection` 질문으로 대체되어 **같은 역량 재검증이 성립하지 않음**. `server.js`의 `practiceText`는 미사용 코드 | `transfer.js transferTemplatesFor`, `server.js:1243` |
+| BUG-7 | P1 | `[FIXED]` 전 루브릭 차원별 템플릿 3개 이상, 기준 질문과 유사도 <0.55, 미지 역량 422, 미사용 `practiceText` 제거. 테스트 `tests/domain/c4-*`, `tests/api/c4-*` | `transfer.js TRANSFER_BANK` |
 | BUG-8 | P1 | 대화 중 429 → 정적 폴백으로 계속하지 않고 `finishSession` 호출. 이 경로에서 원장 예약(0.005)이 정산되지 않음. `createSession`의 예산 사전 확인은 `session:${owner}` 키를 써서 실제 세션 원장과 무관 | `server.js:381,807~813` |
 | BUG-9 | P1 | 업로드 한도 불일치: 서버 상한 5MB vs JSON 본문 한도 1,000,000바이트(base64 팽창) → 약 0.7MB 초과 파일은 413. UI 안내와 다를 수 있음(코드 기준, 재현 미실시) | `server.js:118,1603`, `documents.js MAX_BYTES` |
 | DEBT-1 | P0 | **영속 저장 없음** — 프로세스 재시작 시 세션·보고서·전이 작업·예산 원장 소실(데모 중 서버 재시작=데이터 유실) | `src/store.js` 머리말 |

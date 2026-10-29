@@ -66,8 +66,14 @@ export function renderRepractice() {
     </div>
     <div id="comparisonBox">${cmp ? renderComparisonHtml(cmp) : ''}</div>`;
   $$('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
+  bindLoops();
   $('#startRepracticeBtn')?.addEventListener('click', startRepractice);
   $('#restartCompareBtn')?.addEventListener('click', () => go('feedback'));
+}
+
+function bindLoops() {
+  $$('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
+  $$('[data-loop="again"]').forEach((b) => b.addEventListener('click', () => startPractice(b.dataset.competency || state.transfer?.competency_id)));
 }
 
 export async function startRepractice() {
@@ -103,7 +109,7 @@ export async function runComparison(transferId, retrySessionId) {
     const out = await api('/transfer-comparisons', { method: 'POST', idempotent: true, body: { transfer_id: transferId, retry_session_id: retrySessionId } });
     state.comparison = out;
     const box = $('#comparisonBox');
-    if (box) box.innerHTML = renderComparisonHtml(out);
+    if (box) { box.innerHTML = renderComparisonHtml(out); bindLoops(); }
     else { renderRepractice(); }
     go('repractice');
   } catch (err) {
@@ -119,6 +125,7 @@ export function renderComparisonHtml(out) {
       <span class="val">${e.attempt === 'baseline' ? '1차 답변' : '재연습 답변'}</span>
       <span class="meta">질문: ${esc(e.question || '')}<br />발언: “${esc(e.quote || '')}”</span>
     </li>`).join('');
+  const reason = c.status === 'insufficient_evidence' ? (c.reason || '근거가 부족합니다.') : '';
   const statusLabel = {
     observed_change: '관찰된 변화',
     no_clear_change: '뚜렷한 변화 없음',
@@ -131,9 +138,15 @@ export function renderComparisonHtml(out) {
         <span class="state-badge ${c.status === 'observed_change' ? 'ok' : c.status === 'no_clear_change' ? 'warn' : ''}">${esc(statusLabel || '')}</span>
       </div>
       <p><strong>${esc(c.headline || c.reason || '')}</strong></p>
+      ${reason && reason !== c.headline ? `<p class="fine">판단 보류 사유: ${esc(reason)}</p>` : ''}
       <p class="fine">역량: ${esc(dimLabel(out.competency || c.competency || ''))} · 루브릭: ${esc(c.rubric_version || out.rubric_version || '')}${Number.isFinite(c.delta) ? ` · 관찰 수준 차이: ${esc(String(c.delta))}` : ''}</p>
       ${ev ? `<ul class="claims">${ev}</ul>` : '<p class="hint">비교할 발언 근거가 부족합니다.</p>'}
       ${c.caution ? `<p class="fine">${esc(c.caution)}</p>` : ''}
-      <p class="fine">이 비교는 단일 재연습 결과이며 학습 효과를 입증하지 않습니다.</p>
+      <p class="fine">단일 재연습 비교는 학습 효과를 입증하지 않습니다.</p>
+      <div class="actions">
+        <button class="ghost" type="button" data-go="feedback" data-loop="other">다른 역량으로 다시</button>
+        <button class="ghost" type="button" data-go="feedback" data-loop="report">보고서로 돌아가기</button>
+        <button class="primary" type="button" data-loop="again" data-competency="${esc(out.competency || c.competency || '')}">한 번 더 다른 질문으로</button>
+      </div>
     </div>`;
 }

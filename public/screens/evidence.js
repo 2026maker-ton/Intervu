@@ -71,12 +71,25 @@ function trendSection(t) {
   return section('trend', SOURCE_STATUS.monthly_trend.label, body, items.length > 0);
 }
 
+const planBasis = (q) => [
+  q.target_competency ? `역량: ${q.target_competency}` : '',
+  q.application_evidence_ids?.length ? `지원서 주장 ${q.application_evidence_ids.length}건` : '',
+  q.institution_evidence_ids?.length ? `기관 요구 ${q.institution_evidence_ids.length}건` : '',
+  q.trend_ids?.length ? `월간 트렌드 ${q.trend_ids.length}건` : '',
+].filter(Boolean).join(' · ') || '일반 기준';
+
 function planSection(plan) {
   const qs = plan.questions || plan.items || [];
   const body = qs.length
-    ? `<ol class="plan-list">${qs.map((q) => `<li><span class="val">${esc(q.text || q.question || '')}</span><span class="meta">${q.basis_label || q.basis ? `근거: ${esc(String(q.basis_label || q.basis))}` : ''}${q.quote ? ` · “${esc(q.quote)}”` : ''}</span></li>`).join('')}</ol>${plan.generator ? `<p class="fine">생성 방식: ${esc(plan.generator)}</p>` : ''}`
+    ? `<ol class="plan-list">${qs.map((q) => `<li><span class="val">${esc(q.text || '')}</span>${q.source_status ? SourceChip(q.source_status) : ''}<span class="meta">${esc(planBasis(q))}</span></li>`).join('')}</ol>${qs[0]?.generator ? `<p class="fine">생성 방식: ${esc(qs[0].generator)}</p>` : ''}`
     : '<p class="hint">미리볼 질문 계획이 없습니다. 일반 질문으로 진행합니다.</p>';
   return section('plan', '질문 계획 미리보기', body, false);
+}
+
+function paintReapprove() {
+  $('#evReapprove')?.remove();
+  if (!ctx.needsReapproval) return;
+  $('#evidenceBody').insertAdjacentHTML('afterbegin', '<p class="missing" id="evReapprove" role="status">주장 제외 설정이 바뀌어 다시 승인해야 합니다. 아래에서 “이 내용으로 승인”을 눌러 주세요.</p>');
 }
 
 function paint() {
@@ -88,6 +101,7 @@ function paint() {
     <p class="fine">분석 공급자: ${esc(ctx.provider || 'mock')} · 승인 전에는 면접을 시작할 수 없습니다.</p>`;
   const box = $('#institutionBody');
   if (box) box.innerHTML = '';
+  paintReapprove();
   $('#approveBtn').title = claims?.length && claims.every((c) => c.excluded) ? NO_CLAIM_HINT : '';
 }
 
@@ -95,7 +109,7 @@ function paint() {
 const optional = (path) => api(path).catch(() => null);
 
 export async function renderEvidence(detail, created) {
-  ctx = { detail, claims: null, plan: null, trend: null, provider: created.provider };
+  ctx = { detail, claims: null, plan: null, trend: null, provider: created.provider, needsReapproval: false };
   $('#evidenceState').textContent = '확인 필요';
   $('#evidenceState').className = 'state-badge warn';
   paint();
@@ -104,6 +118,7 @@ export async function renderEvidence(detail, created) {
   const ym = new Date().toISOString().slice(0, 7);
   const [cl, plan, trend] = await Promise.all([optional(`/profiles/${id}/claims`), optional(`/profiles/${id}/plan`), optional(`/trends/${seg}/${ym}`)]);
   ctx.claims = Array.isArray(cl) ? cl : Array.isArray(cl?.claims) ? cl.claims : null;
+  ctx.needsReapproval = !!cl?.needs_reapproval;
   ctx.plan = plan;
   ctx.trend = trend;
   paint();
@@ -114,10 +129,12 @@ $('#evidenceBody')?.addEventListener('change', async (e) => {
   if (!cb) return;
   cb.disabled = true;
   try {
-    await api(`/claims/${encodeURIComponent(cb.dataset.claimExclude)}`, { method: 'PATCH', body: { excluded: cb.checked } });
+    const res = await api(`/profiles/${state.profile.id}/claims/${encodeURIComponent(cb.dataset.claimExclude)}`, { method: 'PATCH', body: { excluded: cb.checked } });
+    if (res?.needs_reapproval) ctx.needsReapproval = true;
     const c = ctx.claims?.find((x) => String(x.id) === cb.dataset.claimExclude);
     if (c) c.excluded = cb.checked;
     cb.closest('li')?.classList.toggle('excluded', cb.checked);
+    paintReapprove();
     $('#approveBtn').title = ctx.claims.every((x) => x.excluded) ? NO_CLAIM_HINT : '';
   } catch (err) {
     cb.checked = !cb.checked;

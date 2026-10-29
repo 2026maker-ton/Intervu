@@ -1,0 +1,51 @@
+// 일반 면접 질문 계획(WP-C8): 세션 생성과 GET /profiles/:id/plan이 같은 함수를 쓴다(계획 == 세션 질문).
+// 규칙 기반(generator 'rule'): 지원서 주장 질문(제외 반영) → 기관 추천 → 정적 팩 → (트렌드 1개).
+import { buildClaimQuestions } from './claims.js';
+import { selectQuestions } from './questions.js';
+
+export function planGeneralQuestions({ version, institution, orgType, trends, qCount, seedNum, excludedClaimIds = [], yyyyMm = new Date().toISOString().slice(0, 7) }) {
+  const { picked, coverage } = selectQuestions(seedNum, qCount);
+  let questions = picked.map((q) => ({ ...q }));
+  let question_basis = 'general-template-v1';
+  if (institution && !institution.fallback_to_general && Array.isArray(institution.recommended_questions) && institution.recommended_questions.length) {
+    const instQs = institution.recommended_questions.slice(0, 2).map((q) => ({
+      id: q.id || `inst-${q.primary}`, text: q.text, primary: q.primary, secondary: q.secondary || [],
+      followup: q.text.includes('?') ? q.text : undefined,
+      followup_dimensions: [q.primary],
+      _institution_basis: q.basis, _rationale: q.rationale,
+    }));
+    questions = [...instQs, ...questions].slice(0, qCount);
+    question_basis = institution.badge || '기관 맞춤 검토 가능';
+  }
+  const ex = new Set(excludedClaimIds);
+  const claimQs = buildClaimQuestions((version?.extracted?.applicant_claims || []).filter((c) => !ex.has(c.id)));
+  if (claimQs.length) {
+    questions = [...claimQs, ...questions].slice(0, qCount);
+    question_basis = `지원서 주장 검증 ${claimQs.length}건 · ${question_basis}`;
+  }
+  // 월간 트렌드(보조 기준): 공개본이 있을 때만 끝에 최대 1개.
+  const seg = { company: 'company', university: 'university' }[orgType];
+  const item = (seg && trends?.published ? trends.published({ segment: seg, yyyyMm }) : null)?.items?.[0];
+  if (item) {
+    questions = [...questions, {
+      id: `trend-${item.id}`, text: `최근 ${item.competency} 역량이 중요하게 언급됩니다. 이 역량을 보여 준 본인의 경험과 구체적 행동을 설명해 주세요.`,
+      primary: 'evidence_specificity', secondary: ['relevance'],
+      trend_ids: [item.id], source_status: 'monthly_trend', _institution_basis: '월간 트렌드(보조)',
+    }];
+  }
+  return { questions, coverage, question_basis };
+}
+
+// 공개용 계획 항목(내부 필드 제외)
+export function publicPlanItem(q) {
+  const inst = !!q._institution_basis && !q.trend_ids;
+  return {
+    question_id: q.id, text: q.text, target_competency: q.target_competency || q.primary,
+    application_evidence_ids: q.application_evidence_ids || [],
+    institution_evidence_ids: q.institution_evidence_ids || (inst ? [q.id] : []),
+    trend_ids: q.trend_ids || [],
+    source_status: q.source_status || (inst ? 'institution_review' : 'static_pack'),
+    generator: 'rule', prompt_version: q.prompt_version || null,
+    provider_trace: { provider: 'mock', mode: 'mock', reason: 'rule_based_no_ai' },
+  };
+}

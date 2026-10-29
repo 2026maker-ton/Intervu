@@ -459,3 +459,19 @@ footer p { margin: 0; font-size: .78rem; color: var(--muted); }
 .claim-item.excluded .evidence-quote { opacity: .55; text-decoration: line-through; }
 .claim-toggle { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--touch-min); font-size: var(--fs-sm); }
 .plan-list { margin: 0; padding-left: 1.2rem; display: grid; gap: var(--sp-2); }
+
+/* WP-D6 feedback/repractice */
+.report-head { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .5rem; }
+.hero-card { border: 2px solid var(--accent, #2563eb); border-radius: 12px; padding: 1rem; margin: 1rem 0; }
+.hero-row { margin: .4rem 0; }
+.hero-row strong { display: block; font-size: .85rem; opacity: .8; }
+details.dim > summary { cursor: pointer; list-style: none; }
+details.dim > summary::-webkit-details-marker { display: none; }
+details.dim[open] > summary { margin-bottom: .4rem; }
+.comparison .actions { margin-top: .8rem; }
+/* WP-D7 history/admin */
+.trend-item .trend-sources-wrap, .trend-item .trend-item-error { grid-column: 1 / -1; }
+.trend-item-error { color: var(--red); margin: 0; }
+.check { display: flex; gap: .5rem; align-items: center; margin: .25rem 0; }
+.danger.small { padding: .35rem .7rem; font-size: .82rem; }
+#trendMonths { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .6rem; }

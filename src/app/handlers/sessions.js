@@ -1,6 +1,6 @@
 // 동작 불변 추출(WP-A1): src/server.js에서 옮긴 핸들러. 반환은 { status, body } 또는 { error, status }.
 import { randomUUID } from '../crypto.js';
-import { buildClaimQuestions } from '../../domain/claims.js';
+import { planGeneralQuestions } from '../../domain/plan.js';
 import { normalizeRole, ROLES } from '../../domain/roles.js';
 import { selectQuestions } from '../../domain/questions.js';
 import { INTERVIEW_TYPES, DURATIONS, normalizeInterviewType, validateCombination, questionCountForDuration } from '../../domain/interview-types.js';
@@ -152,41 +152,11 @@ export function createSessionHandlers(d) {
       question_basis = `panel-v1 · ${roles.map((r) => ROLES[r]?.label || r).join(' / ')}`;
       coverage = { panel: qCount };
     } else {
-      // general: 기존 1:1 흐름 + 시간별 문항 수
-      const { picked, coverage: cov } = selectQuestions(seedNum, qCount);
-      questions = picked.map((q) => ({ ...q }));
-      coverage = cov;
-      if (institution && !institution.fallback_to_general && Array.isArray(institution.recommended_questions) && institution.recommended_questions.length) {
-        const instQs = institution.recommended_questions.slice(0, 2).map((q) => ({
-          id: q.id || `inst-${q.primary}`, text: q.text, primary: q.primary, secondary: q.secondary || [],
-          followup: q.text.includes('?') ? q.text : undefined,
-          followup_dimensions: [q.primary],
-          _institution_basis: q.basis, _rationale: q.rationale,
-        }));
-        questions = [...instQs, ...questions].slice(0, qCount);
-        question_basis = institution.badge || '기관 맞춤 검토 가능';
-      }
-      // 지원서 주장 검증 질문: 자소서 문장을 그대로 인용하며 맨 앞에 둔다(없으면 기존 구성 유지)
-      const claimQs = buildClaimQuestions(version?.extracted?.applicant_claims || []);
-      if (claimQs.length) {
-        questions = [...claimQs, ...questions].slice(0, qCount);
-        question_basis = `지원서 주장 검증 ${claimQs.length}건 · ${question_basis}`;
-      }
+      // general: 질문 계획은 GET /profiles/:id/plan과 같은 함수를 쓴다. 제외·동결은 승인 시점 스냅샷 기준.
+      const plan = planGeneralQuestions({ version, institution, orgType: orgOf, trends, qCount, seedNum, excludedClaimIds: version?.frozen_excluded_claim_ids || [] });
+      questions = plan.questions; coverage = plan.coverage; question_basis = plan.question_basis;
     }
-    // 월간 트렌드(보조 기준): 공개본이 있을 때만 일반 질문 끝에 최대 1개. 기관 공식 요구로 표기하지 않는다.
-    if (interview_type === 'general' && trends?.published) {
-      const seg = { company: 'company', university: 'university' }[orgOf];
-      const pub = seg && trends.published({ segment: seg, yyyyMm: new Date().toISOString().slice(0, 7) });
-      const item = pub?.items?.[0];
-      if (item) {
-        questions = [...questions, {
-          id: `trend-${item.id}`, text: `최근 ${item.competency} 역량이 중요하게 언급됩니다. 이 역량을 보여 준 본인의 경험과 구체적 행동을 설명해 주세요.`,
-          primary: 'evidence_specificity', secondary: ['relevance'],
-          trend_ids: [item.id], source_status: 'monthly_trend', _institution_basis: '월간 트렌드(보조)',
-        }];
-      }
-    }
-    const s = store.createSession(owner, {
+    const s =store.createSession(owner, {
       ...body, free_test: syntheticTraffic, mode, interview_type,
       duration_minutes, duration_seconds,
       interviewer_role: role,

@@ -30,7 +30,8 @@ test('A1: concurrent turn commands on one session do not interleave (followup th
   ]);
   assert.equal(r1.status, 202);
   assert.equal(r2.status, 202);
-  const [b1, b2] = [await r1.json(), await r2.json()];
+  // 도착 순서는 비결정적이므로 버전 순(= 실제 처리 순서)으로 정렬해 검사한다.
+  const [b1, b2] = (await Promise.all([r1.json(), r2.json()])).sort((x, y) => x.version - y.version);
   assert.equal(b1.action, 'ask_followup');
   assert.equal(b2.action, 'next_question');
   assert.ok(b2.version > b1.version, 'versions advance monotonically');

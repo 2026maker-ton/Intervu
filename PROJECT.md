@@ -555,7 +555,7 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 | DEBT-13 | P1 `[UNVERIFIED]` | Workers 런타임(`wrangler.toml` compatibility_date 미기입, `nodejs_compat` 범위, DO SQLite 선언)·Pages 배포 미실행. 파일 저장은 단일 프로세스 가정 | `src/worker/*`, `docs/deploy-workers.md` |
 | DEBT-14 | P1 | 평가는 규칙 기반 또는 Gemini(검증 전·참고용)이며 사람 평가자 비교 없음(§6.2), Claude 평가 어댑터(WP-B4, **보류**)·사람 평가 실험(WP-E2) 미착수, 접근성 수동 QA·실기기 리허설 미실행 | §12 |
 | DEBT-15 | P1 `[UNVERIFIED]` | 학생 MVP: Gemini 신규 operation 4종(`school.analyze`·`trends.decide`·`questions.design`·`evaluation.generate`)·Groq 실음성은 스텁/합성 시험뿐. 월간 트렌드는 Mock, 학교 탐색은 데모 레지스트리뿐 | §7.6 |
-| DEBT-16 | P2 | `npm test`·`npm run e2e`에 간헐 실패 시험이 있다(A1 동시 턴, E 인용 시험, E2E 포커스 링). 원인 미조사 | §10 |
+| DEBT-16 | P2 | 간헐 실패 시험 정리: A1 동시 턴(도착 순서 가정 → 버전 순 정렬로 수정, 14회 반복 통과)·E 인용 시험(무작위 질문 구성 의존 → 모든 relevance 인용을 비원문으로 바꿔 결정적으로 수정, 8회 반복 통과) **수정됨**. **E2E 포커스 링 검사의 간헐 실패는 원인 미조사로 남음** | §10 |
 
 ## 12. 구현 우선순위와 단계별 로드맵
 

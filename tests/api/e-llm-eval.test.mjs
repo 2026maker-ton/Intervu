@@ -49,7 +49,7 @@ test('E: valid Gemini report accepted, labelled llm/unvalidated, spans recompute
 });
 
 test('E: non-verbatim evidence dropped; dimension left with <2 valid turns becomes 판단 보류', async () => {
-  const build = (c) => modelOutput(c, (d) => (d.id === 'relevance' ? { ...d, evidence: d.evidence.map((e, i) => (i === 0 ? { ...e, quote: '원문에 없는 문장입니다 가짜' } : e)) } : d));
+  const build = (c) => modelOutput(c, (d) => (d.id === 'relevance' ? { ...d, evidence: d.evidence.map((e) => ({ ...e, quote: '원문에 없는 문장입니다 가짜' }))  /* 모든 relevance 인용을 비원문으로: 질문 구성이 무작위여도 결과가 결정적 */ } : d));
   await withProviders({ env: SYN, overrides: syn, respond: respondWith(build) }, async (ctx) => {
     const r = await runSession(ctx);
     assert.equal(r.evaluator.kind, 'llm');

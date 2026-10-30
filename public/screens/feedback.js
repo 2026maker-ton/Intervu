@@ -161,7 +161,7 @@ export function renderReport(r) {
 
 function evaluatorLabel(ev) {
   if (!ev || ev.kind === 'rule_based') return '규칙 기반 참고 관찰';
-  return `AI 분석(검증 중) · ${ev.provider || ''}${ev.model_alias ? ` · ${ev.model_alias}` : ''}`;
+  return ev.kind === 'llm' ? FIXED.evaluatorLlm : `AI 분석(검증 중) · ${ev.provider || ''}${ev.model_alias ? ` · ${ev.model_alias}` : ''}`;
 }
 
 // 가장 먼저 바꿀 것 1개: 실제로 한 말 -> 부족한 부분 -> 행동 1개 -> 재연습 CTA

@@ -56,21 +56,19 @@ export async function loadProvider() {
 $$('[data-journey]').forEach((b) => b.addEventListener('click', () => startJourney(b.dataset.journey)));
 
 export function startJourney(journey) {
-  state.journey = journey === 'university' ? 'university' : 'company';
-  const uni = state.journey === 'university';
-  $('#applicationEyebrow').textContent = uni ? 'University admission' : 'Company application';
-  $('#applicationTitle').textContent = uni ? '대학 지원 정보' : '기업 지원 정보';
-  $('#applicationHint').textContent = uni
-    ? '모집요강·전형 안내에서 확인된 내용만 사용합니다. 없으면 일반 기준으로 연습하며, 기관 맞춤 검증 배지는 표시하지 않습니다.'
-    : '채용 공고·직무기술서에서 확인된 내용만 사용합니다. 없으면 일반 기준으로 연습하며, 기관 맞춤 검증 배지는 표시하지 않습니다.';
-  $('#roleLabel').textContent = uni ? '지원 학과·전형' : '지원 직무';
-  $('#sourceLabel').textContent = uni ? '모집요강·전형 안내 본문 (선택)' : '채용 공고·직무기술서 본문 (선택)';
-  const role = $('#applicationForm [name="role"]');
-  if (role) role.placeholder = uni ? '예: 경영학과 / 학생부종합' : '예: 서비스 기획';
-  const target = $('#applicationForm [name="target_name"]');
-  if (target) target.placeholder = uni ? '예: ○○대학교' : '예: ○○ 주식회사';
+  state.journey = journey === 'highschool' ? 'highschool' : 'university';
+  const hs = state.journey === 'highschool';
+  $('#applicationEyebrow').textContent = hs ? 'High school admission' : 'University admission';
+  $('#applicationTitle').textContent = hs ? '고입 지원 정보' : '대입 지원 정보';
+  $('#applicationHint').textContent = '학교 모집요강·인재상에서 확인된 내용만 사용합니다. 찾지 못한 정보는 추측하지 않고 “확인되지 않음”으로 표시합니다.'
+    + (hs ? ' 고입은 미성년자 대상이므로 실제 입력은 외부 AI로 보내지 않습니다.' : '');
+  $('#roleLabel').textContent = hs ? '지원 계열·학과' : '지원 학과·계열';
+  const dept = $('#applicationForm [name="department"]');
+  if (dept) dept.placeholder = hs ? '예: 일반계 / 과학중점' : '예: 경영학과';
+  const school = $('#applicationForm [name="school_name"]');
+  if (school) school.placeholder = hs ? '예: ○○고등학교' : '예: ○○대학교';
   const src = $('#sourceText');
-  if (src) src.placeholder = uni ? '모집요강의 평가 기준·면접 형식, 학생부·자기소개서의 주장 부분을 붙여넣으세요.' : '요구 역량·전형 방식·면접 형식과 자기소개서의 주장 부분을 붙여넣으세요.';
+  if (src) src.placeholder = '모집요강의 인재상·평가 기준·면접 형식을 붙여넣으세요. (비워 두면 가능한 경우 자동 확인)';
   go('application');
 }
 
@@ -120,7 +118,7 @@ async function loadFixtureLink() {
     const { fixtures } = await api('/fixtures');
     const f = (fixtures || [])[0];
     link.hidden = !f;
-    if (f) link.onclick = (e) => { e.preventDefault(); state.pendingFixture = f.id; startJourney(/univ/i.test(f.kind || '') ? 'university' : 'company'); };
+    if (f) link.onclick = (e) => { e.preventDefault(); state.pendingFixture = f.id; startJourney(/high/i.test(f.kind || '') ? 'highschool' : 'university'); };
   } catch { link.hidden = true; }
 }
 

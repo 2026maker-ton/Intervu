@@ -61,9 +61,9 @@ export function updateSetupSummary() {
   let head;
   if (state.profile) {
     const n = state.profile.applicant_claims_count;
-    head = `<span class="tag ${state.approved ? 'official' : ''}">${state.approved ? '근거 승인 완료' : '승인 필요'}</span> ${esc(state.profile.org_label || (uni ? '대학' : '기업'))} · ${esc(state.profile.target_name || '기관 미지정')} · ${esc(state.profile.role || (uni ? '학과 미지정' : '직무 미지정'))}<br><span class="fine">사용할 근거: 지원서 주장 ${Number.isFinite(n) ? n : 0}개 · 자료 ${state.sources?.length || 0}건</span>`;
+    head = `<span class="tag ${state.approved ? 'official' : ''}">${state.approved ? '근거 승인 완료' : '승인 필요'}</span> ${esc(state.profile.org_label || (uni ? '대학' : '고등학교'))} · ${esc(state.profile.target_name || '기관 미지정')} · ${esc(state.profile.role || '학과·계열 미지정')}<br><span class="fine">사용할 근거: 지원서 주장 ${Number.isFinite(n) ? n : 0}개 · 자료 ${state.sources?.length || 0}건</span>`;
   } else {
-    head = `<span class="tag">자료 없이 일반 기준</span> ${uni ? '대학 입학' : '기업 취업'} · 기관 맞춤 검증 없이 기본 역량으로 연습합니다.`;
+    head = `<span class="tag">자료 없이 일반 기준</span> ${state.journey === 'highschool' ? '고입' : '대입'} · 학교 맞춤 검증 없이 기본 역량으로 연습합니다.`;
   }
   el.innerHTML = `${head}<p class="fine summary-sub">외부 AI 사용 (이 연습에서 실제로 쓰이는 공급자)</p><ul class="plain op-list">${renderProviderLines(state.providerStatus)}</ul><p class="fine">예상 소요 약 ${mins}분 · ${qn}문항</p>`;
 }
@@ -83,7 +83,23 @@ export function updateInputModeAvailability() {
   if (note) { note.textContent = why.join(' '); note.hidden = !why.length; }
 }
 
+// 기본 답변 방식: 서버 전사(groq)가 사용 가능할 때만 '녹음 전사', 아니면 텍스트 + 사유 표시.
+let modeDefaulted = false;
+function applyDefaultInputMode() {
+  const g = $('#setupForm input[name="input_mode"][value="groq"]');
+  const t = $('#setupForm input[name="input_mode"][value="text"]');
+  const note = $('#inputModeUnavailable');
+  const usable = state.stt && state.stt.configured && !['disabled', 'none'].includes(state.stt.provider);
+  if (usable && g && !modeDefaulted) { g.checked = true; g.dispatchEvent(new Event('change')); }
+  else if (!usable && t && !modeDefaulted) {
+    t.checked = true;
+    if (note) { note.textContent = `녹음 전사를 쓸 수 없어 텍스트로 시작합니다. ${state.stt?.message || '서버 전사 설정을 확인하지 못했습니다.'}`; note.hidden = false; }
+  }
+  if (state.stt) modeDefaulted = true;
+}
+
 export async function refreshSetup() {
+  applyDefaultInputMode();
   updateInputModeAvailability();
   updateSetupSummary();
   await refreshModeChip();

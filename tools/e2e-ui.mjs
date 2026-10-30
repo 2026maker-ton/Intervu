@@ -187,19 +187,19 @@ async function main() {
     const screenCount = await page.locator('[data-screen]').count();
     check(screenCount === 9, '9개 화면 컨테이너', `found ${screenCount}`);
     const journeys = await page.locator('.journey-card').evaluateAll((els) => els.map((e) => e.dataset.journey));
-    check(journeys.length === 2 && journeys.includes('company') && journeys.includes('university'), '기업/대학 여정만 노출', journeys.join(','));
+    check(journeys.length === 2 && journeys.includes('highschool') && journeys.includes('university'), '고입/대입 여정만 노출', journeys.join(','));
     const bodyText = await page.locator('body').innerText();
-    check(!/고등학교|공공기관/.test(bodyText), '일반 기관 유형이 주 흐름에 없음');
+    check(!/기업 취업|채용 면접|공공기관/.test(bodyText), '기업·취업 진입점이 주 흐름에 없음');
     check(await page.locator('#modeChip').innerText().then((t) => /Mock/.test(t)), 'Mock 모드 표시');
     await page.screenshot({ path: path.join(OUT, '01-dashboard-1440.png'), fullPage: true });
 
     // ---------- 2. 지원 정보 ----------
     console.log('\n[2] 지원 정보');
-    await page.click('#journeyCompany');
+    await page.click('#journeyUniversity');
     await page.waitForSelector('#screen-application:not([hidden])');
-    check(await page.locator('#applicationTitle').innerText() === '기업 지원 정보', '기업 지원 정보 제목');
-    await page.fill('#applicationForm [name=target_name]', '한빛테크');
-    await page.fill('#applicationForm [name=role]', '서비스 기획');
+    check(await page.locator('#applicationTitle').innerText() === '대입 지원 정보', '대입 지원 정보 제목');
+    await page.fill('#applicationForm [name=school_name]', '한빛대학교');
+    await page.fill('#applicationForm [name=department]', '서비스 기획학과');
     await page.fill('#sourceText', '핵심가치: 고객 중심, 문제 해결, 협업. 면접은 10분 직무·인성 면접으로 진행합니다.');
     await page.fill('#applicationForm [name=experiences]', '팀 프로젝트에서 일정 조정\n고객 인터뷰 정리');
     await page.fill('#applicationText', '저는 동아리 회장을 맡아 행사를 운영했습니다. 팀 프로젝트에서 갈등을 해결했습니다.');
@@ -405,7 +405,7 @@ async function main() {
 
     // 공개된 월간 자료가 사용자 조회에 노출되는지
     const trendRes = await page.evaluate(async (m) => {
-      const seg = 'company';
+      const seg = 'university';
       const r = await fetch(`/api/v1/trends/${seg}/${m}`, { headers: { Authorization: 'Bearer e2e-user-a' } });
       return { status: r.status, body: await r.json() };
     }, month);
@@ -517,7 +517,7 @@ async function main() {
       const pf = await ctxF.newPage();
       await pf.addInitScript(() => localStorage.setItem('intervu.token', 'e2e-user-b'));
       await pf.goto(base + '/#/dashboard', { waitUntil: 'networkidle' });
-      await pf.click('#journeyCompany');
+      await pf.click('#journeyUniversity');
       await pf.click('#loadFixtureBtn');
       await pf.waitForSelector('#fixtureBadge:not([hidden])');
       check(await pf.locator('#fixtureBadge').innerText() === '합성 샘플', '합성 샘플 배지');
@@ -578,7 +578,7 @@ async function main() {
       await pk.waitForSelector('#screen-dashboard:not([hidden])');
       const allRings = [];
       const step = async (id, label) => { const t = await tabTo(pk, id); allRings.push(...t.rings); check(t.found, `키보드: Tab으로 ${label} 도달`, `${t.steps}회`); };
-      await step('journeyCompany', '기업 여정 버튼');
+      await step('journeyUniversity', '대입 여정 버튼');
       await pk.keyboard.press('Enter');
       await pk.waitForSelector('#screen-application:not([hidden])');
       await step('loadFixtureBtn', '합성 샘플 버튼');

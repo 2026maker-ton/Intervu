@@ -441,6 +441,7 @@ function initVoice(inputMode) {
   const voice = inputMode === 'voice';
   const groq = inputMode === 'groq';
   box.hidden = !(voice || groq);
+  box.dataset.primary = groq || voice ? 'on' : '';
   $('#voiceRow').hidden = !voice;
   $('#sttRow').hidden = !groq;
   if (voice) {
@@ -448,7 +449,7 @@ function initVoice(inputMode) {
     if (!SpeechRec) { $('#voiceBtn').disabled = true; setVoice('error', '이 브라우저는 음성 인식을 지원하지 않습니다. 텍스트로 답해 주세요.'); $('#voiceBtn').disabled = true; }
     else setVoice('idle', '“말로 답하기”를 누르면 마이크 사용 권한을 묻습니다.');
   } else if (groq) {
-    $('#voiceNotice').textContent = '녹음은 전사를 위해서만 전송되며 저장하지 않습니다. 개인정보는 말하지 마세요.';
+    $('#voiceNotice').textContent = '음성으로 답하기: ① 녹음 시작 → ② 녹음 중지(자동 전사) → ③ 아래 전사 결과를 확인·수정 → ④ “답변 완료”. 녹음은 전사를 위해서만 전송되며 저장하지 않습니다. 개인정보는 말하지 마세요.';
     if (!state.stt?.configured || state.stt?.provider === 'disabled') { $('#sttRecBtn').disabled = true; setVoice('error', '녹음 전사를 사용할 수 없습니다(서버에 전사 설정이 없습니다). 텍스트로 답해 주세요.'); $('#sttRecBtn').disabled = true; }
     else if (!navigator.mediaDevices?.getUserMedia) { setVoice('error', '이 브라우저는 녹음을 지원하지 않습니다. 텍스트로 답해 주세요.'); $('#sttRecBtn').disabled = true; }
     else setVoice('idle', '“녹음 시작”을 누르면 마이크 사용 권한을 묻습니다.');

@@ -103,7 +103,7 @@ $('#deleteAccountBtn')?.addEventListener('click', async () => {
 
 // 월간 역량(사용자): 공개본만
 export async function loadTrendLookup() {
-  const seg = $('#trendSegment')?.value || 'company';
+  const seg = $('#trendSegment')?.value || 'university';
   const monthInput = $('#trendMonth');
   if (monthInput && !monthInput.value) {
     const d = new Date();

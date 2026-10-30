@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Intervu — 지원서 주장 검증 · 근거 코칭 · 새 질문 전이 확인</title>
-<meta name="description" content="지원서의 주장을 확인하고, 내 발언 근거로 코칭을 받은 뒤, 처음 보는 다른 질문에서 개선 여부를 확인하는 한국어 면접 코치." />
+<meta name="description" content="학교·학과 자료를 분석하고 지원서의 주장을 확인한 뒤, 내 발언 근거로 코칭을 받은 뒤, 처음 보는 다른 질문에서 개선 여부를 확인하는 한국어 면접 코치." />
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -34,7 +34,7 @@
       <div>
         <h3>하는 일</h3>
         <ul class="plain">
-          <li>지원서·공고에서 확인된 문장과 <strong>출처 위치</strong>를 보여줍니다.</li>
+          <li>지원서·모집요강에서 확인된 문장과 <strong>출처 위치</strong>를 보여줍니다.</li>
           <li>내 답변에서 <strong>실제 발언을 인용</strong>해 관찰만 기록합니다.</li>
           <li>부족한 부분은 <strong>판단 보류</strong>로 표시합니다.</li>
           <li>같은 역량의 <strong>처음 보는 질문</strong>으로 다시 확인합니다.</li>
@@ -46,11 +46,11 @@
           <li>합격 확률·백분위·성격/감정 진단은 하지 않음</li>
           <li>얼굴·카메라·음성 감정 분석</li>
           <li>없는 경험·성과 만들기</li>
-          <li>채용기관에 개인 점수 전달</li>
+          <li>학교·기관에 개인 점수 전달</li>
         </ul>
       </div>
     </div>
-    <p class="fine">현재 코칭은 <strong>규칙 기반 참고 관찰</strong>입니다. 검증된 AI 채점이 아니며, 사람 평가자를 대체하지 않습니다. 만 19세 이상 대상입니다.</p>
+    <p class="fine">현재 코칭은 <strong>규칙 기반 참고 관찰</strong>입니다. 검증된 AI 채점이 아니며, 사람 평가자를 대체하지 않습니다. 고입·대입 준비 학생 대상이며, 만 19세 미만은 실제 입력이 외부 AI로 전송되지 않는 모드(규칙 기반)로만 연습합니다.</p>
     <button class="ghost small" type="button" id="helpCloseBtn">닫기</button>
   </div>
 </div>
@@ -66,17 +66,17 @@
     </div>
 
     <div class="journey-grid" role="group" aria-label="지원 분야 선택">
-      <button class="journey-card" type="button" id="journeyCompany" data-journey="company">
-        <span class="journey-tag">기업 취업</span>
-        <strong>채용 면접</strong>
-        <span>공고·직무기술서의 요구 역량과 지원서 주장을 연결합니다.</span>
-        <span class="journey-cta">기업 지원으로 시작 →</span>
+      <button class="journey-card" type="button" id="journeyHighschool" data-journey="highschool">
+        <span class="journey-tag">고입</span>
+        <strong>고등학교 입학 면접</strong>
+        <span>학교 모집요강·인재상과 학생부·자기소개서 주장을 연결합니다.</span>
+        <span class="journey-cta">고입으로 시작 →</span>
       </button>
       <button class="journey-card" type="button" id="journeyUniversity" data-journey="university">
-        <span class="journey-tag">대학 입학</span>
-        <strong>입학·전형 면접</strong>
-        <span>모집요강·전형 자료와 학생부·자기소개서 주장을 연결합니다.</span>
-        <span class="journey-cta">대학 지원으로 시작 →</span>
+        <span class="journey-tag">대입</span>
+        <strong>대학 입학·전형 면접</strong>
+        <span>대학·학과 모집요강·인재상과 학생부·자기소개서 주장을 연결합니다.</span>
+        <span class="journey-cta">대입으로 시작 →</span>
       </button>
     </div>
 
@@ -102,9 +102,9 @@
       <section class="card" aria-labelledby="howTitle">
         <h2 id="howTitle">진행 순서</h2>
         <ol class="flow-list">
-          <li><span>1</span><div><strong>지원 정보</strong><p>기관·직무/학과와 공고·서류를 입력합니다.</p></div></li>
-          <li><span>2</span><div><strong>근거 확인</strong><p>확인된 문장과 출처, 확인 불가 항목을 구분해 승인합니다.</p></div></li>
-          <li><span>3</span><div><strong>면접 설정 · 실전</strong><p>시간과 답변 방식만 고르고 바로 시작합니다.</p></div></li>
+          <li><span>1</span><div><strong>지원 정보</strong><p>학교·학과와 모집요강·서류를 입력합니다.</p></div></li>
+          <li><span>2</span><div><strong>근거 확인</strong><p>학교 분석(인재상·전형 요소), 출처, 확인되지 않은 정보를 구분해 승인합니다.</p></div></li>
+          <li><span>3</span><div><strong>면접 설정 · 실전</strong><p>시간과 답변 방식(기본: 녹음 전사)만 고르고 바로 시작합니다.</p></div></li>
           <li><span>4</span><div><strong>피드백 · 재연습</strong><p>인용된 발언으로 다음 행동을 정하고, 새 질문에서 확인합니다.</p></div></li>
         </ol>
       </section>
@@ -128,25 +128,29 @@
       </div>
       <div class="field-row">
         <label class="field">
-          <span>지원 기관명</span>
-          <input name="target_name" maxlength="100" autocomplete="organization" placeholder="예: ○○ 주식회사" />
+          <span>학교명</span>
+          <input name="school_name" maxlength="100" autocomplete="organization" placeholder="예: ○○대학교" />
         </label>
         <label class="field">
-          <span id="roleLabel">지원 직무</span>
-          <input name="role" maxlength="100" autocomplete="off" placeholder="예: 서비스 기획" />
+          <span id="roleLabel">지원 학과·계열</span>
+          <input name="department" maxlength="100" autocomplete="off" placeholder="예: 경영학과" />
+        </label>
+        <label class="field">
+          <span>전형 (선택)</span>
+          <input name="track" maxlength="100" autocomplete="off" placeholder="예: 학생부종합" />
         </label>
       </div>
 
       <label class="field">
-        <span id="sourceLabel">공고·모집요강 본문 (선택)</span>
+        <span id="sourceLabel">모집요강·인재상 본문 (선택)</span>
         <textarea name="source_text" id="sourceText" rows="6" maxlength="20000" placeholder="요구 역량·전형 방식·면접 형식 부분을 붙여넣으세요."></textarea>
         <small class="fine">20,000자 이하. 전화·이메일·주민번호는 자동 마스킹되지만 완전 익명화는 아닙니다.</small>
       </label>
 
       <label class="field">
-        <span>자기소개서·지원서 본문 (선택)</span>
+        <span>자소서·학생부 본문 (선택)</span>
         <textarea name="application_text" id="applicationText" rows="6" maxlength="20000" placeholder="본인이 쓴 경험·성과 문장을 붙여넣으세요. 문장 단위로 주장과 빠진 근거를 찾아 질문에 연결합니다."></textarea>
-        <small class="fine">20,000자 이하. 규칙 기반으로 서버에서만 분석하며 외부 AI로 보내지 않습니다. 전화·이메일·주민번호는 자동 마스킹됩니다.</small>
+        <small class="fine">20,000자 이하. 실제 입력은 동의·연령 조건을 충족해야만 외부 AI 처리 대상이 되며, 미성년자 입력은 외부 AI로 보내지 않습니다. 전화·이메일·주민번호는 자동 마스킹됩니다.</small>
       </label>
 
       <div class="field-row">
@@ -154,7 +158,7 @@
           <label for="docKind"><span>서류 파일 (선택)</span></label>
           <select id="docKind">
             <option value="cover_letter">자기소개서·지원서</option>
-            <option value="posting">공고·모집요강</option>
+            <option value="posting">모집요강·인재상</option>
             <option value="resume">이력서</option>
             <option value="other">기타</option>
           </select>
@@ -434,7 +438,7 @@
       <section class="card">
         <h2>월간 역량 자료</h2>
         <div class="field-row">
-          <label class="field"><span>분야</span><select id="trendSegment"><option value="company">기업 취업</option><option value="university">대학 입학</option></select></label>
+          <label class="field"><span>분야</span><select id="trendSegment"><option value="university">대입</option><option value="highschool">고입</option></select></label>
           <label class="field"><span>연월</span><input id="trendMonth" type="month" /></label>
         </div>
         <p class="fine">검수·공개된 월간 보조 기준만 표시합니다. 공식 요구가 아니며 점수에 반영되지 않습니다.</p>
@@ -470,7 +474,7 @@
         <div class="card-head"><h2>월간 역량 초안 등록</h2><span class="state-badge" id="adminStatus">인증됨</span></div>
         <form id="trendForm">
           <div class="field-row">
-            <label class="field"><span>분야</span><select name="segment"><option value="company">기업 취업</option><option value="university">대학 입학</option></select></label>
+            <label class="field"><span>분야</span><select name="segment"><option value="university">대입</option><option value="highschool">고입</option></select></label>
             <label class="field"><span>연월</span><input name="yyyy_mm" type="month" required /></label>
           </div>
           <fieldset class="field-group">
@@ -510,7 +514,7 @@
 </main>
 
 <footer>
-  <p>Intervu · 근거 기반 참고 코칭이며 합격 예측이 아닙니다 · 만 19세 이상 · 현재 평가는 규칙 기반입니다</p>
+  <p>Intervu · 근거 기반 참고 코칭이며 합격 예측이 아닙니다 · 고입·대입 준비 학생 대상 · 미성년자 실제 입력은 외부 AI로 보내지 않습니다</p>
 </footer>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -523,7 +527,12 @@
       <li>보존: 30일 보존 후 파기되며, 기록 화면에서 언제든 삭제할 수 있습니다.</li>
       <li id="consentAiLine">외부 AI: 확인 중…</li>
     </ul>
-    <label class="check"><input type="checkbox" id="consentAge" /> 만 19세 이상입니다.</label>
+    <fieldset class="field-group" id="consentChoice">
+      <legend>연령 확인</legend>
+      <label class="check"><input type="radio" name="consentAgeChoice" id="consentAge" value="adult" /> 만 19세 이상입니다.</label>
+      <label class="check"><input type="radio" name="consentAgeChoice" id="consentMinor" value="minor" /> 만 19세 미만입니다.</label>
+      <p class="fine" id="consentMinorNote" hidden>만 19세 미만이면 입력한 지원 자료·답변·음성이 외부 AI로 전송되지 않고, 이 서버의 규칙 기반 방식으로만 연습합니다. 이 점을 이해했습니다.</p>
+    </fieldset>
     <div class="actions">
       <button class="primary" value="ok" id="consentOk" disabled>동의하고 계속</button>
       <button class="ghost" value="cancel" id="consentCancel">샘플로 체험만 하기</button>

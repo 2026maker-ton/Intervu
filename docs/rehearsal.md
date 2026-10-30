@@ -2,6 +2,8 @@
 
 > 근거: `docs/plan/08-demo-and-qa.md` §1·§5·§6, PROJECT.md §13. **자동화된 것은 API 수준 리허설(`npm run rehearsal`)뿐이다.** 화면 클릭·모바일·마이크·실기기는 사람이 해야 하며, 아래 체크리스트에서 `미실행`으로 남아 있다.
 
+> **2026-10-30 갱신(학생 MVP):** 대본 1·2열의 `기업 취업`·"가상 회사"는 이전 기준이다. 현재 UI 진입점은 `고입`/`대입`이며, 근거 확인 단계에서 **학교 분석**(인재상·전형요소·확인 시점·출처 상태·미확인 목록)을 확인한다. 아래 §4 `실행 2`는 이 패스에서 새로 실행한 API 리허설이다(UI 수동 대본은 이번에도 **미실행**).
+
 ## 1. 시연자 대본 (12단계)
 전제: 합성 샘플만 사용, 화면 상단 모드 칩이 `Mock`(또는 실제 모드)과 일치하는지 먼저 말로 확인한다. 접속 후 토큰 입력(`DEV_TOKEN_A` 값).
 
@@ -80,5 +82,7 @@ university | 12a 운영자 트렌드 초안→공개→비공개 | PASS | draft�
 provider-down-500 | 폴백 지속 | PASS | 스텁 호출 4회, mode=fallback, 보고서 rule_based
 provider-down-429 | 폴백 지속 | PASS | 스텁 호출 4회, mode=fallback, 보고서 rule_based
 ```
+
+**실행 2** — 2026-10-30, Windows 11, Node v22.15.0, 기준 `49357bd`, 공급자 Mock(외부 호출 없음), 결과 **38/38 PASS**. 시나리오: `company`(레거시 서버 경로)·`highschool`·`university`(각 12개 단계: 프로필(서버 fixture)·주장 추출 3건·승인(질문 5개)·세션·답변·보고서 `evaluator=rule_based claim_links=2`·재시작 후 복원·새 질문 재연습·변화 비교 `observed_change`·기록 2건·삭제 후 404·운영자 트렌드 초안→공개→비공개) + `provider-down-500`/`429`(스텁 호출 10회, `mode=fallback`, 보고서 `rule_based`). 단계 ID·세부 출력은 `npm run rehearsal`로 재현한다. 이 리허설은 학교 분석·Gemini 평가를 거치지 않는다(규칙 기반 `rule_based`만 확인) — 해당 경로는 `tests/api/s1-school.test.mjs`·`s2-questions.test.mjs`·`e-llm-eval.test.mjs` 스텁 시험으로만 검증됐다.
 
 **한계:** API 수준이다. UI·모바일·마이크·실기기·접근성·다른 브라우저·성능 측정·합성 샘플 이외 데이터는 검증하지 않았다. "기록" 단계는 재연습 세션 포함 2건을 센다.

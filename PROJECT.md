@@ -1,12 +1,14 @@
 # Intervu — 제품 전체 기획 및 구현 기준서
 
-> **Version:** 1.2.0 | **기준일:** 2026-10-29 | **상태:** 목표 제품 명세 + 2026-10-29 전수 점검 결과(§7·§10~§17) + WP-E4 문서 정합(브랜치 `fix/p0-1-provider-gate`, 기준 커밋 `aa6d0cc`). 목표 설계는 구현 완료를 뜻하지 않는다.
+> **Version:** 1.3.0 | **기준일:** 2026-10-30 | **상태:** 목표 제품 명세 + **학생 대상 데모 MVP 전환(고입·대입, `docs/plan/09`)** 반영 + 문서 정합(브랜치 `feat/student-mvp`, 기준 커밋 `49357bd`). §7.6에 구현된 것/향후 계획을 구분했다. 목표 설계는 구현 완료를 뜻하지 않는다.
 >
 > **핵심 정의:** 지원서의 주장을 검증하고, 부족한 답변을 집중 훈련한 뒤, **처음 보는 다른 질문**에서 개선 여부를 확인하는 근거 기반 AI 면접 코치.
 >
 > **North Star:** Application claim probing → evidence-grounded coaching → new-question transfer check.
 
 ## 0. 이 문서의 지위와 변경 원칙
+
+**2026-10-30 방향 전환(v1.3.0).** 현재 범위의 대상은 **고입·대입 면접을 준비하는 학생**이다. 기업·취업은 이번 범위 밖이며(서버는 `company`/`public` org_type을 **레거시로 계속 받아 회귀 테스트를 보존**하나 UI에는 노출하지 않는다), 이 문서 곳곳의 "기업" 서술은 레거시·이력이다. AI 공급자는 **Gemini 하나만 활성**이고 Claude·DeepSeek·ElevenLabs 어댑터는 코드에 남아 있으나 **보류(기본 꺼짐)** 이다. 핵심 차별점(지원서 주장 검증 → 근거 기반 코칭 → 새 질문 전이 확인)과 §5 보안·개인정보 불변 조건(특히 미성년자)은 **완화하지 않았다.** 구현된 것과 향후 계획의 구분은 §7.6.
 
 이 문서는 Intervu의 **최상위 제품 방향(Product Source of Truth)** 을 정의한다. 사용자 여정, 기능 우선순위, 제품 표현, 질문 생성, 평가, 데이터 처리, 완료 기준은 이 문서를 따른다.
 
@@ -35,7 +37,7 @@
 
 ### 1.1 해결할 문제
 
-기업별 면접, 자소서 기반 질문, 꼬리질문, 음성 응답, AI 피드백은 이미 경쟁 서비스가 제공한다. Intervu는 이 기능들의 단순한 복제 또는 모델 교체만으로 차별화하지 않는다.
+(현재 대상은 학생이며 아래 "기업별"은 경쟁 서비스 설명이다.) 기업별 면접, 자소서 기반 질문, 꼬리질문, 음성 응답, AI 피드백은 이미 경쟁 서비스가 제공한다. Intervu는 이 기능들의 단순한 복제 또는 모델 교체만으로 차별화하지 않는다.
 
 지원자는 자소서에 “리더십을 발휘했다”, “갈등을 해결했다”, “문제를 개선했다”고 작성하지만 실제 면접에서는 **본인 역할·판단 기준·행동·관찰된 결과·한계·배운 점**을 설명하지 못하는 경우가 있다. 일반적인 “더 구체적으로 답하세요”라는 피드백만으로는 다른 질문에서 실제로 답변이 개선되는지도 알 수 없다.
 
@@ -49,35 +51,35 @@
 
 ### 1.3 대상과 범위
 
-- **기업 취업:** 일반 기업 지원자. 기업명, 지원 직무, 채용 공고, 이력서·자기소개서·지원서를 받는다.
-- **대학 입학:** 대학·학과·전형 지원자. 모집요강, 공시된 평가 기준, 해당 전형에서 사용 가능한 지원 자료를 받는다.
-- 고교 입학, 토론 면접, PT, 패널, 상황 역할극 등은 **기본 제품 화면에서 제외**한다. 과거 코드에 있어도 핵심 사용자 흐름으로 노출하지 않는다.
-- 대입 지원자 중 미성년자가 있을 수 있다. **연령 제한이 있는 AI API를 미성년자 실제 자료에 사용하지 않는다.** 법률·제공사 약관·적절한 처리 근거가 검증되기 전까지 합성 예제 데모 또는 적법한 다른 경로만 제공한다. 단순 체크박스나 보호자 동의 가정만으로 연령 제한을 우회하지 않는다.
+- **고입(고등학교 입학, org_type `highschool`)·대입(대학 입학, `university`) 준비 학생**이 현재 대상이다. 학교·학과(계열)·전형을 고르고, 모집요강·인재상, 학생 본인의 자기소개서·학생부 요약을 입력한다. 기본 org_type은 `university`.
+- **기업 취업(`company`/`public`)은 현재 범위 밖(레거시)** 이다. 서버는 기존 테스트·회귀 보존을 위해 계속 받지만 UI 진입점은 고입·대입뿐이다(`tools/check-project.mjs`가 UI의 company/public 여정을 금지 검사).
+- 토론 면접, PT, 패널, 상황 역할극 등 비핵심 유형은 **코드에 남아 있고 범위 밖**이며 기본 화면에서는 `고급(실험)`에 접혀 있다.
+- **미성년자 제약(변경 불가):** 고입 지원자는 미성년자다. **고입 경로에서 실제 학생 입력(지원서·답변·음성)은 외부 AI(Gemini·Groq)로 보내지 않고** 규칙 기반/Mock으로만 처리한다(`providerConstraintForOrg`: 서버가 fixture 일치로 합성 판정한 요청만 외부 호출 허용). 대입도 `age_19_confirmed=true`가 아니면 실데이터 외부 전송 불가. 단순 체크박스나 보호자 동의 가정으로 제공사 연령 제한을 우회하지 않는다. 보호자 동의 절차·미성년자 실데이터 외부 AI 경로는 **향후 계획**(구현 금지).
 
 ### 1.4 하지 않을 것
 
-합격 가능성 예측, 실제 합격 판정, 비공개 평가 기준 추정, 거짓말·성격·감정·외모 분석, 자동 경력·성과 조작, 검증되지 않은 기출이라고 주장하기, 총점·백분위 과장, 카메라 감시, 무단 웹 수집, 개인정보 포함 답변의 무료 AI API 무단 전송, 유료 모델 자동 승격을 하지 않는다.
+합격 가능성 예측, 실제 합격 판정(입시 결과 예측 포함), 비공개 평가 기준 추정, 거짓말·성격·감정·외모 분석, 자동 경력·성과 조작, 검증되지 않은 기출이라고 주장하기, 총점·백분위 과장, 카메라 감시, 무단 웹 수집, 개인정보 포함 답변의 무료 AI API 무단 전송, 유료 모델 자동 승격을 하지 않는다.
 
 ### 1.5 프로젝트 개요·SDGs 연계·사용자 시나리오
 
-- **프로젝트 성격:** 목표는 상용 출시가 아니라 **AI 경진대회에 제출할 수 있는, 처음부터 끝까지 정상 동작하는 작동형 데모**이다. 기능 수보다 한 줄기 데모 시나리오(§13)의 완주를 우선한다.
+- **프로젝트 성격(대상: 고입·대입 준비 학생):** 목표는 상용 출시가 아니라 **AI 경진대회에 제출할 수 있는, 처음부터 끝까지 정상 동작하는 작동형 데모**이다. 기능 수보다 한 줄기 데모 시나리오(§13)의 완주를 우선한다.
 - **해결하려는 문제(가설):** 지원서에 쓴 주장을 면접에서 뒷받침하지 못하는 문제, 막연한 피드백으로는 다음 답변이 실제로 나아졌는지 확인할 수 없는 문제. 사용자 인터뷰·실측으로 검증된 것이 아니다(`docs/project-intro.md`도 가설로 분류).
 - **SDGs 연계 `[미확정]`:** 저장소에는 SDGs 문서가 없다. 아래는 제출용 **연계 가설**이며 측정된 효과가 아니다. 제출 전에 공식 목표·세부목표 번호를 직접 확인한다.
   - SDG 4 양질의 교육(청년의 취업·진학 역량 개발): 면접 준비 기회를 근거 기반 코칭으로 확장.
   - SDG 8 양질의 일자리와 경제성장(청년 고용 진입): 공개 채용·모집 기준에 맞춘 준비.
   - SDG 10 불평등 감소: 고가 사설 면접 코칭에 접근하기 어려운 지원자의 비용 장벽 완화(무료·저비용 구성 목표). 단, 현재 데모는 **Mock/무료 티어 중심이라 실사용자 대상 효과를 주장하지 않는다.**
   - 기대 효과는 §6.2의 사람 평가 실험으로 측정하기 전까지 "기대"로만 쓴다.
-- **주요 사용자:** ① 기업 취업 준비생(만 19세 이상), ② 대입 지원자 중 성인(미성년자는 §5 #2에 따라 합성 예제만), ③ 운영자(월간 역량 검수·승인; 현재 1인 개발 데모에서는 개발자 본인).
-- **대표 시나리오(데모 기준):** 지원자가 기업/대학을 고르고 공고와 합성 자소서를 넣으면 → 서버가 원문에서 근거를 추출·표시 → 사용자가 확인 → 면접 → 근거 인용 보고서에서 약한 역량 1개 확인 → 같은 역량의 **다른 질문**으로 재연습 → 전후 발언 비교(또는 판단 보류) → 기록 내보내기·삭제.
+- **주요 사용자:** ① 고입 준비 학생(미성년자: 실입력은 외부 AI로 가지 않는 규칙 기반/Mock 모드, 외부 AI는 합성 샘플에서만), ② 대입 준비 학생(만 19세 확인 시에만 실데이터 외부 AI 후보, 미확인 시 Mock), ③ 운영자(월간 역량 검수·승인; 현재 1인 개발 데모에서는 개발자 본인).
+- **대표 시나리오(데모 기준):** 학생이 고입/대입을 고르고 학교·학과를 입력하면(합성 샘플 포함) → 학교 분석(모집요강·인재상 원문 인용, 확인 시점·출처 상태·미확인 목록)과 자소서 주장 근거를 서버가 추출·표시 → 사용자가 확인 → 면접 → 근거 인용 보고서에서 약한 역량 1개 확인 → 같은 역량의 **다른 질문**으로 재연습 → 전후 발언 비교(또는 판단 보류) → 기록 내보내기·삭제.
 
 ## 2. 사용자 전체 여정
 
-**대시보드 → 지원 정보·서류 입력 → 서류 추출·교정 → 공식 기관 자료 수집 → 근거 검토·확정 → 간단 면접 설정 → 맞춤 질문·꼬리질문 → 근거 기반 분석 → 약점 재연습 → 새 질문에서 비교 → 기록·삭제**
+**(학생 여정) 대시보드(고입/대입) → 학교·학과 선택 → 지원 정보·서류 입력 → 서류 추출·교정 → 공식 기관 자료 수집 → 근거 검토·확정 → 간단 면접 설정 → 맞춤 질문·꼬리질문 → 근거 기반 분석 → 약점 재연습 → 새 질문에서 비교 → 기록·삭제**
 
 ### 2.1 지원 정보 입력
 
-- 유형: 기업 취업 / 대학 입학.
-- 필수 정보: 대상 기관, 직무 또는 대학·학과·전형.
+- 유형: **고입 / 대입**(기업 취업은 레거시, UI 미노출).
+- 필수 정보: `school_name`(학교명), `department`(학과·계열), 선택 `track`(전형). 서버는 `target_name=school_name`, `role=department`로 정규화해 기존 로직과 호환한다.
 - 선택 정보: 공고·모집요강 URL/본문, 자기소개서·이력서·지원서, 부가 경험 자료.
 - PDF/DOCX/TXT 및 텍스트 붙여넣기 기능을 단계적으로 구현한다.
 - 서버에서 파일 확장자·실제 MIME·크기·파싱 실패를 검증하며 추출 텍스트를 사용자에게 보여준다. 스캔 PDF 등 읽을 수 없는 파일은 붙여넣기를 안내한다.
@@ -85,6 +87,8 @@
 - 원본 문서, 추출 텍스트, 사용자가 수정한 텍스트는 다른 revision으로 구분한다.
 
 ### 2.2 공식 홈페이지·기관 기준 조사
+
+**학교 분석(현재 구현, `docs/plan/09` §3).** `POST /profiles/:id/school-analysis`가 수집/등록된 소스 본문(+붙여넣은 텍스트)에서 `{talent_traits, admission_elements, interview_format}`(각 `label`+원문 `quote`)와 `unconfirmed` 목록을 만든다. 모든 `quote`는 입력 원문의 부분 문자열이어야 하며 서버가 위치를 재계산하고 불일치 항목은 폐기한다. 원문에 없는 항목(예: 면접 형식)은 추측하지 않고 `unconfirmed`("면접 형식 미확인")에 둔다. 각 소스는 `confirmed_at`(분석에 사용한 시점)·`retrieved_at`·`status`를 가진다. Gemini 호출(`school.analyze`)이 게이트·합성/동의 규칙·실패로 막히면 기존 규칙 기반(`buildInstitutionProfile` 키워드)으로 폴백하고 `analysis_mode:'rule_based'`와 `provider_trace`를 표시한다. 결과는 승인 흐름(approve)을 거친다. **탐색(discovery):** 현재는 **데모 학교 레지스트리**(가상 학교 3곳, `src/domain/school-directory.js`, 라벨 "데모 fixture(실제 학교 아님)")와 일치할 때만 자동 등록하고, 일치하지 않으면 `discovery_failed`로 입력(URL·붙여넣기)을 안내하며 URL·내용을 지어내지 않는다. 사용자 URL 수집은 기존 수집기(`OFFICIAL_FETCH_ALLOW`, 기본 꺼짐)를 따른다. **실제 웹 검색 기반 학교 탐색은 향후 계획(미구현).**
 
 - 기업: 공식 채용 페이지, 인재상·핵심 가치, 직무 요구사항.
 - 대학: 모집요강, 전형별 공개 평가 요소, 학과 맥락.
@@ -98,6 +102,8 @@
 
 ### 2.3 월간 핵심 역량
 
+**학생 MVP의 월간 트렌드(현재 구현, 시제품).** 데모 질문 생성 경로는 **Mock 월간 트렌드**(`src/domain/trend-mock.js`, `YYYY-MM`×`highschool|university`, 모든 항목 `mock:true`, 라벨 "월간 트렌드(Mock · 보조) — 실제 입시·교육 이슈 아님")만 쓴다. Mock 데이터는 2026-09~12월분만 있고 그 외 월은 가까운 월로 대체하지 않고 `unavailable`이다(`TREND_MOCK_MONTH`로 월 고정 가능). Gemini `trends.decide`가 "트렌드가 필요한가"를 판단해 `use_trend=true`이고 유효한 id일 때만 Mock을 조회해 질문 입력에 포함하며, 판단 호출이 막히거나 실패하면 **트렌드를 쓰지 않는다**(보수적 기본값). 쓰인 질문에는 `source_status:'monthly_trend_mock'`과 라벨을 남긴다. 트렌드는 학교의 공식 요구가 아니다. 실제 월간 입시 이슈 수집·검수는 **향후 계획**이며, 아래 관리자 월간 역량 저장소(C3)는 유지된다(삭제 금지).
+
 매달 **기업 취업**과 **대학 입학**을 별도 영역으로 관리한다. 향후 직무·전형별 세분화는 충분한 자료가 생겼을 때 한다.
 
 1. 관리자가 자료를 직접 등록하거나 서버가 허용된 공개 웹 자료를 수집한다.
@@ -109,6 +115,8 @@
 승인 자료가 없으면 해당 달의 역량을 임의 생성하지 않는다. 자동 월별 작업이 구현·검증되기 전에는 자동 갱신된다고 소개하지 않는다.
 
 ### 2.4 지원서 주장 분석 및 질문 설계
+
+**질문 설계(현재 구현, `questions.design`).** 승인 시점에 한 번, Gemini가 승인된 학교 분석(label+quote)·학과·지원자 주장·(조건부) 트렌드·문항 수를 입력으로 질문을 설계하고, 서버가 질문 단위로 검증한다(1문장·≤200자·`?` 포함·점수/합격/모범답안 어휘 금지·입력 근거에 없는 숫자·고유명사 금지·알 수 없는 `evidence_id` 폐기). 전부 폐기되거나 호출이 막히면 **규칙 기반 계획**(`planGeneralQuestions`)으로 폴백하고, 지원자 주장 기반 질문은 **항상 앞에 유지**한다. 결과는 버전에 동결(`plan.model_questions`, `generator:'gemini'|'rule'`)된다. 꼬리질문(`dialogue.next`) 프롬프트에는 학교 인재상 label(최대 5개)이 `school_context`로 추가된다.
 
 **추적 구조:** `서류 원문 문장 → 지원자의 주장 → 검증할 부족한 정보 → 공식 요구 역량(또는 트렌드) → 질문 → 답변 → 관찰 근거 → 재연습 → 새 질문 비교`.
 
@@ -124,6 +132,8 @@
 자료가 부족하면 비중을 유연하게 바꾸고, 질문별 기반 근거를 저장한다. 질문에는 `question_id`, `target_competency`, `application_evidence_ids`, `institution_evidence_ids`, `source_status`, `prompt_version` 등을 포함한다. 실제 자소서에 없는 수치, 성과, 사람, 경험을 생성하지 않는다.
 
 ### 2.5 실시간 면접
+
+현재 음성 경로: 기본 답변 방식은 서버 전사가 사용 가능(`GET /stt/status`)할 때 **녹음 전사(Groq Whisper STT)**, 아니면 텍스트. 면접관 낭독은 **브라우저 `SpeechSynthesis`**(서버 TTS·ElevenLabs는 보류). 실음성은 실데이터이므로 §5 게이트(미성년·무동의면 서버 전사 차단 → 사유 표시 후 텍스트 계속)를 따른다.
 
 사용자가 설정할 항목은 기본적으로 **시간(5/10/15분), 면접관 성향(친절/보통/압박), 답변 방식(텍스트/마이크)** 정도로 제한한다. 블라인드 기능은 안전하게 동작하는 경우에만 선택적으로 표시한다.
 
@@ -146,7 +156,7 @@
 
 각 관찰에는 해당 질문, 확정 답변 revision, **정확한 인용 구절과 코드포인트 구간**, 적용한 평가 기준 및 개선 행동을 연결한다. 단순 인용 문자열 일치 검사는 평가 내용의 타당성을 보장하지 않으므로 별도의 의미상 검수 시험이 필요하다. 근거가 부족하면 **판단 보류**한다.
 
-**현재 서버의 평가는 키워드·길이에 따른 결정적 휴리스틱이다.** 새 의미 기반 평가기를 검증하기 전까지 UI에서는 “규칙 기반 참고 관찰”이라고 밝히고, “AI가 정밀 평가”나 근거 없는 수준의 정확도를 주장하지 않는다.
+**평가기는 두 가지다.** (a) 규칙 기반(키워드·길이 결정적 휴리스틱, 기본·폴백)과 (b) Gemini `evaluation.generate`(합성/동의·게이트 통과 시에만; 서버가 인용 위치를 재계산하고 `validateEvaluation`·`checkFeedbackSafety` 통과분만 채택, 실패 시 규칙 기반 폴백). Gemini 보고서의 UI 칩은 `Gemini 분석 · 검증 전(참고용)`(`evaluator:{kind:'llm',validated:false}`), 규칙 기반은 "규칙 기반 참고 관찰"이다. 서로 다른 평가기 종류의 전후 비교는 판단 보류한다. 사람 평가 비교 전에는 "검증된 AI 평가"로 표기하지 않는다. **규칙 평가기는 키워드·길이에 따른 결정적 휴리스틱이다.** 새 의미 기반 평가기를 검증하기 전까지 UI에서는 “규칙 기반 참고 관찰”이라고 밝히고, “AI가 정밀 평가”나 근거 없는 수준의 정확도를 주장하지 않는다.
 
 보고서에 반드시 표시할 것: **실제로 한 말 → 부족한 부분 → 다음에 바꿀 행동 하나 → 새 질문으로 재연습**. 과도한 복합 점수·순위·장식 그래프는 제외한다.
 
@@ -162,7 +172,7 @@
 
 ### 2.8 면접 유형별 동작 설계 (현재 구현 vs 목표)
 
-핵심 제품 경로는 **기업·대학 1:1 면접**이다. 나머지 유형은 코드에 있으나 §1.3에 따라 핵심 흐름이 아니다. 아래 "현재"는 Mock(규칙) 경로 기준이며 근거는 `tests/api/interview-types.test.mjs`·`tests/domain/pii-eval-transfer-trends.test.mjs` 등 해당 테스트다.
+핵심 제품 경로는 **고입·대입 1:1 면접**이다. 나머지 유형(토론·PT·상황·패널·기술)은 코드에 남아 있으나 §1.3에 따라 **범위 밖**이다(회귀 보존). 아래 "현재"는 Mock(규칙) 경로 기준이며 근거는 `tests/api/interview-types.test.mjs`·`tests/domain/pii-eval-transfer-trends.test.mjs` 등 해당 테스트다.
 
 | 유형 | 현재 구현 | 목표 설계 |
 |---|---|---|
@@ -182,9 +192,9 @@
 
 | 화면 | 주요 요소 | 반드시 제거·축소할 것 |
 |---|---|---|
-| 대시보드 | 기업/대학 선택, 새 면접, 최근 연습 | 긴 마케팅 문구, 개발자용 API 상태 칩 |
-| 지원 정보 | 기관·직무/학과·공고·서류 입력 | 불필요한 면접 유형 선택 |
-| 근거 확인 | 공식 정보·지원서 주장·출처·확인/승인 | 검증 불명 자료를 공식 정보처럼 표현 |
+| 대시보드 | **고입/대입 두 여정** 선택, 새 면접, 최근 연습 | 긴 마케팅 문구, 개발자용 API 상태 칩 |
+| 지원 정보 | 학교·학과(합성 샘플 불러오기 포함)·모집요강·서류 입력, 연령 2택 동의 | 불필요한 면접 유형 선택 |
+| 근거 확인 | **학교 분석(인재상·전형요소·면접 형식, 원문 인용, 확인 시점·출처 상태·미확인 목록)**·지원서 주장·출처·확인/승인 | 검증 불명 자료를 공식 정보처럼 표현 |
 | 면접 설정 | 시간·성향·입력 모드·간단 시작 | 과도한 설정, 예산 수치 노출 |
 | 실전 면접실 | 현재 질문·타이머·녹음/답변·제출·일시정지 | 무의미한 파형·다중 패널·설명 문구 |
 | 피드백 | 실제 답변 인용·관찰·개선 행동·재연습 | 과장 점수·합격률 |
@@ -212,19 +222,21 @@
 
 ### 4.2 LLM과 음성 공급자 — 현재 구현 vs 목표 설계
 
-**목표 구성(2026-10-29 개발자 지시; 구현·결제 완료를 뜻하지 않음).** 모델 ID·엔드포인트·가격·무료 티어·지원 기능·데이터 약관은 아직 확인하지 않았으므로 확정값을 적지 않는다.
+**2026-10-30 갱신:** 아래 표의 DeepSeek·Claude·ElevenLabs 행은 **보류(on hold)** 다 — 어댑터 코드는 남아 있고 기본 라우트에서 꺼져 있으며(`LLM_DIALOGUE_PROVIDER`/`LLM_ANALYSIS_PROVIDER`/`TTS_PROVIDER`를 명시해야만 사용), 재개는 향후 계획이다. **현재 활성 LLM은 Gemini 하나**(질문 설계·학교 분석·트렌드 판단·꼬리질문·평가), STT는 Groq Whisper, TTS는 브라우저 `SpeechSynthesis`다. 모든 Gemini 호출은 게이트·예산·폴백을 통과하며 실호출은 `[UNVERIFIED]`다(§7.6).
+
+**(보류 전) 목표 구성(2026-10-29 개발자 지시; 구현·결제 완료를 뜻하지 않음).** 모델 ID·엔드포인트·가격·무료 티어·지원 기능·데이터 약관은 아직 확인하지 않았으므로 확정값을 적지 않는다.
 
 | 역할 | 목표 서비스 | 현재 저장소 상태 | 근거 |
 |---|---|---|---|
-| 실시간 AI 면접관·꼬리질문 | DeepSeek API | `[PARTIAL]` 어댑터·프롬프트·검증기 구현(WP-B2, 스텁 테스트만). `LLM_DIALOGUE_PROVIDER=deepseek`+키·BASE_URL·MODEL·`DEEPSEEK_LIVE_ACK` 모두 있어야 합성 데이터에 한해 호출. 요청 형태(OpenAI 호환 chat-completions)는 `[UNVERIFIED]`, 실호출 미실행 | `src/providers/adapters/deepseek.js`, `prompts/followup.js`, `tools/deepseek-smoke.mjs`(수동) |
-| 면접관 음성(TTS) | ElevenLabs | `[PARTIAL]` 어댑터·프록시 구현(WP-B6, 스텁 테스트만). `TTS_PROVIDER=elevenlabs`+키·BASE_URL·MODEL·VOICE_ID·`ELEVENLABS_LIVE_ACK` 모두 있어야 합성 데이터에 한해 호출. 문장은 서버가 세션에서만 선택(요청 텍스트 무시). 요청 형태는 `[UNVERIFIED]`, 실호출 미실행 | `src/providers/adapters/elevenlabs.js`, `src/app/handlers/tts.js`, `tools/elevenlabs-smoke.mjs`(수동) |
-| 이력서 분석·질문 설계·종합 평가 | Claude Sonnet API | `[PARTIAL]` 지원서 주장 추출 어댑터만(WP-B3, 스텁 테스트만, 요청 형태 `[UNVERIFIED]`, 실호출 미실행, 기본 라우팅 아님 `LLM_ANALYSIS_PROVIDER=claude`). 질문 설계=정적 팩+템플릿(AI 없음), 평가=규칙 기반(Gemini `evaluate`는 501, WP-B4 미착수 `[TODO]`) | `src/providers/adapters/claude.js`, `src/domain/claims.js`, `providers/adapters.js` |
+| 실시간 AI 면접관·꼬리질문 | DeepSeek API **(보류)** | `[PARTIAL]` 보류: 어댑터·프롬프트·검증기 구현(WP-B2, 스텁 테스트만). `LLM_DIALOGUE_PROVIDER=deepseek`+키·BASE_URL·MODEL·`DEEPSEEK_LIVE_ACK` 모두 있어야 합성 데이터에 한해 호출. 요청 형태(OpenAI 호환 chat-completions)는 `[UNVERIFIED]`, 실호출 미실행 | `src/providers/adapters/deepseek.js`, `prompts/followup.js`, `tools/deepseek-smoke.mjs`(수동) |
+| 면접관 음성(TTS) | ElevenLabs **(보류)** | `[PARTIAL]` 보류: 어댑터·프록시 구현(WP-B6, 스텁 테스트만). `TTS_PROVIDER=elevenlabs`+키·BASE_URL·MODEL·VOICE_ID·`ELEVENLABS_LIVE_ACK` 모두 있어야 합성 데이터에 한해 호출. 문장은 서버가 세션에서만 선택(요청 텍스트 무시). 요청 형태는 `[UNVERIFIED]`, 실호출 미실행 | `src/providers/adapters/elevenlabs.js`, `src/app/handlers/tts.js`, `tools/elevenlabs-smoke.mjs`(수동) |
+| 이력서 분석·질문 설계·종합 평가 | Claude Sonnet API **(보류; 현재는 Gemini가 대행)** | `[PARTIAL]` 보류: 지원서 주장 추출 어댑터만(WP-B3, 스텁 테스트만, 요청 형태 `[UNVERIFIED]`, 실호출 미실행, 기본 라우팅 아님 `LLM_ANALYSIS_PROVIDER=claude`). (2026-10-30 현재 질문 설계·평가는 Gemini 구현이 있다 — §4.4·§7.6. Claude 평가 B4는 보류) | `src/providers/adapters/claude.js`, `src/domain/claims.js`, `providers/adapters.js` |
 | 지원자 음성 인식 | Groq Whisper | `[UNVERIFIED]` 어댑터·엔드포인트·브라우저 녹음 UI·스텁 계약 시험(WP-B5) 있음. 실키 호출·한국어 오류율은 미실행 | `createGroqWhisperAdapter`, `POST /sessions/:id/transcriptions`, `public/screens/room.js`, `tests/api/b5-stt.test.mjs`, `tools/stt-smoke.mjs`(수동) |
 | 면접관 음성 합성(브라우저 폴백) | ElevenLabs | `[DONE]` 브라우저 `SpeechSynthesis` 폴백·질문 듣기 UI(`public/screens/room.js speak`). 서버 TTS는 위 ElevenLabs 행 | `public/screens/room.js` |
 | 정적 프런트엔드 | GitHub Pages | `[PARTIAL]` WP-A4: `public/config.js` API_BASE·CORS 허용 목록(`CORS_ALLOW_ORIGINS`)·`.github/workflows/pages.yml`·비밀 스캔(`tools/check-bundle-secrets.mjs`)·`docs/deploy-pages.md` 구현. **실제 배포 미실행** `[UNVERIFIED]`(개발자가 Pages 활성화 필요). 기본은 같은 오리진 | `public/config.js`, `src/app/cors.js`, `.github/workflows/pages.yml` |
 | API 키 보호·서버리스 프록시 | Cloudflare Workers | `[PARTIAL]` WP-A3: Workers 어댑터 `src/worker/index.js`·Durable Object 스냅샷 Store `do-session.js`·`wrangler.toml`·`docs/deploy-workers.md`. **Workers 런타임에서 실행·배포한 적 없음** `[UNVERIFIED]`(계약 테스트는 `fetch(Request)` 직접 호출, wrangler 미설치, compatibility_date 미기입). 현재 실사용 백엔드는 Node 어댑터 | `src/worker/*`, `tests/api/a3-worker.test.mjs`, `wrangler.toml` |
 
-**현재 구현된 공급자:** Gemini(`gemini-3.5-flash-lite`, 대체 `gemini-3.6-flash`, 환경설정 기준; 실제 응답 가능 여부는 호출하지 않아 `[UNVERIFIED]`), Groq Whisper(`[UNVERIFIED]`), DeepSeek·Claude(주장 추출)·ElevenLabs 어댑터(스텁 시험만, `[UNVERIFIED]`), Mock, 브라우저 SpeechSynthesis. 앞의 `Groq GPT-OSS 120B 비교 후보`는 개발자의 목표 구성에서 제외되었으므로 **현재 목표가 아니다**(이력으로만 유지).
+**현재 구현된 공급자(2026-10-30):** Gemini(활성; operation `dialogue.next`·`claims.extract`·`school.analyze`·`trends.decide`·`questions.design`·`evaluation.generate`, 기본 라우트 `gemini`) · `gemini-3.5-flash-lite`, 대체 `gemini-3.6-flash`, 환경설정 기준; 실제 응답 가능 여부는 호출하지 않아 `[UNVERIFIED]`), Groq Whisper(`[UNVERIFIED]`), DeepSeek·Claude(주장 추출)·ElevenLabs 어댑터(스텁 시험만, `[UNVERIFIED]`), Mock, 브라우저 SpeechSynthesis. 앞의 `Groq GPT-OSS 120B 비교 후보`는 개발자의 목표 구성에서 제외되었으므로 **현재 목표가 아니다**(이력으로만 유지).
 
 **마이그레이션 원칙(Gemini → 목표 구성).**
 1. 어댑터 인터페이스(`extract / next / evaluate / transcribe`)를 operation별 공급자 라우팅(`config.registry`)으로 연결해 교체한다. `[DONE]`(WP-B1·B2·B3·B6): `config.registry`를 `providers/registry.js`가 읽어 operation(`dialogue.next`·`claims.extract`·`evaluation.generate`·`speech.transcribe`·`speech.synthesize`)별로 라우팅하고, 게이트(`providers/gate.js`)·호출 래퍼(`providers/call.js`)를 거친다. DeepSeek(꼬리질문)·Claude(주장 추출)·ElevenLabs(TTS) 어댑터가 있으나 **스텁 시험만**이며 실호출은 없다. Claude 평가(B4)는 `[TODO]`.
@@ -257,10 +269,13 @@
 | operation | 현재 호출 경로 | 목표 공급자 | 비고 |
 |---|---|---|---|
 | 자료 분석(`profile.extract`) | `createProfile` → 게이트 통과 시 Gemini `extract`(공고 키워드), 지원서 주장은 규칙 `extractApplicantClaims`, `LLM_ANALYSIS_PROVIDER=claude`일 때만 Claude(마스킹본·합성 한정) | Claude Sonnet | 서버가 모델 좌표를 믿지 않고 원문에서 span 재계산·검증(`mergeModelClaims`) |
-| 질문 설계 | AI 호출 없음(정적 팩+기관 템플릿+지원서 주장 질문+트렌드 보조 질문, `planGeneralQuestions` 공유) | Claude Sonnet | 근거 ID·지원서에 없는 사실 금지 검증 필요 |
-| 실시간 꼬리질문(`dialogue.next`) | 게이트 통과 시 Gemini `next` 또는 `LLM_DIALOGUE_PROVIDER=deepseek`일 때 DeepSeek(`validateFollowupOutput` 통과분만), 아니면 Mock 고정 문장, 실패·429는 정적 폴백으로 세션 계속 | DeepSeek | 질문당 1개·세션 3개 상한, 호출 14회/세션 상한 유지(`config.budgets`) |
+| 학교 분석(`school.analyze`) | 게이트 통과(합성 fixture 일치 또는 대입 동의+실데이터 ACK) 시 Gemini, 그 외·실패는 규칙 기반 키워드 분석(`analysis_mode:'rule_based'`). 서버가 `quote` 부분 문자열·위치 재검증(`src/domain/school-analysis.js`), 스텁 시험만 | Gemini | 원문에 없는 항목은 `unconfirmed`, 추측 금지 |
+| 트렌드 판단(`trends.decide`) | Gemini가 필요 판단 → `use_trend=true`+유효 id일 때만 Mock 트렌드 조회, 막히면 미사용(스텁 시험만) | Gemini | 월간 데이터는 Mock(`trend-mock.js`) |
+| 질문 설계(`questions.design`) | 승인 시 1회 Gemini(서버 질문 단위 검증), 전부 폐기·게이트 닫힘·실패 시 규칙 기반 `planGeneralQuestions`, 주장 질문은 항상 앞(스텁 시험만) | Gemini | 근거 ID·새 숫자/고유명사 금지 검증 |
+| (이전) 질문 설계 기본 경로 | 정적 팩+기관 템플릿+지원서 주장 질문+트렌드 보조 질문, 규칙 폴백으로 유지 | (Claude 보류) | 근거 ID·지원서에 없는 사실 금지 검증 필요 |
+| 실시간 꼬리질문(`dialogue.next`) | 게이트 통과 시 Gemini `next` 또는 `LLM_DIALOGUE_PROVIDER=deepseek`일 때만 DeepSeek(보류, `validateFollowupOutput` 통과분만; 프롬프트에 `school_context` 추가), 아니면 Mock 고정 문장, 실패·429는 정적 폴백으로 세션 계속 | DeepSeek | 질문당 1개·세션 3개 상한, 호출 14회/세션 상한 유지(`config.budgets`) |
 | STT(`speech.transcribe`) | 브라우저 녹음 → `POST /sessions/:id/transcriptions` → Groq Whisper(서버 키, `GROQ_LIVE_ACK` 필요). Gemini `transcribeAudio`는 정의만 있고 라우트 없음 | Groq Whisper | 원음은 전사 후 폐기, 전사 확인·교정 후 제출 |
-| 종합 평가(`evaluation.generate`) | Gemini `evaluateAnswers`(WP-E, 스텁 시험만·검증 전·참고용 `evaluator.kind=llm`; 서버가 인용 위치를 재계산하고 검증·금지어 통과분만 채택, 그 외·게이트 닫힘·장애는 규칙 기반 `buildMockEvaluation`/`buildTypedEvaluation`), Claude 평가 어댑터 없음(B4 `[TODO]`) | Claude Sonnet(검증 후) | 인용·span 검증 통과 출력만 채택 |
+| 종합 평가(`evaluation.generate`) | Gemini `evaluateAnswers`(기본 라우트 `gemini`, 스텁 시험만·검증 전·참고용 `evaluator.kind=llm`, UI 칩 `Gemini 분석 · 검증 전(참고용)`; 서버가 인용 위치를 재계산하고 검증·금지어 통과분만 채택, 그 외·게이트 닫힘·장애는 규칙 기반 `buildMockEvaluation`/`buildTypedEvaluation`), Claude 평가 어댑터 없음(B4 `[TODO]`) | Claude Sonnet(검증 후) | 인용·span 검증 통과 출력만 채택 |
 | 새 질문 생성 | 템플릿 선택+유사도 검사 | Claude Sonnet(선택) | 유사도·역량 일치 검사 유지 |
 | TTS(`speech.synthesize`) | `POST /sessions/:id/tts`(세션 문장만) → `TTS_PROVIDER=elevenlabs`+전 조건 충족 시 ElevenLabs, 그 외 204+브라우저 `SpeechSynthesis` | ElevenLabs | 서버 프록시, 실패 시 브라우저 TTS 폴백(구현, 실호출 미실행) |
 
@@ -286,7 +301,7 @@
 | # | 조건 | 상태 | 근거 |
 |---|---|---|---|
 | 1 | 실제 지원서의 무료 API 자동 전송 금지 | `[DONE]` 위조 플래그로 외부 호출 0건(스텁 시험). 실호출 경로는 `[UNVERIFIED]` | P0-1, `tests/api/provider-gate.test.mjs`·`b1-gate.test.mjs` |
-| 2 | 미성년자 제공사 조건 우회 금지 | `[PARTIAL]` 고교 유형 Mock 강제(`tests/api/interview-types.test.mjs`). 연령 확인 절차 없음 | §7.2 |
+| 2 | 미성년자 제공사 조건 우회 금지 | `[PARTIAL]` 고입(`highschool`)은 **서버가 fixture로 합성 판정한 요청이 아니면 Mock 강제**(`providerConstraintForOrg`; 세션·STT·TTS도 `highschool_mock`), 합성 판정은 클라이언트 플래그가 아님(`tests/api/s1-school.test.mjs`·`interview-types.test.mjs`). **동의 API 변경(2026-10-30):** `POST /consents {age_19_confirmed:boolean, minor_notice_ack?, notice_version}` — `age_19_confirmed=false`이면 `minor_notice_ack=true` 필수("만 19세 미만은 외부 AI 없이 연습함을 이해"), 둘 다 저장, 게이트의 `age19`는 `age_19_confirmed`만 본다(미성년 동의로 프로필은 만들어도 외부 게이트는 열리지 않음, 테스트 확인). 연령·보호자 검증 절차는 없음(자기 신고), 법적 검토 미실시 | §7.2, §7.6 |
 | 3 | 클라이언트 `synthetic` 불신 | `[DONE]` `isServerSynthetic` 제거, 공급자는 서버 상태로만 결정 | P0-1 |
 | 4 | API 키 서버 전용 | `[DONE]` 번들·추적 파일에 키 없음(코드 검토). `/health` 설정 노출은 BUG-4 수정됨 | §10 |
 | 5 | 웹 수집 SSRF 방어 | `[PARTIAL]` WP-C2 수집기(`fetcher.js`): 허용 도메인(기본 꺼짐)·DNS 해석 후 사설 IP 재검사·수동 리디렉션 재검사·크기/시간/robots 제한을 **주입 fetch/dns 스텁으로만** 시험. 실제 네트워크 수집 미실행 `[UNVERIFIED]`, 해석→연결 사이 rebinding 틈은 DEBT-9로 남음 | `tests/api/c2-fetcher.test.mjs`, DEBT-9 |
@@ -344,11 +359,11 @@
 
 가상 지원자 샘플 데이터만으로 다음 전체 과정이 실제 UI에서 끝까지 수행되어야 한다.
 
-1. 기업 또는 대학 선택 → 공고와 합성 지원서 입력.
-2. 실제 추출 결과·공식/사용자 근거/트렌드 구분 확인.
-3. 근거에 연결된 질문·직전 답변 관련 꼬리질문 진행.
-4. 텍스트 및 구성된 경우 음성(STT, 교정)으로 답변.
-5. 규칙/LLM 평가 여부가 명시된 근거 기반 보고서 확인.
+1. 고입 또는 대입 선택 → 학교·학과 입력(합성 샘플 불러오기) → 학교 분석 실행.
+2. 학교 분석(인재상·전형요소, 원문 인용, 확인 시점, 출처 상태, 미확인 목록)·지원서 주장 근거·트렌드(Mock 라벨) 구분 확인 후 승인.
+3. 학교 맞춤 질문(질문별 근거)·직전 답변 관련 꼬리질문 진행.
+4. 음성(녹음 전사 → 확인·교정 → 제출, 막히면 사유 표시 후 텍스트)으로 답변.
+5. 규칙/Gemini 평가기가 칩으로 명시된 근거 기반 보고서 확인.
 6. 동일 역량의 **새 질문**에 답변하고 이전 답변과 비교.
 7. 기록을 조회·내보내고 삭제.
 
@@ -371,10 +386,10 @@
 | 프런트엔드 | 순수 HTML/CSS/JS 단일 페이지, 해시 라우터 9화면(`#/dashboard`…`#/admin`). `public/app.js` 엔트리 + `public/core/*.js`(api·router·state·copy·dialog·providers 등)·`public/screens/*.js`(9화면) 네이티브 ES 모듈, `public/ui/index.js` 컴포넌트 헬퍼, `core/copy.js` 고정 문구/금지 표현 린트. WP-U(docs/plan/09): 진입점 고입·대입만(기업·공공은 UI 미노출, 서버 레거시), 학교 분석 섹션·연령 2택 동의·녹음 전사 기본(가능 시)·평가기 칩 llm/rule_based. API 기본 주소는 `public/config.js`의 `API_BASE`(빈 값=같은 오리진 `/api/v1`) | `public/`, `tests/domain/ui-copy.test.mjs` |
 | 백엔드 | 플랫폼 중립 코어 `(Request, env, ctx)=>Response`(`src/app/router.js` + `handlers/*`, Web 표준 API·Web Crypto만) + Node `http` 어댑터(`src/node/server.js`: 변환·정적 서빙·CSP·.env 로딩·CORS). `src/server.js`는 호환 재수출. 쓰기 `Idempotency-Key` 24h 재생·세션별 쓰기 직렬화(WP-A1). Workers 어댑터 `src/worker/index.js`·`do-session.js`·`wrangler.toml`(WP-A3, **런타임 미검증** `[UNVERIFIED]`). `documents.js`는 `DecompressionStream` 기반 async | `src/app/*`, `src/node/server.js`, `src/worker/*` |
 | 저장소 | 기본 **인메모리 `Store`**(`src/store/index.js` 계약, `memory.js`). `STORE=file`(`DATA_DIR`, 기본 `data/store`)이면 파일 영속 `file.js`(원자적 쓰기·만료 정리·삭제 즉시 반영·원장 월 경계, **단일 프로세스 가정**, 동의·문서 포함). Workers DO 스냅샷 Store(`do-session.js`, 미검증). 월간 트렌드는 별도 파일(`TRENDS_FILE`, 기본 `data/trends.json`, git 제외) | `src/store/*`, `src/domain/trends.js`, `tests/api/a2-file-store.test.mjs` |
-| 공급자 | Mock(기본) · Gemini(게이트 통과 시 꼬리질문·공고 추출) · Groq Whisper(STT) · DeepSeek(꼬리질문, `LLM_DIALOGUE_PROVIDER=deepseek`) · Claude(지원서 주장 추출, `LLM_ANALYSIS_PROVIDER=claude`) · ElevenLabs(TTS, `TTS_PROVIDER=elevenlabs`) · 브라우저 SpeechSynthesis. 신규 3종은 **스텁 시험만**, 요청 형태 `[UNVERIFIED]`. 라우팅·게이트·호출 래퍼: `providers/{registry,gate,call,validate}.js` | `src/providers/*` |
+| 공급자 | Mock(기본·폴백) · **Gemini(활성 단일 LLM: 질문 설계·학교 분석·트렌드 판단·꼬리질문·주장 추출·평가, 게이트 통과 시)** · Groq Whisper(STT) · 브라우저 SpeechSynthesis(TTS) · **보류(기본 꺼짐):** DeepSeek(`LLM_DIALOGUE_PROVIDER=deepseek`) · Claude(`LLM_ANALYSIS_PROVIDER=claude`) · ElevenLabs(`TTS_PROVIDER=elevenlabs`) — 보류 3종은 **스텁 시험만**, 요청 형태 `[UNVERIFIED]`. 라우팅·게이트·호출 래퍼: `providers/{registry,gate,call,validate}.js` | `src/providers/*` |
 | 공식 자료 수집 | `src/domain/fetcher.js`(허용 도메인 기본 비어 있음=꺼짐, DNS 재검사, 수동 리디렉션, robots, 발췌). 실제 네트워크 수집 미실행 | `docs/official-fetch.md`, `tests/api/c2-fetcher.test.mjs` |
 | 배포 | **실배포 없음.** `.github/workflows/pages.yml`(Pages 배포 워크플로, 개발자 실행)·`project-guard.yml`(`check:project`+`npm test`), CORS 허용 목록(`CORS_ALLOW_ORIGINS`), `wrangler.toml`. 배포 가이드 `docs/deploy-pages.md`·`docs/deploy-workers.md` | `.github/workflows/`, `tools/check-bundle-secrets.mjs` |
-| 환경변수 | `.env.example` 기준: `DEV_TOKEN_A/B`, `ADMIN_TOKEN`, `STORE`·`DATA_DIR`, `TRENDS_FILE`, `CORS_ALLOW_ORIGINS`, `GEMINI_*`, `GROQ_*`, `CLAUDE_*`, `DEEPSEEK_*`, `ELEVENLABS_*`·`TTS_PROVIDER`, 공급자별 `<P>_LIVE_ACK`/`<P>_REAL_DATA_ACK`, `ROUTE_<OP>`, 속도 제한(`*_RATE_PER_*`), `OFFICIAL_FETCH_*`, `DEMO_FIXTURES`, 예산·킬 스위치. 신규 공급자는 모델·URL 기본값이 없다 | `.env.example`, `src/config.js` |
+| 환경변수 | `.env.example` 기준(2026-10-30 추가: `LLM_EVALUATION_PROVIDER`, `ROUTE_SCHOOL_ANALYZE`·`ROUTE_TRENDS_DECIDE`·`ROUTE_QUESTIONS_DESIGN`·`ROUTE_EVALUATION_GENERATE`·`ROUTE_SPEECH_TRANSCRIBE`, `TREND_MOCK_MONTH`, `GEMINI_LIVE_ACK`, `GROQ_LIVE_ACK`/`GROQ_REAL_DATA_ACK`): `DEV_TOKEN_A/B`, `ADMIN_TOKEN`, `STORE`·`DATA_DIR`, `TRENDS_FILE`, `CORS_ALLOW_ORIGINS`, `GEMINI_*`, `GROQ_*`, `CLAUDE_*`, `DEEPSEEK_*`, `ELEVENLABS_*`·`TTS_PROVIDER`, 공급자별 `<P>_LIVE_ACK`/`<P>_REAL_DATA_ACK`, `ROUTE_<OP>`, 속도 제한(`*_RATE_PER_*`), `OFFICIAL_FETCH_*`, `DEMO_FIXTURES`, 예산·킬 스위치. 신규 공급자는 모델·URL 기본값이 없다 | `.env.example`, `src/config.js` |
 | 로컬 `.env` 상태 | 최초 점검(`79e803c`) 시점: Gemini·Groq 키 **존재**(값은 기록하지 않음), `GEMINI_ALLOW_UNPAID=true`, `GEMINI_PAID_ACK=false`, `ADMIN_TOKEN` 없음. `.env`는 `.gitignore` 대상이며 Git 이력에 커밋된 적 없고 추적 파일에서 키 패턴도 발견되지 않음. WP-E4에서는 로컬 `.env`를 다시 확인하지 않았고, 테스트 서버는 키를 비워 Mock으로만 동작한다 | `git log -- .env` 빈 결과, `git grep` |
 
 
@@ -384,7 +399,7 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 
 | 기능 | 상태 | 근거 | 미완성·차이 |
 |---|---|---|---|
-| 기업·대학 선택 UI | `[DONE]` | `public/screens/dashboard.js startJourney`, `tools/check-project.mjs`가 `public|highschool` 여정 금지 검사, `tools/e2e-ui.mjs` | 서버는 `public/highschool/general` org_type도 계속 허용(`institution.js ORG_TYPES`). 고교는 Mock 강제 |
+| 고입·대입 선택 UI(구 기업·대학 선택) | `[DONE]`(2026-10-30 전환) | `public/screens/dashboard.js startJourney`, `tools/check-project.mjs`가 UI 여정이 정확히 `highschool,university`인지·`company|public` 여정 금지를 검사, `tools/e2e-ui.mjs`(대입 여정) | 서버는 `company/public/general` org_type을 **레거시로** 계속 허용(`institution.js ORG_TYPES`). 고입 실입력은 Mock 강제 |
 | 직무·학과 입력 | `[DONE]` | `public/screens/application.js`(WP-D3 재설계) | 전형(대학) 별도 필드 없음 |
 | 공고·모집요강 붙여넣기 | `[DONE]`(Mock) | `source_text`(최대 20,000자) → `createProfile` | — |
 | 이력서·자소서 입력 | `[PARTIAL]` | `application_text`(최대 20,000자, 마스킹본만 저장·분석, 계정 삭제 시 파기) — `src/app/handlers/profiles.js`, `tests/api/claims.test.mjs`. WP-C1: `POST /profiles/:id/documents`(kind posting/cover_letter/resume/other)·`PATCH /documents/:id`·`GET /documents/:id/revisions`로 문서 종류 구분과 revision 분리(extracted → user_edit, 마스킹본, 원본 바이너리 비저장·sha256만), 계정 삭제 시 파기(`tests/api/c1-documents.test.mjs`). WP-C7: 승인·claims·plan 시 문서 최신 revision(마스킹본)에서 문서별 주장을 추출해 신청 본문 주장과 합치고 panel·technical 세션에도 주장 질문 적용(규칙 정확도 코퍼스 `docs/claims-accuracy.md`, 합성 49문장 P1.00/R0.957은 소규모 한계). WP-D3: 지원 정보 화면에 문서 카드·종류·미리보기·수정·합성 샘플·동의 대화상자 연결 | 실제 한국어 서류 대상 정확도 미측정 `[UNVERIFIED]`. 별도 이력서 전용 파서 없음(텍스트로 취급) |
@@ -401,7 +416,7 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 | 실시간 면접 대화·세션 관리 | `[PARTIAL]` | REST 명령(`session.start/pause/resume/finish`, `turn.text`), 서버 시계 시간 상한, 낙관적 버전 잠금, `command_id` 재생, 세션별 쓰기 직렬화, `tests/api/sessions.test.mjs`·`a1-*.test.mjs`. 새로고침 후 면접실 복원(WP-D9·D5, E2E) | 실시간 스트리밍·WebSocket 없음(`/ws`는 티켓 스텁). 기본 memory 저장소는 재시작 시 세션 소실(`STORE=file`이면 유지) |
 | TTS | `[PARTIAL]` | 브라우저 `SpeechSynthesis`(`public/screens/room.js speak`): "질문 듣기"+정지 버튼, 자동 낭독은 설정 토글 시에만. `/providers/status`의 `speech.synthesize`가 live일 때만 `POST /sessions/:id/tts`를 시도하고 실패 시 브라우저 TTS로 조용히 대체(WP-D5; 서버 TTS는 WP-B6 이후 `POST /sessions/:id/tts`가 오디오 또는 204+`X-TTS-Fallback: browser`로 응답) | ElevenLabs `[PARTIAL]` 어댑터·프록시 구현(WP-B6, 스텁 테스트만, 요청 형태 `[UNVERIFIED]`, 실호출 미실행). 브라우저·OS별 한국어 음성 편차 미확인 |
 | STT(Groq Whisper) | `[UNVERIFIED]` | `createGroqWhisperAdapter`, `POST /sessions/:id/transcriptions`, 브라우저 `MediaRecorder` UI(`public/screens/room.js`), 키 없음/비오디오 경로 `tests/api/stt-flags.test.mjs`, 스텁 fetch 계약 시험 `tests/api/b5-stt.test.mjs`(WP-B5: multipart·허용 형식·크기 상한·429→텍스트 안내·타임아웃·빈 결과·`pii_warnings`·원음 비저장·키 비노출) | 실키 호출 미실행(`tools/stt-smoke.mjs`·`docs/stt-smoke.md`는 수동·미실행). 계약 시험은 Groq 실동작을 증명하지 않는다. 전사 확인·교정 UI와 음성 상태 머신(D5)은 존재하나 실기기 미확인. 한국어 오류율·지연 측정 없음. `GROQ_LIVE_ACK` 없으면 차단 |
-| 답변 분석·평가 | `[DONE]`(규칙 기반) | `mock-eval*.js`, 인용·span 검증(`evaluation.js`), `tests/api/sessions.test.mjs`, `tests/domain/pii-eval-transfer-trends.test.mjs`, 골든 불변식 `tests/eval/golden.test.mjs`(WP-B7, 합성 30건) | 의미 기반 평가 아님. UI는 "규칙 기반 참고 관찰" 고지(E2E 확인). 보고서에 `evaluator:{kind:'rule_based',provider:'mock',…}`를 표기하고 `badge` 필드 제거(BUG-6 수정, WP-B1). 사람 평가자 비교는 미실행 |
+| 답변 분석·평가 | `[DONE]`(규칙 기반) + `[UNVERIFIED]` Gemini 평가(스텁 시험만, §7.6) | `mock-eval*.js`, 인용·span 검증(`evaluation.js`), `tests/api/sessions.test.mjs`, `tests/domain/pii-eval-transfer-trends.test.mjs`, 골든 불변식 `tests/eval/golden.test.mjs`(WP-B7, 합성 30건) | 의미 기반 평가 아님. UI는 "규칙 기반 참고 관찰" 고지(E2E 확인). 보고서에 `evaluator:{kind:'rule_based',provider:'mock',…}`를 표기하고 `badge` 필드 제거(BUG-6 수정, WP-B1). 사람 평가자 비교는 미실행 |
 | 근거 인용·판단 보류 | `[DONE]` | `validateEvaluation`, `insufficient_evidence`, `tests/api/sessions.test.mjs`, `tests/eval/invariants.mjs` | 의미 타당성 검증 없음 |
 | 약점 집중 코칭·재연습 | `[PARTIAL]` | `POST /practice-attempts`, `generateTransferQuestion`, UI `public/screens/repractice.js`·`feedback.js`(WP-D6) | 새 질문은 루브릭 5종 전 차원(15개) × **고정 템플릿 3개**에서 선택(`transfer.js TRANSFER_BANK`). 알 수 없는 역량은 422(대체 없음). 90초·1문항 세션 |
 | 새 질문 전후 비교 | `[PARTIAL]` | `compareTransfer`, `POST /transfer-comparisons`, UI `public/screens/repractice.js`, `tests/api/transfer.test.mjs`, `tests/domain/c4-transfer-bank.test.mjs` | 같은 루브릭·다른 질문·유사도(바이그램 Jaccard 0.55)·판단 보류는 구현. 비교 수준은 키워드 규칙 점수의 차이(DEBT-10). 전이 작업은 세션·계정 삭제 시 파기(P0-2 수정, `STORE=file`이면 파일에도 반영) |
@@ -409,16 +424,16 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 | 결과 저장·기록 | `[PARTIAL]` | `GET /sessions`, `GET /history`, UI `public/screens/history.js`(WP-D7), `tests/api/lifecycle.test.mjs` | `STORE=file`이면 재시작 후 유지(WP-A2, `tests/api/a2-file-store.test.mjs`). 기본 memory는 재시작 시 소실. 사용자별 장기 추이 저장 없음 |
 | 내보내기·삭제 | `[DONE]`(Mock·단일 프로세스 한정) | `POST /exports`(JSON, 10분), `DELETE /sessions/:id`, `DELETE /account`, `tests/api/lifecycle.test.mjs`, `a2-file-store.test.mjs`(삭제 후 파일에서 본문 제거) | 삭제 시 `transferJobs`·`exports`·재작성 연습·이의 제기·멱등 저장본 파기(`purgeOwnedCaches`). 내보내기는 JSON 10분 캐시뿐(메모리), 외부 백업·다중 프로세스·Workers DO에서의 삭제 보장은 미검증 |
 | 개인정보 처리 | `[PARTIAL]` | `detectPii`(이메일·전화·주민번호 + 휴리스틱 이름·학교·주소·학번/사번), `maskPii`, 블라인드 마스킹, `tests/domain/c5-pii-corpus.test.mjs`(오탐 66·정탐 36) | **이름·학교·주소 탐지는 표지어·접미어 기반 휴리스틱이라 누락·오탐이 있으며 완전 익명화가 아님.** 블라인드도 휴리스틱(UI도 "완전하지 않을 수 있음" 고지). D7 데이터 처리 패널은 실제 보관·삭제 동작에 맞춘 문구 |
-| 연령·미성년자 보호 | `[PARTIAL]` | 서버: `highschool` Mock 강제(`tests/api/interview-types.test.mjs`), 동의 API의 만 19세 확인(`POST /consents`, WP-C6)·동의 없으면 프로필 428, 공급자 게이트가 `consent`·`age19` 없으면 실데이터 전송 차단(`consent_missing`). UI: 지원 정보 화면 연령·처리 안내 대화상자(WP-D3) | **자기 신고(확인 체크) 방식**이며 신원·연령 검증 절차 없음. 고교 경로가 UI에는 없음. 법적 검토 미실시 |
+| 연령·미성년자 보호 | `[PARTIAL]` | 서버: `highschool` Mock 강제(`tests/api/interview-types.test.mjs`), 동의 API의 만 19세 확인(`POST /consents`, WP-C6)·동의 없으면 프로필 428, 공급자 게이트가 `consent`·`age19` 없으면 실데이터 전송 차단(`consent_missing`). UI: 지원 정보 화면 연령·처리 안내 대화상자(WP-D3) | **자기 신고(확인 체크) 방식**이며 신원·연령 검증 절차 없음. 2026-10-30부터 고입 경로가 UI에 있고 연령 2택 동의(`minor_notice_ack`)가 있다. 법적 검토 미실시 |
 | 오류 복구 | `[PARTIAL]` | 공급자 실패·429→정적 꼬리질문 폴백+`degraded_reason`+`provider_trace`(WP-B1, **세션 계속**, 원장 예약 정산, `tests/api/b1-call.test.mjs`), STT 실패→텍스트 안내, TTS 실패→204+브라우저 폴백, 평가 실패 상태, 보고서 폴링, 새로고침 후 면접실·코칭 복원(E2E) | 클라이언트 자동 재시도 없음. 재연습·토론 로그는 새로고침 복원에서 제외 |
 | API 사용량·예산 | `[PARTIAL]` | `ledger.js`(예약→정산), 세션 $0.08·월 $30 상한, 프로필 분당2/일10 제한, 킬 스위치, `tests/api/gates.test.mjs`. 문서 추출·STT·턴·TTS·수집에 사용자별 속도 제한(`*_RATE_PER_*`, `Store.recordRate`). 원장 월 경계 리셋·`STORE=file` 영속(WP-A2). 공급자별 월 상한(`DEEPSEEK_*`/`ELEVENLABS_*` `_MONTHLY_CAP_USD`·`_MONTHLY_CALL_CAP`)을 호출 래퍼가 집행 | **공급자별 월 상한은 인메모리라 재시작 시 0**이며 Claude(`CLAUDE_MONTHLY_CAP_USD`)는 미집행. 단가표는 Gemini 전용, 신규 공급자 단가가 비면 0 정산 → 호출 수 상한만 방어. 속도 제한도 인메모리 |
 | 인증 | `[PARTIAL]` | 환경변수로 명시한 접속 토큰 2개(`DEV_TOKEN_A/B`)만 유효 — **내장 기본 토큰 제거**(`config.js`), 브라우저도 내장 토큰 없이 첫 401에서 접속 토큰을 물어 저장(`public/core/api.js promptToken`, E2E [10b]). 소유권 검사·교차 사용자 격리 `tests/api/profiles-auth.test.mjs`, `admin.test.mjs` | **실제 로그인·세션·계정 없음**(토큰은 운영자가 나눠 주는 공유 비밀, `localStorage` 저장). 예시 토큰(`dev-user-*-token`) 사용 시 서버 시작 경고만 출력. 공개 서비스 불가(DEBT-2) |
 | 관리자 화면 | `[PARTIAL]` | `ADMIN_TOKEN` **필수**: 미설정이면 관리 기능·`/metrics`·`/diagnostics` 전체가 꺼짐(403 `admin_disabled`), 토큰은 `x-admin-token` 헤더로만 수신하고 상수시간 비교(`checkAdmin`), E2E·P0-6 테스트 | 역할 모델·감사 기록·토큰 교체 절차 없음(단일 공유 비밀). 출처 없는 트렌드 공개 허용은 BUG-5로 남음 |
 | 공급자 게이트(실데이터 외부 전송 차단) | `[DONE]`(스텁 fetch 시험) | `providers/gate.js`(키·BASE_URL·MODEL·`<P>_LIVE_ACK`·데이터 등급·동의·만 19세·킬 스위치)+`providers/call.js`, `tests/api/provider-gate.test.mjs`·`b1-gate.test.mjs`(조건별 외부 호출 0건)·`GET /providers/status` | 요청 본문의 `synthetic`·`free_test`는 전송 근거가 아님. 합성 판정은 서버 fixture 해시 일치(`isServerSynthetic` 아님, WP-C6)·`createApp({syntheticTraffic:true})` 코드 호출로만. 동의·연령은 Store의 동의 기록(`POST /consents`)에서만 읽는다. **실키·유료 경로(`paidAck=true`)는 실제 호출하지 않아 `[UNVERIFIED]`**. 구 `GEMINI_PAID_ACK`는 호환 경로(deprecated). Groq STT는 `GROQ_LIVE_ACK`+합성/동의 필요 |
 | 보고서 공급자 표기 | `[DONE]`(2026-10-29 WP-B1, BUG-6 수정) | `commands.js`(평가 `evaluator`·`provider_trace`), 테스트 `b1-call` labels | 규칙 기반 평가 보고서는 `provider:'mock'`·`model_version:'mock-model-v1'`·`evaluator.kind:'rule_based'`로 고정(`paidAck`와 무관), 응답·세션·보고서에 `provider_trace[]`(실제 호출과 일치, 모델 ID 비노출) |
-| DeepSeek | `[PARTIAL]` 꼬리질문 어댑터(스텁 테스트만, 실호출·약관·모델 ID 미확인 `[UNVERIFIED]`) | `src/providers/adapters/deepseek.js`, `tools/deepseek-smoke.mjs`(수동, 미실행) | §4.2 |
-| Claude (지원서 주장 추출) | `[PARTIAL]` 스텁 계약 테스트만 | `src/providers/adapters/claude.js`(요청 형태 `[UNVERIFIED]`, 실호출 미실행), 기본 라우팅 아님(`LLM_ANALYSIS_PROVIDER=claude`), 합성 데이터만 | §4.2 |
-| ElevenLabs | `[PARTIAL]` TTS 프록시·어댑터(WP-B6, 스텁 테스트만, 요청 형태·모델/음성 ID `[UNVERIFIED]`, 실호출 미실행) | `src/providers/adapters/elevenlabs.js`, `src/app/handlers/tts.js`, `tests/api/b6-tts.test.mjs`, `tools/elevenlabs-smoke.mjs`(수동) | §4.2 |
+| DeepSeek **(보류)** | `[PARTIAL]` 꼬리질문 어댑터(스텁 테스트만, 실호출·약관·모델 ID 미확인 `[UNVERIFIED]`) | `src/providers/adapters/deepseek.js`, `tools/deepseek-smoke.mjs`(수동, 미실행) | §4.2 |
+| Claude (지원서 주장 추출) **(보류)** | `[PARTIAL]` 스텁 계약 테스트만 | `src/providers/adapters/claude.js`(요청 형태 `[UNVERIFIED]`, 실호출 미실행), 기본 라우팅 아님(`LLM_ANALYSIS_PROVIDER=claude`), 합성 데이터만 | §4.2 |
+| ElevenLabs **(보류)** | `[PARTIAL]` TTS 프록시·어댑터(WP-B6, 스텁 테스트만, 요청 형태·모델/음성 ID `[UNVERIFIED]`, 실호출 미실행) | `src/providers/adapters/elevenlabs.js`, `src/app/handlers/tts.js`, `tests/api/b6-tts.test.mjs`, `tools/elevenlabs-smoke.mjs`(수동) | §4.2 |
 | GitHub Pages / Cloudflare Workers | `[PARTIAL]` | Pages 워크플로·`API_BASE`·CORS·번들 비밀 스캔(WP-A4, `tests/api/a4-cors.test.mjs`·`tests/domain/a4-secrets-scan.test.mjs`), Workers 어댑터·DO Store(WP-A3, `tests/api/a3-worker.test.mjs`)가 코드·계약 테스트로 존재 | **실제 배포·`wrangler dev`·Pages 호스팅 모두 미실행 `[UNVERIFIED]`**, wrangler 설치·`compatibility_date` 미기입 |
 
 ### 7.3 단계별 진행도(P0~P5, §6 표 기준)
@@ -439,15 +454,37 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 - **안 되는 것:** 실제 로그인, 실모델 품질 검증·사람 평가, Claude 평가(B4), 접근성 전수 점검(D8), 데모 리허설(E3), 실제 배포.
 - **판단:** 핵심 루프(주장 검증 → 코칭 → 새 질문 전이 확인)가 Mock·합성 데이터로 UI에서 끝까지 동작한다. 그러나 실모델 경로는 한 번도 호출하지 않았고 평가는 규칙 기반이므로 "Mock 기반 시제품"이며, AI 경진대회용 **완성 데모(실모델 연결·배포·리허설)는 아니다.**
 
-### 7.5 남은 문서 불일치 (WP-E4 이후)
+### 7.5 남은 문서 불일치 (WP-E4 이후, 2026-10-30 갱신)
 
 | 문서 | 상태 |
 |---|---|
-| `README.md`, `IMPLEMENTATION_CHECKLIST.md`, `docs/plan/*` | WP-E4에서 현재 상태로 갱신함 |
+| `README.md`, `IMPLEMENTATION_CHECKLIST.md`, `docs/plan/*`, `docs/rehearsal.md` | WP-E4 + 2026-10-30 학생 MVP 문서 패스에서 갱신. `docs/plan/02·03·05·07`은 본문이 작성 당시 계획(기업·대학·DeepSeek/Claude 목표)이므로 일부 서술이 이력으로 남아 있다 |
 | `docs/project-intro.md`, `docs/master-plan.md`, `docs/implementation-spec.md`, `docs/decisions/2026-10-24-gemini-first.md` | **이력으로 보존**(과거 목표·31개 테스트·Gemini 우선·토론 베타 등). 현재 상태·목표 구성(§4.2)과 다르며 사용자용 설명으로 쓰지 않는다. 미갱신 |
 | `docs/cost-assumptions*.json`, `tools/cost-model*.mjs` | Gemini/레거시 Groq 가정뿐. 목표 구성 비용 가정 없음(미갱신) |
 | `docs/validation-results.md` | 손대지 않음. 실측 결과가 아니라 과거 설계 fixture 검증 기록 |
 | `docs/eval/` | 사람 평가 프로토콜·템플릿만 있고 **결과는 없음**(WP-E2 실험 미실행) |
+
+### 7.6 학생 MVP 전환 상태 (2026-10-30, `docs/plan/09`, 기준 `49357bd`)
+
+구현 여부는 **코드·자동 테스트가 있는 것**만 `[DONE]`/`[PARTIAL]`로 적었다. Gemini·Groq **실호출이 필요한 동작은 모두 `[UNVERIFIED]`** 이다: 이번 문서 작업은 실키를 호출하지 않았다. 별도로 전달받은 사실로, 합성 톤 음성 1건으로 Groq 연결 확인이 2026-10-30에 성공했다고 하나 **이 문서 작업에서 재실행·검증하지 않았고**, 실제 사람 음성·한국어 전사 품질·Gemini 실호출은 확인된 바 없다.
+
+| 전환 항목(WP) | 상태 | 코드·테스트 근거 | 남은 것 |
+|---|---|---|---|
+| 대상 전환 UI: 고입/대입 두 여정, 기본 org_type `university`, 기업·공공 UI 미노출(U) | `[DONE]`(Mock, 헤드리스 Chromium) | `public/screens/dashboard.js`, `tools/check-project.mjs`, `tools/e2e-ui.mjs`(155 ok) | 서버 레거시 `company/public`은 회귀 보존용으로 유지. 실기기·다른 브라우저 미실행 |
+| 미성년자 동의 API(`minor_notice_ack`)·연령 2택 UI(S1,U) | `[DONE]`(자기 신고) | `src/app/handlers/consents.js`, `tests/api/s1-school.test.mjs`(2건) | 보호자 동의·연령 검증은 **향후 계획** |
+| 고입 실입력 외부 AI 차단(S1) | `[DONE]`(스텁 fetch 시험) | `providerConstraintForOrg`, `tests/api/s1-school.test.mjs` "highschool real data forced to Mock" | — |
+| 학교·학과 입력, 정규화, 합성 샘플(`fx-highschool-1`, `fx-university-1`) (S1) | `[DONE]` | `profiles.js`, `fixtures.js`, `GET /fixtures`는 고입/대입만 | 샘플은 전부 가상 |
+| 학교 탐색: 데모 레지스트리 자동 등록 + URL/붙여넣기, 실패 시 `discovery_failed` (S1) | `[PARTIAL]` | `school-directory.js`(가상 학교 3), `s1-school.test.mjs` | **실제 웹 검색 기반 탐색: `[TODO]`/향후**. URL 수집은 `OFFICIAL_FETCH_ALLOW` 기본 꺼짐 |
+| 학교 분석(인재상·전형요소·면접 형식·`unconfirmed`, 원문 인용 서버 재검증, `confirmed_at`)(S1) | `[PARTIAL]` | `school-analysis.js`, `POST /profiles/:id/school-analysis`, `s1-school.test.mjs`(스텁) | Gemini 실호출 `[UNVERIFIED]`; 한국어 실제 모집요강 정확도 미측정. 규칙 기반 폴백은 동작 |
+| 월간 트렌드 Mock + `trends.decide`(필요할 때만 조회)(S2) | `[PARTIAL]` | `trend-mock.js`(2026-09~12만), `s2-questions.test.mjs` | Mock 데이터뿐. 실제 수집·검수 **향후**. 판단 모델 실호출 `[UNVERIFIED]` |
+| 질문 설계 `questions.design`(승인 시 동결, 규칙 폴백)·꼬리질문 `school_context`(S2) | `[PARTIAL]` | `question-design.js`, `s2-questions.test.mjs`(11건, 스텁) | Gemini 실호출·질문 품질 사람 평가 없음 `[UNVERIFIED]` |
+| Gemini 평가 + 라벨 `Gemini 분석 · 검증 전(참고용)`·규칙 폴백·평가기 혼합 비교 보류(E) | `[PARTIAL]` | `llm-eval.js`, `tests/api/e-llm-eval.test.mjs`(8건, 스텁) | 실호출 `[UNVERIFIED]`, 사람 평가 비교 없음 → "검증된 AI 평가" 아님 |
+| 음성: Groq Whisper STT 기본(가능 시)+브라우저 TTS (U) | `[UNVERIFIED]` | 어댑터·UI·`b5-stt.test.mjs`(스텁) | 합성 톤 연결 확인 1건 외 실음성·실기기 미검증(위 설명). 고입 실음성은 서버 전사 차단 |
+| Claude·DeepSeek·ElevenLabs 연동 | **보류** | 어댑터 코드 유지, 기본 꺼짐 | 재개는 향후 계획 |
+
+**향후 계획(구현 금지, `docs/plan/09` §9):** 실제 웹 검색 기반 학교 자동 탐색, 보호자 동의 절차와 미성년자 실데이터 외부 AI 경로, 실제 월간 입시 이슈 수집·검수, Claude/DeepSeek 연동 재개, 사람 평가 후 평가기 승격, 재연습·고급 분석 확장.
+
+**비결정 시험 주의:** 이번 문서 작업의 `npm test` 반복 실행에서 서로 다른 시험 1건(`E: non-verbatim evidence dropped...`, `A1: concurrent turn commands...`)이 부하에 따라 간헐 실패했다(§10). 원인 미조사 `[UNVERIFIED]`, 코드는 수정하지 않았다.
 
 ## 8. 매 실행 시 에이전트 강제 작업 규칙
 
@@ -466,24 +503,24 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 
 `npm run check:project`와 CI는 필수 문서·구조적 규칙의 **존재와 연결**만 자동 검사한다. 코드·UI·AI 모델의 실제 의미적 적합성은 증명하지 못한다. 향후 계약 기반 테스트, 실사용 브라우저 E2E, 자료 추출/인용 검증, 사람 평가 기반 품질 검사를 단계적으로 추가해야 한다.
 
-## 10. 현재 테스트·검증 결과 (2026-10-29, WP-E4가 `aa6d0cc`에서 새로 실행)
+## 10. 현재 테스트·검증 결과 (2026-10-30, 학생 MVP 문서 패스가 `49357bd`에서 새로 실행)
 
 | 검사 | 실행한 것 | 결과 |
 |---|---|---|
 | 문서·UI 구조 가드 | `npm run check:project` | PASS 4/4(PROJECT.md 헤딩·AGENTS.md·package 스크립트·UI 9화면/금지 패턴). **문서 구조 검사일 뿐 제품 적합성을 증명하지 않는다** |
-| 통합 테스트 | `npm test`(= 가드 + `node --test "tests/**/*.test.mjs"`) | **252 pass / 0 fail / 0 cancelled / 0 skipped**, 약 6.6초. 테스트 서버는 키를 비우고 Mock·스텁 fetch로만 동작(외부 호출 0) |
-| 기관 맞춤 E2E(HTTP) | `node tools/e2e-institution.mjs` | 14 pass / 0 fail (Mock) |
-| 브라우저 E2E | `npm run e2e`(`tools/run-e2e.mjs` → `tools/e2e-ui.mjs`) | **155개 체크 ok(D8 접근성 검사 포함)**, 실패 0, "E2E 통과"(9화면 경로, 1440/768/390px 가로 오버플로 없음, 콘솔 오류·페이지 예외 0, 의도된 관리자 403·동의 428 각 1회). 헤드리스 Chromium 1종·Mock 전용. 마이크·SpeechSynthesis 실장치 미포함 |
-| 설계 fixture 검사 | `node tools/verify-design.mjs` | PASS (문서 fixture·원가 산식 검사. 제품 품질·보안 검증 아님) |
+| 통합 테스트 | `npm test`(= 가드 + `node --test "tests/**/*.test.mjs"`) | **286개**. 반복 실행(총 약 9회) 결과: 대부분 **286 pass / 0 fail**(약 6.5초), **간헐적으로 285 pass / 1 fail** — 실패한 시험은 실행마다 달랐다(`E: non-verbatim evidence dropped…` 1회, `A1: concurrent turn commands…` 1회 등, 부하·타이밍 의심, 원인 미조사 `[UNVERIFIED]`). **안정적 전체 통과로 보고하지 않는다.** Mock·스텁 fetch만 사용(외부 호출 0) |
+| 기관 맞춤 E2E(HTTP) | `node tools/e2e-institution.mjs` | 14 pass / 0 fail (Mock, 이번 패스 재실행) |
+| 브라우저 E2E | `npm run e2e`(`tools/run-e2e.mjs` → `tools/e2e-ui.mjs`) | **155개 체크 ok(D8 접근성 검사 포함)**, 1회 "E2E 통과"(실패 0); **동일 코드의 다른 1회 실행에서 `키보드 포커스 링 항상 표시` 1건 FAIL(간헐, 미조사)**. 통과 실행 기준: "E2E 통과"(9화면 경로, 1440/768/390px 가로 오버플로 없음, 콘솔 오류·페이지 예외 0, 의도된 관리자 403·동의 428 각 1회). 헤드리스 Chromium 1종·Mock 전용. 마이크·SpeechSynthesis 실장치 미포함 |
+| 설계 fixture 검사 | `node tools/verify-design.mjs` | **이번 패스 미실행**(이전 점검에서 PASS) |
 | 골든 불변식 하니스 | `tests/eval/golden.test.mjs`(`npm test`에 포함) | 합성 30건에 규칙 출력·스텁 공급자 출력 불변식 적용 통과. 실모델 출력에는 적용한 적 없음 |
 | 타입 검사·린트·빌드 | **미실행** | 해당 설정이 저장소에 없음(TypeScript·ESLint·번들러·빌드 단계 없음) |
-| **실키 공급자 호출** | **미실행** | Gemini(`smoke:gemini`, `e2e:gemini`)·Groq STT(`tools/stt-smoke.mjs`)·DeepSeek(`deepseek-smoke.mjs`)·Claude(`claude-smoke.mjs`)·ElevenLabs(`elevenlabs-smoke.mjs`) 모두 실행하지 않음. 외부 호출·무료 한도 소모·데이터 전송 방지. 따라서 5개 공급자의 실동작·요청 형태·지연·429 처리는 `[UNVERIFIED]` |
+| **실키 공급자 호출** | **미실행**(이번 문서 패스) | Gemini(`smoke:gemini`, `e2e:gemini`)·Groq STT(`tools/stt-smoke.mjs`)·DeepSeek·Claude·ElevenLabs 스모크 모두 실행하지 않음. (전달받은 사실: 합성 톤으로 Groq 연결 확인 1건이 2026-10-30에 성공했다고 하나 이 패스에서 재현·검증하지 않았으며 실제 음성·Gemini 실호출 확인은 없음.) 외부 호출·무료 한도 소모·데이터 전송 방지. 따라서 5개 공급자의 실동작·요청 형태·지연·429 처리는 `[UNVERIFIED]` |
 | 실제 공식 사이트 수집 | **미실행** | `OFFICIAL_FETCH_ALLOW` 기본 비어 있음, 시험은 주입 fetch/dns 스텁뿐(`c2-fetcher` 14건) |
 | 배포 | **미실행** | GitHub Pages 배포·`wrangler dev`/Workers 배포·DO 저장 모두 실행하지 않음. Workers 계약 시험(`a3-worker`)은 `fetch(Request)` 직접 호출 |
 | 다른 브라우저·모바일 실기기 | **미실행** | Safari/Firefox, 실기기 마이크·TTS·브라우저별 한국어 음성 미확인. 390px 폭 에뮬레이션 레이아웃만 확인 |
 | 비용 모델(`npm run cost*`) | **미실행** | Gemini 가정 산식이며 목표 구성과 무관 |
 | 사람 평가·STT 오류율 실측 | **미실행** | `docs/eval/` 프로토콜·템플릿만 존재, 결과 없음 |
-| 데모 리허설·접근성 점검 | **부분 실행** | `npm run rehearsal` 26/26 PASS(API 수준, Mock·스텁, 기업·대학·재시작·공급자 장애) — `docs/rehearsal.md`. 브라우저 E2E에 접근성·대비·터치·포커스·금지표현 자동 검사 포함(`docs/a11y-checklist.md`). **미실행:** 스크린리더, 실기기, Safari/Firefox, 200% 확대, UI 수동 12단계 완주 |
+| 데모 리허설·접근성 점검 | **부분 실행** | `npm run rehearsal` **38/38 PASS**(API 수준, Mock·스텁; 시나리오 company(레거시)·highschool·university·재시작·공급자 장애 500/429) — `docs/rehearsal.md`. 브라우저 E2E에 접근성·대비·터치·포커스·금지표현 자동 검사 포함(`docs/a11y-checklist.md`). **미실행:** 스크린리더, 실기기, Safari/Firefox, 200% 확대, UI 수동 12단계 완주 |
 | API 키 클라이언트 노출 | 자동 시험+코드 검토 | `public/`에 키 참조 없음(`tools/check-bundle-secrets.mjs`, `tests/domain/a4-secrets-scan.test.mjs`), `/stt/status` 키 비노출. `/health`는 비인증 시 `selected`만 |
 
 **상위 결론:** 위 PASS는 Mock·합성 데이터·스텁 fetch·문서 구조에 대한 것이다. 실모델 품질, 실제 한국어 문서/음성, 배포 환경, 보안 침투 시험은 검증되지 않았다.
@@ -516,7 +553,9 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 | DEBT-11 | P1 | **공급자별 월 상한·사용자별 속도 제한이 인메모리**: DeepSeek·ElevenLabs 호출 수/USD 상한은 호출 래퍼가 집행하나 재시작 시 0. Claude `CLAUDE_MONTHLY_CAP_USD`는 미집행, 신규 공급자 단가가 비면 0 정산 | `providers/call.js`, `src/config.js providerCaps` |
 | DEBT-12 | P1 `[UNVERIFIED]` | DeepSeek(OpenAI 호환 chat-completions 가정)·Claude·ElevenLabs·Groq 요청/응답 형태, 모델 ID, 가격, 약관·데이터·연령 조건을 공식 문서로 확인하지 않았고 실호출을 한 번도 하지 않음(스텁 시험만). 실데이터 전송 불가 유지 | `src/providers/adapters/*`, `tools/*-smoke.mjs`(수동) |
 | DEBT-13 | P1 `[UNVERIFIED]` | Workers 런타임(`wrangler.toml` compatibility_date 미기입, `nodejs_compat` 범위, DO SQLite 선언)·Pages 배포 미실행. 파일 저장은 단일 프로세스 가정 | `src/worker/*`, `docs/deploy-workers.md` |
-| DEBT-14 | P1 | 평가는 규칙 기반이며 사람 평가자 비교 없음(§6.2), Claude 평가 어댑터(WP-B4)·사람 평가 실험(WP-E2)·접근성 QA(WP-D8)·데모 리허설(WP-E3) 미착수 | §12 |
+| DEBT-14 | P1 | 평가는 규칙 기반 또는 Gemini(검증 전·참고용)이며 사람 평가자 비교 없음(§6.2), Claude 평가 어댑터(WP-B4, **보류**)·사람 평가 실험(WP-E2) 미착수, 접근성 수동 QA·실기기 리허설 미실행 | §12 |
+| DEBT-15 | P1 `[UNVERIFIED]` | 학생 MVP: Gemini 신규 operation 4종(`school.analyze`·`trends.decide`·`questions.design`·`evaluation.generate`)·Groq 실음성은 스텁/합성 시험뿐. 월간 트렌드는 Mock, 학교 탐색은 데모 레지스트리뿐 | §7.6 |
+| DEBT-16 | P2 | `npm test`·`npm run e2e`에 간헐 실패 시험이 있다(A1 동시 턴, E 인용 시험, E2E 포커스 링). 원인 미조사 | §10 |
 
 ## 12. 구현 우선순위와 단계별 로드맵
 
@@ -559,7 +598,9 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 - `[DONE]` `server.js`·`app.js` 모듈 분리(DEBT-5)·`Idempotency-Key` 재생(DEBT-4) — WP-A1 `559dc98`, WP-D1 `c4a859f`.
 - `[PARTIAL]` 접근성: 자동 검사(대비·라벨·터치·포커스·오버플로 9화면×3폭)는 E2E에 있음(WP-D8). 스크린리더·다른 브라우저(Safari/Firefox)·모바일 실기기는 미실행. 문서 재정비는 WP-E4(이 변경)로 수행했고 `docs/` 과거 문서는 이력으로 남김(§7.5).
 
-### 12.1 WP 진행 현황 (`docs/plan/07-work-packages.md` 기준, `aa6d0cc`)
+### 12.1 WP 진행 현황 (`docs/plan/07-work-packages.md` 기준, `aa6d0cc`; 학생 MVP WP는 §7.6·§17)
+
+**보류(on hold, 2026-10-30):** B2 DeepSeek · B3 Claude 주장 추출 · B4 Claude 평가 · B6 ElevenLabs TTS · A3 Workers 이전 · A4 Pages 배포 실행 — 코드는 유지, 재개는 향후. 아래 표의 해당 행은 이력이다.
 
 | 상태 | WP (커밋) |
 |---|---|
@@ -575,29 +616,30 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 
 ## 13. 데모데이 시연 범위와 완료 조건
 
-**범위:** 합성 지원자 1~2명(기업 1경로, 대학 1경로)으로 아래 시나리오를 **실제 UI에서 끝까지** 수행. 실사용자 데이터는 사용하지 않는다. 화면에는 **현재 공급자 모드(Mock / 실모델)와 평가기 종류**를 항상 표시한다.
+**범위(2026-10-30 학생 대상으로 재작성):** 합성 지원 학생 1~2명(**고입 1경로 `fx-highschool-1`, 대입 1경로 `fx-university-1`**, 전부 가상 학교·인물)으로 아래 시나리오를 **실제 UI에서 끝까지** 수행. 실사용자 데이터는 사용하지 않는다. 화면에는 **현재 공급자 모드(Mock / 실모델)와 평가기 종류**를 항상 표시한다.
 
 | # | 시연 단계 | 완료 조건 | 현재 |
 |---|---|---|---|
-| 1 | 기업/대학 선택, 공고·합성 자소서 입력 | 두 경로 모두 진행 | `[DONE]`(Mock; 문서 종류·revision·합성 샘플·동의 포함 E2E). 실제 한국어 서류는 `[UNVERIFIED]` |
+| 1 | 고입/대입 선택, 학교·학과·모집요강·합성 자소서 입력(샘플 불러오기) | 두 경로 모두 진행 | `[DONE]`(Mock; E2E는 대입 여정, API 리허설은 고입·대입 둘 다). 실제 한국어 서류는 `[UNVERIFIED]` |
 | 2 | 주장·공백 추출 결과 표시 | 자소서 **원문 문장 인용+위치** 표시, 없는 사실 없음 | `[DONE]`(규칙 기반, 정확도 미측정 — 합성 코퍼스 한정) — 근거 확인 화면 E2E 통과 |
-| 3 | 공식 기준·출처 확인·승인 | 출처 상태(공식 확인/사용자 제공/트렌드/미확인) 구분, 수집 실패 표시 | `[PARTIAL]`(출처 상태 칩·승인 UI 있음, 수집기는 스텁 시험만·기본 꺼짐 → 실수집 없음) |
-| 4 | 개인정보·연령 확인 | 합성 데이터만 외부 전송, 연령 안내 | `[PARTIAL]`(동의·만 19세 자기 신고·게이트 구현, 연령 검증 아님) |
-| 5 | 검증 질문·꼬리질문 | 질문이 근거 ID에 연결, 직전 답변 관련 꼬리질문 | 질문 근거 연결 `[DONE]`(지원서 주장·기관·트렌드), 꼬리질문 `[PARTIAL]`(Mock 고정 문장, DeepSeek 스텁만) |
-| 6 | 텍스트·음성 답변 | 음성은 전사 확인·교정 후 제출, 실패 시 텍스트 | 텍스트 `[DONE]`, 음성 `[UNVERIFIED]` |
-| 7 | 근거 기반 보고서 | 발언 인용·판단 보류, 평가기 종류 명시 | `[DONE]`(규칙 기반) |
+| 3 | 학교 분석 확인·승인 | 인재상·전형요소 원문 인용, 확인 시점, 출처 상태(데모 fixture/사용자 제공/미확인), 미확인 목록 | `[PARTIAL]`(학교 분석 섹션·승인 UI·서버 인용 재검증 있음, Gemini 분석은 스텁 시험만·실호출 `[UNVERIFIED]`, 실수집 없음) |
+| 4 | 개인정보·연령 확인(2택 동의) | 미성년이면 외부 AI 없이 연습, 합성 데이터만 외부 전송 | `[PARTIAL]`(`minor_notice_ack` 동의·게이트 구현, 자기 신고, 연령 검증 아님) |
+| 5 | 학교 맞춤 질문·꼬리질문 | 질문이 근거 ID에 연결, 직전 답변 관련 꼬리질문, 트렌드 사용 시 Mock 라벨 | 질문 근거 연결 `[DONE]`(규칙 경로), Gemini 질문 설계·꼬리질문 `[PARTIAL]`(스텁 시험만, 실호출 `[UNVERIFIED]`) |
+| 6 | 음성(녹음 전사)·텍스트 답변 | 전사 확인·교정 후 제출, 막히면 사유 표시 후 텍스트 | 텍스트 `[DONE]`, 음성 `[UNVERIFIED]`(Groq 합성 톤 연결 확인 1건 외 실음성 미검증) |
+| 7 | 근거 기반 보고서 | 발언 인용·판단 보류, 평가기 칩 명시 | `[DONE]`(규칙 기반), Gemini 평가 `[PARTIAL]`(스텁 시험만, 칩 `Gemini 분석 · 검증 전(참고용)`) |
 | 8 | 약점 집중 코칭 | 약한 역량 1개와 다음 행동 1개 | `[DONE]` |
 | 9 | 새 질문 재연습 | 같은 역량의 **다른 질문**, 같은 루브릭 | `[PARTIAL]`(루브릭 전 차원 고정 템플릿 15개 — 질문 품질 사람 평가 없음) |
 | 10 | 답변 변화 비교 | `observed_change`/`no_clear_change`/판단 보류 + 발언 근거 | `[PARTIAL]` |
 | 11 | 기록·내보내기·삭제 | 삭제 후 잔존 없음 | `[PARTIAL]`(삭제 파기 구현·`STORE=file`도 반영, 기본 memory는 재시작 시 소실, 백업·다중 프로세스 미검증) |
 | 12 | 운영자: 월간 역량 초안→검수→공개 | 출처 필수, 공개본만 노출 | `[PARTIAL]`(BUG-5 수정·편집기·공개 중단 있음, 자동 수집·AI 후보·편향 검수 없음) |
 
-**데모 완료 조건:** 위 12단계가 같은 환경에서 중단 없이 수행되고, `npm run check:project`·`npm test`·브라우저 E2E가 통과하며, DEBT-2가 닫혀 있고(BUG-1·BUG-2는 2026-10-29 수정), 실모델 사용 여부가 화면·보고서에 정확히 표시될 것. 목표 AI 구성(DeepSeek·Claude·ElevenLabs)을 연결하지 못한 항목은 "미연결/Mock"으로 표시하고 완료로 세지 않는다. **현재(`aa6d0cc`)는 Mock 경로에서 12단계가 E2E로 통과하나 DEBT-2 미해소, 실모델 미연결, 데모 리허설(WP-E3) 미수행이므로 완료 조건을 충족하지 않는다.**
+**데모 완료 조건:** 위 12단계가 같은 환경에서 중단 없이 수행되고, `npm run check:project`·`npm test`·브라우저 E2E가 통과하며, DEBT-2가 닫혀 있고(BUG-1·BUG-2는 2026-10-29 수정), 실모델 사용 여부가 화면·보고서에 정확히 표시될 것. Gemini·Groq 실호출을 연결하지 못한 항목은 "미연결/Mock"으로 표시하고 완료로 세지 않는다(DeepSeek·Claude·ElevenLabs는 보류). **현재(`49357bd`)는 Mock 경로에서 12단계가 E2E·API 리허설로 통과하나 DEBT-2 미해소, 실모델(Gemini·Groq) 실호출 미검증, UI 수동 리허설·실기기 미수행이므로 완료 조건을 충족하지 않는다.**
 
 ## 14. 알려진 한계와 미확정 사항
 
+- **보류 중(on hold):** Claude·DeepSeek·ElevenLabs·Workers 배포 관련 항목은 현재 범위에서 보류되었고 아래 항목은 재개 시 확인할 목록이다. **현재 활성 공급자 Gemini·Groq의 약관·연령 조건·한국어 품질은 `[UNVERIFIED]`.**
 - **미확인 외부 사실:** DeepSeek·Claude Sonnet·ElevenLabs·Groq·Cloudflare·GitHub Pages의 현재 모델 ID, 엔드포인트, 가격, 무료 티어, 지원 기능(한국어 품질 포함), 데이터 학습·보존·국외 이전·연령 조건. 확인 전에는 코드·문서에 확정값을 쓰지 않는다.
-- **법·약관:** 실제 지원서(특히 미성년자 가능 대입 지원자)를 각 공급자에 보낼 수 있는지 `[UNVERIFIED]`. 확인 전까지 합성 fixture만.
+- **법·약관:** 실제 지원서(특히 **미성년자인 고입 지원자**와 미성년 가능 대입 지원자)를 각 공급자에 보낼 수 있는지 `[UNVERIFIED]`. 확인 전까지 합성 fixture만.
 - **저장소·배포 아키텍처:** DG-1 A안(Pages 정적 UI + Workers API + Durable Object) 코드는 준비됐으나(A3·A4) 실제로 배포·시험하지 않았고 Workers 한도·`nodejs_compat` 범위는 `[UNVERIFIED]`. 대회 시연을 로컬 Node(`STORE=file`) 서버로 할지 배포로 할지 `[미확정]`.
 - **품질 미검증:** 한국어 STT 오류율, 꼬리질문 적합성, 평가 타당성, 새 질문 비교의 의미, 개선 효과(사람 평가 실험 필요 — §6.2). 현재 평가는 규칙 기반 참고 관찰이다.
 - **재현 못 한 것:** 실제 한글 PDF/DOCX 추출, 실기기 마이크·TTS, Safari/Firefox, 5개 공급자(Gemini·Groq·DeepSeek·Claude·ElevenLabs) 실호출, 공식 사이트 실수집, Pages·Workers 실배포, 사람 평가·STT 오류율 실측. BUG-9(업로드 한도)는 자동 테스트로 확인(C1).
@@ -612,10 +654,10 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 
 | 항목 | 계획액 | 비고 |
 |---|---|---|
-| DeepSeek API | $10 | 목표 실시간 면접관·꼬리질문 |
-| Claude Sonnet API | $10 | 목표 이력서 분석·질문 설계·종합 평가 |
+| DeepSeek API | $10 | (보류) 목표 실시간 면접관·꼬리질문 |
+| Claude Sonnet API | $10 | (보류) 목표 이력서 분석·질문 설계·종합 평가 |
 | Groq Whisper | $4 | 목표 STT |
-| ElevenLabs Creator | $22 | 목표 TTS |
+| ElevenLabs Creator | $22 | (보류) 목표 TTS |
 | GitHub Pages | 무료 | — |
 | Cloudflare Workers | 무료 티어 우선 | 한도 초과 시 유료 여부 `[미확정]` |
 | 개발용: Claude Pro | $20 | — |
@@ -627,16 +669,18 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 
 ## 16. Figma 워크플로우 대조
 
+> 2026-10-30: 아래 Figma 12단계 이름은 기업·대학 기준 원본이다. 학생 MVP에서는 1단계를 "고입·대입 선택", 4~5단계를 "학교 정보 탐색·분석·확인"으로 읽는다(§7.6). 원본 Figma는 갱신하지 않았다.
+
 **검증 범위.** Figma MCP로 `NcKWUyP3hhw6oKCC43UkJs`, 노드 `3:3`(프레임 "초안", 4532×1690)의 **메타데이터(레이어 이름·구조·위치)를 읽는 데 성공**했다. 확인한 구조: 주 흐름 12단계(요청 문서의 12단계와 이름·순서 일치), 운영자 흐름 4단계(웹 조사·자료 등록 → 근거·신선도 검토 → 관리자 승인 → 월간 역량 게시), 하위 분기 7개(자소서 원문 근거 / 미확인·수집 실패 / 실데이터 처리 차단 / 질문별 근거 연결 / 규칙 평가≠AI 평가 / 새 문항 유사도 검사 / 비교 가능 여부 판정), 트렌드 대체 경로, 재검증 루프. **각 노드의 설명 텍스트와 시각 디자인은 읽지 않았다**(스크린샷·`get_design_context` 미사용). 따라서 단계 설명 문구까지 직접 검증했다고 주장하지 않는다.
 
 ### 16.1 사용자 흐름 12단계
 
 | 단계 | 현재 구현 | 목표 동작 | 누락된 데이터 흐름 | 모델·API (현재 → 목표) | 선행·제약 |
 |---|---|---|---|---|---|
-| 1 기업·대학 선택 | `[DONE]` `public/screens/dashboard.js` | 유형 선택 | — | 없음 | — |
+| 1 고입·대입 선택(구 기업·대학) | `[DONE]` `public/screens/dashboard.js` | 유형 선택 | — | 없음 | — |
 | 2 지원 자료 제출 | `[PARTIAL]` 공고 텍스트·TXT/PDF/DOCX 추출·경험 3개 | 공고·이력서·자소서 문서 구분, 원본/추출/수정 revision(API 구현, S2 UI 카드·종류·미리보기·수정 연결 WP-D3 완료(질문 생성의 revision 읽기: C7 구현)) | 문서 종류·revision 저장(구현) | 없음 | 실제 한글 PDF 미검증(CID 글꼴은 명시 실패) |
 | 3 주장·공백 추출 | `[PARTIAL]` 규칙 기반 `extractApplicantClaims`(문장 단위·원문 span·공백, 문서 revision 기반 C7)+공고 키워드(Gemini/규칙). Claude 어댑터는 스텁 시험만 | 자소서 문장 단위 주장(역할·행동·결과·수치)과 공백, 원문 span | 지원자 주장 모델(`EvidenceClaim`, 구현) | 규칙/Gemini(공고 키워드) → Claude Sonnet(스텁만) | 실호출·한국어 정확도 `[UNVERIFIED]`, 프롬프트 인젝션 방어는 스텁 시험 |
-| 4 공식 기준 탐색 | `[PARTIAL]` 수집기 `fetcher.js`(허용 도메인 기본 꺼짐·DNS 재검사·리디렉션·robots·발췌, 스텁 시험만) | 서버 제어 수집기로 공식 페이지 수집·발췌 | 수집 결과·발췌 위치·확인일 저장(구현) | 없음 → 수집기 | 실제 수집 미실행, DEBT-9 TOCTOU 틈 |
+| 4 학교 정보 탐색·분석(공식 기준 탐색) | `[PARTIAL]` 데모 레지스트리 자동 등록+`school.analyze`(스텁 시험만)+수집기 `fetcher.js`(허용 도메인 기본 꺼짐·DNS 재검사·리디렉션·robots·발췌, 스텁 시험만) | 서버 제어 수집기로 공식 페이지 수집·발췌 | 수집 결과·발췌 위치·확인일 저장(구현) | 없음 → 수집기 | 실제 수집 미실행, DEBT-9 TOCTOU 틈 |
 | 5 출처 검토·승인 | `[PARTIAL]` 기관 프로필 확인·승인(`approveProfile`)+출처 상태 칩·재승인 안내(D4) | 출처별 상태(공식 확인/사용자 제공/트렌드/미확인/수집 실패)와 승인 | 수집 실패 구분은 수집기 결과(`official_verified/unavailable/stale/conflict`) | 없음 | 4단계 실수집 선행 |
 | 6 개인정보·연령 확인 | `[PARTIAL]` PII 휴리스틱·동의 API(`POST /consents`, 만 19세 자기 신고)·동의 없으면 프로필 428·서버 fixture 해시 합성 판정(C6)·S2 연령·처리 안내 대화상자(D3)·공급자 게이트가 동의·연령 없으면 실데이터 차단(B1) | 연령 확인 절차, 실데이터 외부 전송 차단, 합성 모드 | 연령·동의 기록(구현, 자기 신고), 서버 소유 합성 fixture(구현) | 없음 | 공급자 약관(§14) `[UNVERIFIED]`, 연령 검증 아님 |
 | 7 검증 질문 설계 | `[PARTIAL]` 지원서 주장 질문(원문 인용·`application_evidence_ids`·`prompt_version`)+정적 팩+기관 템플릿+트렌드 보조, `GET /profiles/:id/plan` | 주장·공식 요구에 연결된 질문(근거 ID) | `institution_evidence_ids` 연결은 부분적 | 없음 → Claude Sonnet(선택, 미구현) | 질문 품질 사람 평가 없음 |
@@ -669,7 +713,9 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 | 트렌드 대체 경로 | `[PARTIAL]` 공개본 없으면 `unavailable`, 공개본은 질문 보조 1개로만 반영 |
 | 재검증 루프 | `[PARTIAL]` 재연습 반복 가능, `STORE=file`이면 기록 유지(기본 memory는 소실) |
 
-## 17. 변경 요약 (v1.0.0 → v1.1.0 → v1.2.0)
+## 17. 변경 요약 (v1.0.0 → v1.1.0 → v1.2.0 → v1.3.0)
+
+**v1.3.0 / 학생 MVP 전환 문서 패스(2026-10-30).** 대상을 고입·대입 학생으로 바꾸고(기업·취업은 레거시, 서버 회귀 보존), Gemini 단일 LLM·Groq STT·브라우저 TTS 구성, 미성년자 규칙·동의 API 변경, 구현/향후 구분(§7.6), 새 테스트 수(§10)를 반영했다. 구현은 `feat/student-mvp` 브랜치: 사양 `29abf84`(docs/plan/09) · Gemini 주장 추출 `9a298b0` · **WP-E** `de2b053`(Gemini 평가·라벨·혼합 평가기 비교 보류) · **WP-U** `874316b`(학생 UI) · **WP-S1** `996b108`(동의 `minor_notice_ack`·학교 입력·탐색·`school.analyze`·고입 fixture) · **WP-S2** `8363ccd`(`trends.decide`·`questions.design`·Mock 트렌드·`school_context`) · `49357bd`(학교 분석 호출 `Idempotency-Key`). 모든 신규 AI 경로는 스텁 시험만이며 Gemini 실호출은 하지 않았다. 코드·테스트는 이 문서 패스에서 수정하지 않았다.
 
 **v1.2.0 / WP-E4 (문서 정합).** §7·§10~§14·§16 상태를 `aa6d0cc`의 코드·새 테스트 실행(251 pass/0 fail, E2E 99 ok)에 맞췄다. 줄 번호·옛 `tests/run.mjs` 번호 참조를 현재 모듈·테스트 파일 경로로 바꾸고, 해소된 BUG/DEBT(BUG-5·7·9, DEBT-4·5)를 증거와 함께 닫았으며 열린 항목(DEBT-1·2·7·9·10)과 신규 부채(DEBT-11~14)를 기록했다. 상태는 증거 없이 올리지 않았다. 코드·테스트는 수정하지 않았다.
 

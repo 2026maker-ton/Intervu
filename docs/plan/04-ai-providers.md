@@ -1,5 +1,7 @@
 # 04. AI 공급자 설계 (P0-4 확장)
 
+> **2026-10-30 상태:** 활성 LLM은 **Gemini 하나**(`dialogue.next`·`claims.extract`·`school.analyze`·`trends.decide`·`questions.design`·`evaluation.generate`, 기본 라우트 `gemini`, 모두 게이트·예산·폴백 경유, 스텁 시험만·실호출 `[UNVERIFIED]`). STT=Groq Whisper, TTS=브라우저. Claude·DeepSeek·ElevenLabs 어댑터는 **보류**(코드 유지, 기본 꺼짐). 아래 본문의 DeepSeek/Claude 목표 구성은 이력이다. 구현 기준 `09-student-mvp.md`.
+>
 > **중요:** DeepSeek·Claude·Groq·ElevenLabs의 모델 ID·엔드포인트·가격·무료 티어·약관은 이 기획서 작성 시 **공식 문서로 확인하지 못했다(`[UNVERIFIED]`, DG-2).** 코드는 이 값을 하드코딩하지 않고 환경변수로만 받는다. 값이 비어 있으면 해당 공급자는 호출되지 않고 Mock으로 동작한다. 에이전트는 값을 추측해 채우지 않는다.
 
 ## 1. Operation과 목표 공급자

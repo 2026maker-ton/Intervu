@@ -30,8 +30,9 @@ export function isMinorPossible(orgType) {
 
 // 학교 면접은 미성년자 이용 가능 → Gemini 외부 호출 금지, Mock 강제.
 // 호출자가 provider 선택 전에 반드시 확인한다.
-export function providerConstraintForOrg(orgType) {
-  if (isMinorPossible(orgType)) {
+// 서버가 fixture로 합성 판정한 요청(synthetic)은 외부 호출을 허용한다(docs/plan/09 §2).
+export function providerConstraintForOrg(orgType, { synthetic = false } = {}) {
+  if (isMinorPossible(orgType) && !synthetic) {
     return {
       forceMock: true,
       reason: '고등학교 입학면접(미성년자 이용 가능): Gemini 연령 제한·보호자 요건 확인 전에는 Mock으로만 검증합니다.',

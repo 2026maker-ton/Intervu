@@ -2,6 +2,7 @@
 import { estimateTokens } from '../domain/ledger.js';
 import { buildClaimsPrompt } from './prompts/claims.js';
 import { buildEvaluationMessages } from './prompts/evaluation.js';
+import { buildSchoolPrompt } from './prompts/school.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -167,6 +168,16 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
       if (!Array.isArray(parsed?.claims)) throw Object.assign(new Error('gemini bad schema'), { code: 502, invalid: true });
       const quotes = parsed.claims.map((c) => (typeof c === 'string' ? c : c?.quote)).filter((q) => typeof q === 'string');
       return { quotes, model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
+    },
+    // 학교 자료 분석(school.analyze): 인용의 원문 일치·위치 재계산은 서버가 한다(모델 출력은 신뢰하지 않음).
+    async analyzeSchool({ sourceText }) {
+      const { system, user } = buildSchoolPrompt(sourceText);
+      const r = await withFallback((model) => generateContent(model, { system, user, maxOutputTokens: 1500 }));
+      let j;
+      try { j = JSON.parse(String(r.text).trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw Object.assign(new Error('gemini bad json'), { code: 502, invalid: true }); }
+      if (!j || typeof j !== 'object') throw Object.assign(new Error('gemini bad schema'), { code: 502, invalid: true });
+      const arr = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x.quote === 'string').map((x) => ({ label: String(x.label || ''), quote: x.quote })) : []);
+      return { talent_traits: arr(j.talent_traits), admission_elements: arr(j.admission_elements), interview_format: arr(j.interview_format), unconfirmed: Array.isArray(j.unconfirmed) ? j.unconfirmed.filter((x) => typeof x === 'string') : [], model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
     },
     async extract({ sourceText, blindContext }) {
       const r = await withFallback((model) => generateContent(model, {

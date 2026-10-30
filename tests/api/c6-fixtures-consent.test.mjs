@@ -68,7 +68,8 @@ test('C6: fixtures list/detail require auth and expose fictional content only', 
   assert.equal((await c('/api/v1/fixtures', { token: 'nope' })).status, 401);
   const l = await c('/api/v1/fixtures');
   assert.equal(l.status, 200);
-  assert.deepEqual(l.data.fixtures.map((f) => f.kind).sort(), ['company', 'university']);
+  assert.deepEqual(l.data.fixtures.map((f) => f.kind).sort(), ['highschool', 'university']); // company는 레거시: 목록에서 숨기고 id로만 조회
+  assert.equal((await c('/api/v1/fixtures/fx-company-1')).status, 200);
   assert.ok(!('application_text' in l.data.fixtures[0]));
   const d = await c(`/api/v1/fixtures/${fx.id}`);
   assert.equal(d.status, 200);

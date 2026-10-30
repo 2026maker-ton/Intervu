@@ -132,7 +132,7 @@ const optional = (path) => api(path).catch(() => null);
 async function runSchoolAnalysis(id, quiet = false) {
   ctx.busy = true; paint();
   try {
-    await api(`/profiles/${id}/school-analysis`, { method: 'POST', body: {} });
+    await api(`/profiles/${id}/school-analysis`, { method: 'POST', idempotent: true, body: {} });
     ctx.detail = await api(`/profiles/${id}`);
     ctx.plan = await optional(`/profiles/${id}/plan`);
     state.sources = ctx.detail.sources || [];

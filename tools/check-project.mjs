@@ -50,11 +50,13 @@ try {
   const want = ['dashboard', 'application', 'evidence', 'setup', 'room', 'feedback', 'repractice', 'history', 'admin'];
   const problems = [];
   for (const s of want) if (!screens.includes(s)) problems.push(`missing screen ${s}`);
-  if (/data-journey="(public|highschool)"/.test(html)) problems.push('generic org journey in main UI');
+  if (/data-journey="(public|company)"/.test(html)) problems.push('company/public journey in main UI (out of scope: spec 09)');
+  const journeys = [...html.matchAll(/data-journey="([a-z]+)"/g)].map((m) => m[1]).sort().join(',');
+  if (journeys !== 'highschool,university') problems.push(`journeys must be highschool,university (got ${journeys})`);
   if (/\b(?:window\.)?(?:prompt|confirm)\s*\(/.test(js.replace(/ask(?:Confirm|Input)/g, ''))) problems.push('prompt()/confirm() used');
   if (/synthetic\s*:\s*(?:true|freeTest)|free_test\s*:/.test(js)) problems.push('client sends synthetic/free_test flag');
   if (problems.length) { console.error(`FAIL public UI: ${problems.join('; ')}`); failed = true; }
-  else console.log('PASS public UI: 9 screens, company/university journeys, no prompt/confirm');
+  else console.log('PASS public UI: 9 screens, highschool/university journeys, no prompt/confirm');
 } catch (error) {
   console.error(`FAIL public UI: ${error.message}`);
   failed = true;

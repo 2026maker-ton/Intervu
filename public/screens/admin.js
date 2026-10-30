@@ -146,7 +146,7 @@ $('#trendLoadBtn')?.addEventListener('click', () => loadAdminHistory());
 
 export async function adminMonth() {
   const fd = new FormData($('#trendForm'));
-  const seg = fd.get('segment') || 'company';
+  const seg = fd.get('segment') || 'university';
   let month = String(fd.get('yyyy_mm') || '');
   if (!month) {
     const d = new Date();
@@ -164,7 +164,7 @@ async function loadAdminMonths() {
   if (!box) return;
   try {
     const { trends = [] } = await api('/admin/trends', { admin: true });
-    box.innerHTML = trends.length ? trends.map((t) => `<button class="ghost small" type="button" data-month="${esc(t.segment)}|${esc(t.yyyyMm)}">${esc(t.segment === 'company' ? '기업' : '대학')} ${esc(t.yyyyMm)} · ${t.published_version ? `공개 v${esc(String(t.published_version))}` : '비공개'}</button>`).join(' ') : '<p class="hint">등록된 월이 없습니다.</p>';
+    box.innerHTML = trends.length ? trends.map((t) => `<button class="ghost small" type="button" data-month="${esc(t.segment)}|${esc(t.yyyyMm)}">${esc(t.segment === 'highschool' ? '고입' : t.segment === 'company' ? '기업(레거시)' : '대입')} ${esc(t.yyyyMm)} · ${t.published_version ? `공개 v${esc(String(t.published_version))}` : '비공개'}</button>`).join(' ') : '<p class="hint">등록된 월이 없습니다.</p>';
     $$('[data-month]').forEach((b) => b.addEventListener('click', () => {
       const [seg, m] = b.dataset.month.split('|');
       $('#trendForm [name="segment"]').value = seg;

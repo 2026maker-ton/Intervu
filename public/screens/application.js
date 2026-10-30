@@ -9,7 +9,7 @@ import { Stepper, StateBadge } from '../ui/index.js';
 
 const MAX_BYTES = 5 * 1024 * 1024; // 서버 validateDocument와 동일
 const NOTICE_VERSION = '2026-10-29';
-const KIND_LABEL = { posting: '공고·모집요강', cover_letter: '자기소개서·지원서', resume: '이력서', other: '기타' };
+const KIND_LABEL = { posting: '모집요강·인재상', cover_letter: '자기소개서·지원서', resume: '이력서', other: '기타' };
 const FAIL_COPY = {
   unsupported_font_encoding: '이 PDF는 글꼴 인코딩 때문에 글자를 안전하게 읽지 못했습니다. 텍스트를 직접 붙여넣거나 DOCX/TXT로 올려 주세요.',
   non_extractable_scanned: '스캔·이미지 PDF라 글자를 읽지 못했습니다. 텍스트를 직접 붙여넣어 주세요.',
@@ -36,12 +36,14 @@ $('#loadFixtureBtn')?.addEventListener('click', async () => {
   setError('#applicationError', '');
   try {
     const list = (await api('/fixtures')).fixtures || [];
-    const want = state.journey === 'university' ? 'university' : 'company';
-    const pick = list.find((x) => x.kind === want) || list[0];
+    const want = state.journey === 'highschool' ? 'highschool' : 'university';
+    const pick = list.find((x) => x.kind === want) || list.find((x) => x.id === `fx-${want}-1`) || list[0];
     if (!pick) throw new Error('불러올 합성 샘플이 없습니다.');
     const f = await api(`/fixtures/${encodeURIComponent(pick.id)}`);
     const name = f.title.split('—')[1]?.trim() || f.title;
-    $('#applicationForm [name=target_name]').value = name;
+    const [school, ...rest] = name.split(/\s+/);
+    $('#applicationForm [name=school_name]').value = f.school_name || school;
+    $('#applicationForm [name=department]').value = f.department || rest.join(' ');
     $('#sourceText').value = f.posting_text;
     $('#applicationText').value = f.application_text;
     setFixture(f);
@@ -121,7 +123,11 @@ async function askConsent() {
   const dlg = $('#consentDialog');
   const age = $('#consentAge');
   const ok = $('#consentOk');
+  const minor = $('#consentMinor');
+  const minorNote = $('#consentMinorNote');
   age.checked = false;
+  minor.checked = false;
+  minorNote.hidden = true;
   ok.disabled = true;
   $('#consentAiLine').textContent = '외부 AI: 현재 모드를 확인하는 중…';
   api('/providers/status').then((p) => {
@@ -129,15 +135,18 @@ async function askConsent() {
       ? '외부 AI: 현재 Mock 모드로, 지원 자료를 외부 AI로 보내지 않습니다.'
       : '외부 AI: 일부 기능이 외부 AI와 연결되어 있으나, 실제 지원 자료는 서버 정책상 승인되지 않으면 전송되지 않습니다.';
   }).catch(() => { $('#consentAiLine').textContent = '외부 AI: 현재 모드를 확인하지 못했습니다. 확인 전에는 외부로 보내지 않는 것으로 간주합니다.'; });
-  age.onchange = () => { ok.disabled = !age.checked; };
+  const sync = () => { minorNote.hidden = !minor.checked; ok.disabled = !(age.checked || minor.checked); };
+  age.onchange = sync;
+  minor.onchange = sync;
   const result = await new Promise((resolve) => {
     dlg.addEventListener('close', () => resolve(dlg.returnValue), { once: true });
     dlg.returnValue = '';
     dlg.showModal();
     age.focus();
   });
-  if (result !== 'ok' || !age.checked) return false;
-  await api('/consents', { method: 'POST', idempotent: true, body: { age_19_confirmed: true, notice_version: NOTICE_VERSION } });
+  if (result !== 'ok' || !(age.checked || minor.checked)) return false;
+  // 미성년 선택 시: 실제 입력은 외부 AI 없이 처리됨을 이해했다는 확인(minor_notice_ack)을 함께 기록한다.
+  await api('/consents', { method: 'POST', idempotent: true, body: age.checked ? { age_19_confirmed: true, notice_version: NOTICE_VERSION } : { age_19_confirmed: false, minor_notice_ack: true, notice_version: NOTICE_VERSION } });
   return true;
 }
 
@@ -153,16 +162,19 @@ $('#applicationForm')?.addEventListener('submit', async (e) => {
     const okDocs = docs.filter((d) => d.status === 'ok' && d.text.trim());
     const join = (base, kinds) => [base.trim(), ...okDocs.filter((d) => kinds.includes(d.kind)).map((d) => d.text.trim())].filter(Boolean).join('\n');
     const payload = {
-      org_type: state.journey === 'university' ? 'university' : 'company',
-      target_name: val('target_name').trim(),
-      role: val('role').trim(),
+      org_type: state.journey === 'highschool' ? 'highschool' : 'university',
+      school_name: val('school_name').trim(),
+      department: val('department').trim(),
+      track: val('track').trim() || undefined,
+      target_name: val('school_name').trim(), // 구버전 서버 호환
+      role: val('department').trim(),
       source_text: join(val('source_text'), ['posting']),
       application_text: join(val('application_text'), ['cover_letter', 'resume', 'other']),
       sources: val('source_urls').split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 3).map((url) => ({ url, kind: 'official' })),
       experiences: val('experiences').split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 3),
     };
     if (!payload.target_name && !payload.role && !payload.source_text && !payload.application_text) {
-      throw new Error('기관명, 직무/학과, 공고 본문, 지원서 중 하나는 입력해야 합니다.');
+      throw new Error('학교명, 학과, 모집요강 본문, 지원서 중 하나는 입력해야 합니다.');
     }
     // 합성 판정은 서버가 정하며, 본문이 샘플과 정확히 같을 때만 fixture_id를 보낸다.
     if (fixture && payload.source_text === fixture.posting_text && payload.application_text === fixture.application_text) payload.fixture_id = fixture.id;
@@ -188,7 +200,7 @@ $('#applicationForm')?.addEventListener('submit', async (e) => {
     }
     const detail = await api(`/profiles/${created.id}`);
     state.sources = detail.sources || [];
-    renderEvidence(detail, created);
+    renderEvidence(detail, created, { autoAnalyze: true });
     go('evidence');
     if (created.pii_warnings?.length) toast(`개인정보 후보(${created.pii_warnings.join(', ')})를 마스킹했습니다 — 완전 익명화는 아닙니다.`);
     else if (docFail) toast(`문서 ${docFail}개를 저장하지 못했습니다. 본문은 분석에 반영되었습니다.`, true);

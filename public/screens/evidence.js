@@ -1,20 +1,21 @@
-import { $, basisTag, esc, setError } from '../core/format.js';
+import { $, basisTag, esc, fmtDate, setError } from '../core/format.js';
 import { toast } from '../core/toast.js';
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { go } from '../core/router.js';
 import { updateSetupSummary } from './setup.js';
-import { Stepper, SourceChip, EvidenceQuote } from '../ui/index.js';
+import { Stepper, SourceChip, StateBadge, EvidenceQuote } from '../ui/index.js';
 import { FIXED, SOURCE_STATUS } from '../core/copy.js';
 
 const GAP = { role: '본인 역할', result: '관찰된 결과', reason: '판단 기준', number: '수치·기록' };
 const FRESH_NOTE = { stale: '발행·확인일이 오래되었습니다(365일 초과 등). 최신 여부를 직접 확인하세요.', unavailable: '수집하지 못했습니다. 이 출처는 근거로 쓰지 않습니다.' };
-let ctx = { detail: null, claims: null, plan: null, trend: null, provider: '' };
+let ctx = { busy: false, detail: null, claims: null, plan: null, trend: null, provider: '' };
 
 // 서버 텍스트는 모두 esc()를 거친다. 섹션은 <details>(모바일 아코디언).
 const section = (id, title, body, open = true) => `<details class="ev-sec" id="ev-${id}"${open ? ' open' : ''}><summary>${esc(title)}</summary><div class="ev-body">${body}</div></details>`;
 const chipFor = (s, f) => {
   const st = s.status || f?.state;
+  if (st === 'demo_fixture' || s.kind === 'demo_fixture') return 'demo_fixture';
   if (['stale', 'unavailable', 'conflict', 'monthly_trend'].includes(st)) return st;
   if (s.kind === 'user' || s.kind === 'assumed') return 'user_supplied';
   return 'unverified'; // 수집기 전에는 official_verified가 나올 수 없다
@@ -63,6 +64,26 @@ function valuesSection(ex, inst) {
   return section('values', '공고 키워드·핵심 가치', body);
 }
 
+// ---- 학교 분석(spec 09 §3): 인재상·전형 요소·면접 형식(원문 인용) + 출처 상태·확인 시점 + 확인되지 않은 정보 ----
+const SA_STATUS_NOTE = { fetch_disabled: '자동 수집이 꺼져 있어 가져오지 못했습니다. 모집요강을 붙여넣어 주세요.', unavailable: '수집하지 못했습니다.' };
+function saGroup(title, items) {
+  if (!items?.length) return '';
+  return `<h4>${esc(title)}</h4><ul class="claims">${items.map((x) => `<li><span class="val">${esc(x.label || '')}</span><span class="tag user">${esc(x.id || '')}</span>${EvidenceQuote({ quote: x.quote, title: '원문 인용' })}</li>`).join('')}</ul>`;
+}
+function schoolSection(sa, busy) {
+  const btn = `<button class="ghost small" type="button" id="schoolAnalyzeBtn"${busy ? ' disabled' : ''}>${busy ? '분석 중…' : sa ? '학교 분석 다시 하기' : '학교 분석 실행'}</button>`;
+  if (!sa) return section('school', '학교 분석', `<p class="hint">아직 학교 분석 결과가 없습니다. 학교 분석을 실행하면 모집요강에서 인재상·전형 요소를 찾아 원문과 함께 보여 줍니다.</p><div class="actions">${btn}</div><p class="fine">${esc(FIXED.unconfirmedNoGuess)}.</p>`);
+  const mode = sa.analysis_mode === 'llm' ? StateBadge('Gemini 분석', 'info', '✦') : StateBadge('규칙 기반', 'neutral', '≡');
+  const srcs = (sa.sources || []).map((s) => `<li><span class="val">${esc(s.title || s.url || '출처')}</span>${SourceChip(chipFor(s, {}))}<span class="meta">${esc(s.url || 'URL 없음')} · 확인 시점 ${esc(fmtDate(s.confirmed_at))}${SA_STATUS_NOTE[s.status] ? ` · ${esc(SA_STATUS_NOTE[s.status])}` : ''}</span></li>`).join('');
+  const unc = (sa.unconfirmed || []).map((u) => `<li><span class="val">${esc(u)}</span>${SourceChip('unverified')}</li>`).join('');
+  const body = `<div class="inst-head">${mode}<span class="meta">분석 시점 ${esc(fmtDate(sa.analyzed_at))}</span>${btn}</div>
+    ${saGroup('인재상', sa.talent_traits)}${saGroup('전형 요소', sa.admission_elements)}${saGroup('면접 형식', sa.interview_format)}
+    <h4>자료 출처와 확인 시점</h4>${srcs ? `<ul class="claims">${srcs}</ul>` : '<p class="missing">공식 자료를 찾지 못했습니다. 입학처 URL을 입력하거나 모집요강을 붙여넣어 주세요.</p>'}
+    <h4>확인되지 않은 정보</h4>${unc ? `<ul class="claims">${unc}</ul>` : '<p class="fine">표시할 미확인 항목이 없습니다.</p>'}
+    <p class="fine">${esc(FIXED.unconfirmedNoGuess)}. 인용은 원문에서 확인된 문장만 사용합니다.</p>`;
+  return section('school', '학교 분석', body);
+}
+
 function trendSection(t) {
   const items = t?.status === 'monthly_trend' ? (t.items || []).slice(0, 3) : [];
   const body = items.length
@@ -81,7 +102,7 @@ const planBasis = (q) => [
 function planSection(plan) {
   const qs = plan.questions || plan.items || [];
   const body = qs.length
-    ? `<ol class="plan-list">${qs.map((q) => `<li><span class="val">${esc(q.text || '')}</span>${q.source_status ? SourceChip(q.source_status) : ''}<span class="meta">${esc(planBasis(q))}</span></li>`).join('')}</ol>${qs[0]?.generator ? `<p class="fine">생성 방식: ${esc(qs[0].generator)}</p>` : ''}`
+    ? `<ol class="plan-list">${qs.map((q) => `<li><span class="val">${esc(q.text || '')}</span>${q.source_status ? SourceChip(q.source_status) : ''}<span class="meta">${esc(planBasis(q))}${q.generator ? ` · 생성: ${q.generator === 'gemini' ? 'Gemini' : '규칙 기반'}` : ''}</span></li>`).join('')}</ol>${qs.some((q) => q.source_status === 'monthly_trend_mock') ? '<p class="fine">월간 트렌드(Mock · 보조)는 학교의 공식 요구가 아닙니다.</p>' : ''}`
     : '<p class="hint">미리볼 질문 계획이 없습니다. 일반 질문으로 진행합니다.</p>';
   return section('plan', '질문 계획 미리보기', body, false);
 }
@@ -97,7 +118,7 @@ function paint() {
   const ex = detail.current_version?.extracted || {};
   const inst = detail.institution || null;
   $('#evidenceBody').innerHTML = `${Stepper(['지원 정보', '근거 확인', '면접 설정'], 1)}
-    ${claimsSection(ex, claims)}${sourcesSection(inst, detail.sources || [])}${valuesSection(ex, inst)}${trendSection(trend)}${plan ? planSection(plan) : ''}
+    ${schoolSection(detail.school_analysis || null, ctx.busy)}${claimsSection(ex, claims)}${sourcesSection(inst, detail.sources || [])}${valuesSection(ex, inst)}${trendSection(trend)}${plan ? planSection(plan) : ''}
     <p class="fine">분석 공급자: ${esc(ctx.provider || 'mock')} · 승인 전에는 면접을 시작할 수 없습니다.</p>`;
   const box = $('#institutionBody');
   if (box) box.innerHTML = '';
@@ -108,13 +129,25 @@ function paint() {
 // 404(미구현 서버) 등은 null → 해당 섹션/토글을 숨기고 화면은 계속 동작한다.
 const optional = (path) => api(path).catch(() => null);
 
-export async function renderEvidence(detail, created) {
-  ctx = { detail, claims: null, plan: null, trend: null, provider: created.provider, needsReapproval: false };
+async function runSchoolAnalysis(id, quiet = false) {
+  ctx.busy = true; paint();
+  try {
+    await api(`/profiles/${id}/school-analysis`, { method: 'POST', body: {} });
+    ctx.detail = await api(`/profiles/${id}`);
+    ctx.plan = await optional(`/profiles/${id}/plan`);
+    state.sources = ctx.detail.sources || [];
+  } catch (err) {
+    if (!(quiet && [404, 405, 422].includes(err.status))) setError('#evidenceError', err.status === 404 ? '이 서버에서는 학교 분석을 사용할 수 없습니다.' : err.message);
+  } finally { ctx.busy = false; paint(); }
+}
+
+export async function renderEvidence(detail, created, { autoAnalyze = false } = {}) {
+  ctx = { busy: false, detail, claims: null, plan: null, trend: null, provider: created.provider, needsReapproval: false };
   $('#evidenceState').textContent = '확인 필요';
   $('#evidenceState').className = 'state-badge warn';
   paint();
   const id = detail.id || created.id;
-  const seg = detail.org_type || state.profile?.org_type || (state.journey === 'university' ? 'university' : 'company');
+  const seg = detail.org_type || state.profile?.org_type || (state.journey === 'highschool' ? 'highschool' : 'university');
   const ym = new Date().toISOString().slice(0, 7);
   const [cl, plan, trend] = await Promise.all([optional(`/profiles/${id}/claims`), optional(`/profiles/${id}/plan`), optional(`/trends/${seg}/${ym}`)]);
   ctx.claims = Array.isArray(cl) ? cl : Array.isArray(cl?.claims) ? cl.claims : null;
@@ -122,7 +155,16 @@ export async function renderEvidence(detail, created) {
   ctx.plan = plan;
   ctx.trend = trend;
   paint();
+  // 프로필 생성 직후 한 번 자동 실행(엔드포인트가 없으면 404 → 조용히 건너뜀).
+  // 기능 감지: 서버가 school_analysis 키를 응답에 포함할 때만(null 포함) 자동 실행한다. 미구현 서버로는 요청을 보내지 않는다.
+  if (autoAnalyze && 'school_analysis' in detail && !detail.school_analysis) {
+    await runSchoolAnalysis(id, true);
+  }
 }
+
+$('#evidenceBody')?.addEventListener('click', (e) => {
+  if (e.target.closest?.('#schoolAnalyzeBtn') && state.profile && !ctx.busy) runSchoolAnalysis(state.profile.id);
+});
 
 $('#evidenceBody')?.addEventListener('change', async (e) => {
   const cb = e.target.closest?.('[data-claim-exclude]');

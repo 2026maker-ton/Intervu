@@ -26,7 +26,7 @@ export function clearSaved() {
 export const state = {
   token: localStorage.getItem(TOKEN_KEY) || '', // 내장 토큰 없음: 첫 401에서 접속 토큰을 물어본다
   screen: 'dashboard',
-  journey: null,            // 'company' | 'university'
+  journey: null,            // 'highschool' | 'university'
   profile: null,
   versionId: null,
   sources: [],

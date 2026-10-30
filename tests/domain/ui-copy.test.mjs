@@ -17,8 +17,8 @@ test('reason 매핑 완전성', () => {
   assert.equal(Object.keys(REASON_COPY).length, reasons.length);
   assert.ok(reasonCopy('unknown_x'));
 });
-test('출처 상태 7종 고정 라벨', () => {
-  assert.equal(Object.keys(SOURCE_STATUS).length, 7);
+test('출처 상태 9종 고정 라벨(+demo_fixture, monthly_trend_mock)', () => {
+  assert.equal(Object.keys(SOURCE_STATUS).length, 9);
   assert.equal(SOURCE_STATUS.conflict.label, '내용 충돌');
 });
 test('public/ 사용자 문구에 금지 표현 없음', () => {

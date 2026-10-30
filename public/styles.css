@@ -524,3 +524,9 @@ details.dim[open] > summary { margin-bottom: .4rem; }
   .room-actions button { min-height: var(--touch-min); }
   .room-actions .primary { flex: 2 1 100%; }
 }
+
+/* 음성 우선 경로(spec 09 §6): 큰 녹음 버튼과 전사 확인 강조 */
+.voice-box[data-primary="on"] { padding: .75rem; border: 1px solid var(--line, #d0d7de); border-radius: 12px; }
+.voice-box[data-primary="on"] #sttRecBtn, .voice-box[data-primary="on"] #voiceBtn { min-height: 56px; min-width: 56px; padding: .75rem 1.5rem; font-size: 1.1rem; font-weight: 700; }
+.voice-box[data-primary="on"][data-state="recording"] #sttRecBtn, .voice-box[data-primary="on"][data-state="recording"] #voiceBtn { color: var(--red); border-color: var(--red); }
+.room-body:has(.voice-box[data-state="review"]) #answerText { outline: 2px solid var(--green-deep); outline-offset: 2px; }

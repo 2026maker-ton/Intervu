@@ -1,5 +1,5 @@
 import { $, $$, basisTag, downloadJson, esc, fmtDate } from '../core/format.js';
-import { dimLabel, rubricNote, typeLabel } from '../core/copy.js';
+import { dimLabel, rubricNote, typeLabel, FIXED } from '../core/copy.js';
 import { toast } from '../core/toast.js';
 import { askConfirm, askInput, dialog } from '../core/dialog.js';
 import { api } from '../core/api.js';

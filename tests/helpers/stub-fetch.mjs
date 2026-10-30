@@ -13,7 +13,7 @@ export async function withGeminiStub(env, overrides, fn) {
     }
     return realFetch(url, opts);
   };
-  const gated = createApp({ env: { GEMINI_API_KEY: 'fake-key', GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: A, TRENDS_FILE: '', PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100', ...env }, ...overrides });
+  const gated = createApp({ env: { GEMINI_API_KEY: 'fake-key', GEMINI_LIVE_ACK: '', GEMINI_REAL_DATA_ACK: '', GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: A, TRENDS_FILE: '', PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100', ...env }, ...overrides });
   await new Promise((r) => gated.server.listen(0, r));
   const gbase = `http://127.0.0.1:${gated.server.address().port}`;
   const gcall = async (path, { method = 'GET', body, noConsent = false } = {}) => {

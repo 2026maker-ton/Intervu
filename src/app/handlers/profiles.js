@@ -9,7 +9,10 @@ import { isSyntheticProfileBody } from '../../domain/fixtures.js';
 import { fetchOfficialSource, parseAllowList } from '../../domain/fetcher.js';
 import { findSchool } from '../../domain/school-directory.js';
 import { verifyAnalysis, ruleBasedAnalysis, buildUnconfirmed, mergeIntoInstitution } from '../../domain/school-analysis.js';
-import { buildInstitutionProfile, normalizeOrgType, providerConstraintForOrg } from '../../domain/institution.js';
+import { buildInstitutionProfile, normalizeOrgType, providerConstraintForOrg, isMinorPossible } from '../../domain/institution.js';
+import { segmentOfOrg, trendCatalog, lookupTrends, TREND_MOCK_LABEL } from '../../domain/trend-mock.js';
+import { validateDesignedQuestions, decideTrendUse, MODEL_MAX } from '../../domain/question-design.js';
+import { QUESTIONS_PROMPT_VERSION } from '../../providers/prompts/questions.js';
 
 // 데모 fixture 소스는 저장 형태(kind:'demo_fixture')를 유지하되 기관 프로필 규칙 분석에는 공식 자료처럼 넣는다.
 const asBuildSource = (s) => (s.kind === 'demo_fixture' ? { ...s, kind: 'official' } : s);
@@ -184,7 +187,62 @@ export function createProfileHandlers(d) {
     ver.excluded_claim_ids = (ver.excluded_claim_ids || []).filter((x) => ids.has(x));
   }
 
-  function approveProfile(owner, id, body) {
+  // 승인 시점 1회 질문 설계(09 §5.1·§4). 결과는 버전에 동결(v.plan)되고 세션 생성·GET plan이 같은 값을 쓴다.
+  // 외부 호출은 서버 게이트가 연 경우(합성 fixture 또는 확인된 성인 실데이터)에만 일어난다. 막히면 호출 0건·규칙 기반 계획.
+  async function designPlan(owner, p, v, inst) {
+    const orgType = normalizeOrgType(p.org_type);
+    const synthetic = p.synthetic === true;
+    const ctx = requestContext(owner, { synthetic, forceMock: isMinorPossible(orgType) && !synthetic });
+    const plan = { generator: 'rule', model_questions: [], provider_trace: [], trend: { used: false, lookup: false }, designed_at: now() };
+    const gate = caller.plan('questions.design', ctx);
+    if (!gate.live) { plan.provider_trace.push({ operation: gate.operation, provider: 'mock', mode: gate.mode, reason: gate.reason, model_alias: 'rule-based', latency_ms: null }); return plan; }
+    const sa = inst?.school_analysis || {};
+    const items = (arr, prefix) => (Array.isArray(arr) ? arr : []).slice(0, 8).map((t, i) => ({ id: t.id || `${prefix}-${i + 1}`, label: String(t.label || ''), quote: String(t.quote || '') })).filter((t) => t.quote);
+    const schoolItems = [...items(sa.talent_traits, 'trait'), ...items(sa.admission_elements, 'elem')];
+    const ex = new Set(v.frozen_excluded_claim_ids || []);
+    const claims = (v.extracted?.applicant_claims || []).filter((c) => !ex.has(c.id)).map((c) => ({ id: c.id, quote: c.quote, gaps: c.gaps || [] }));
+    if (!schoolItems.length && !claims.length) { plan.provider_trace.push({ operation: 'questions.design', provider: 'mock', mode: 'mock', reason: 'no_evidence', model_alias: 'rule-based', latency_ms: null }); return plan; }
+    // 1) 트렌드 조회 필요 여부 판단. true+유효 id일 때만 Mock 본문을 조회한다(그 전에는 색인 id·태그만 본다). 막힘·실패·무효는 '사용 안 함'.
+    const segment = segmentOfOrg(orgType);
+    const yyyyMm = config.trendMockMonth || now().slice(0, 7);
+    const catalog = segment ? trendCatalog(segment, yyyyMm) : null;
+    let trendItems = [];
+    if (catalog) {
+      const dres = await caller.call('trends.decide', {
+        ctx, mockAlias: 'rule-based', reserve: { key: `profile:${p.id}:trend`, amount: config.profileRate.reserve },
+        invoke: (a) => a.decideTrend({ segment, yyyyMm, traitLabels: schoolItems.filter((x) => x.label).slice(0, 5).map((x) => x.label), claimLabels: claims.map((c) => [...c.quote].slice(0, 30).join('')), catalog }),
+        mock: () => ({ use_trend: false, trend_ids: [], reason: 'mock' }),
+        validate: (o) => typeof o?.use_trend === 'boolean',
+      });
+      plan.provider_trace.push(dres.trace);
+      const dec = dres.trace.mode === 'live' ? decideTrendUse(dres.value, catalog) : { use_trend: false, trend_ids: [] };
+      plan.trend = { used: false, lookup: false, decision: dec.use_trend, yyyyMm, segment };
+      if (dec.use_trend) {
+        const found = lookupTrends(segment, yyyyMm, dec.trend_ids);
+        plan.trend.lookup = true; plan.trend.status = found.status;
+        trendItems = found.items;
+        plan.trend.used = trendItems.length > 0; plan.trend.label = TREND_MOCK_LABEL; plan.trend.ids = trendItems.map((x) => x.id);
+      }
+    } else plan.trend = { used: false, lookup: false, status: 'unavailable', yyyyMm, segment };
+    // 2) 질문 설계. 서버가 질문 단위로 검증하고, 전부 폐기되면 규칙 기반 계획으로 남는다.
+    const qres = await caller.call('questions.design', {
+      ctx, mockAlias: 'rule-based', reserve: { key: `profile:${p.id}:qdesign`, amount: config.profileRate.reserve },
+      invoke: (a) => a.designQuestions({ department: p.role || '', schoolItems, claims, trendItems, count: MODEL_MAX }),
+      mock: () => ({ questions: [] }),
+      validate: (o) => Array.isArray(o?.questions),
+    });
+    plan.provider_trace.push(qres.trace);
+    if (qres.trace.mode !== 'live') return plan;
+    const evidence = [...schoolItems.map((x) => ({ id: x.id, text: `${x.label} ${x.quote}` })), ...claims.map((c) => ({ id: c.id, text: c.quote })), ...trendItems.map((t) => ({ id: t.id, text: `${t.title} ${t.summary}` }))];
+    const { questions, dropped } = validateDesignedQuestions(qres.value, evidence, { promptVersion: QUESTIONS_PROMPT_VERSION, extraText: String(p.role || '') });
+    plan.dropped_model_questions = dropped;
+    plan.model_questions = questions.map((q) => ({ ...q, provider_trace: qres.trace, ...(q.trend_ids.length ? { trend_label: TREND_MOCK_LABEL } : {}) }));
+    if (plan.model_questions.length) plan.generator = 'gemini';
+    if (!plan.model_questions.some((q) => q.trend_ids.length)) { plan.trend.used = false; plan.trend.ids = []; }
+    return plan;
+  }
+
+  async function approveProfile(owner, id, body) {
     const p = store.getProfile(owner, id);
     if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
     const vid = body.version_id || p.approved_version_id;
@@ -210,7 +268,8 @@ export function createProfileHandlers(d) {
       approvedInst = { ...inst.profile, user_confirmed_at: now() };
     }
     if (approvedInst) store.setInstitution(id, approvedInst, 'approved');
-    return { status: 200, body: { id: v.id, profile_id: id, status: 'approved', approved_at: v.approved_at, institution_status: approvedInst ? 'approved' : null } };
+    v.plan = await designPlan(owner, p, v, approvedInst);
+    return { status: 200, body: { id: v.id, profile_id: id, status: 'approved', approved_at: v.approved_at, institution_status: approvedInst ? 'approved' : null, plan: { generator: v.plan.generator, model_question_count: v.plan.model_questions.length, trend_used: v.plan.trend.used, provider_trace: v.plan.provider_trace } } };
   }
 
   // ---- 기관 출처·프로필 API ----
@@ -372,8 +431,8 @@ export function createProfileHandlers(d) {
     const duration = [5, 10, 15].includes(Number(query.duration_minutes)) ? Number(query.duration_minutes) : 15;
     const seedNum = (Number(query.seed) || 0) >>> 0;
     const institution = store.getInstitution(profileId)?.profile || null;
-    const plan = planGeneralQuestions({ version, institution, orgType: p.org_type, trends, qCount: questionCountForDuration(duration), seedNum, excludedClaimIds: excluded });
-    return { status: 200, body: { profile_id: profileId, version_id: version?.id || null, frozen, excluded_claim_ids: excluded, question_basis: plan.question_basis, questions: plan.questions.map(publicPlanItem) } };
+    const plan = planGeneralQuestions({ version, institution, orgType: p.org_type, trends, qCount: questionCountForDuration(duration), seedNum, excludedClaimIds: excluded, modelQuestions: approved?.plan?.model_questions || [] });
+    return { status: 200, body: { profile_id: profileId, version_id: version?.id || null, frozen, excluded_claim_ids: excluded, question_basis: plan.question_basis, generator: plan.questions.some((q) => q.generator === 'gemini') ? 'gemini' : 'rule', questions: plan.questions.map(publicPlanItem) } };
   }
 
   return { createProfile, analyzeSchool, getProfile, approveProfile, addInstitutionSource, fetchInstitutionSource, getInstitution, listClaims, setClaimExcluded, getPlan };

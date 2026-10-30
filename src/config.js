@@ -55,6 +55,9 @@ export function loadConfig(env = process.env) {
       'school.analyze': { provider: route('SCHOOL_ANALYZE', env.LLM_ANALYSIS_PROVIDER || 'gemini'), alias: 'gemini-school', maxOutputTokens: 1500 },
       // 평가: Gemini(검증 전·참고용). 게이트 닫힘·실패·검증 불일치는 규칙 기반 폴백(고입 실입력은 게이트에서 항상 규칙 기반)
       'evaluation.generate': { provider: route('EVALUATION_GENERATE', String(env.LLM_EVALUATION_PROVIDER || 'gemini').toLowerCase()), alias: 'rule-based', maxOutputTokens: 2500 },
+      // 학생 MVP(09 §4·§5.1): 트렌드 조회 필요 판단·질문 설계. 기본 gemini(게이트·합성/동의 규칙은 공통), ROUTE_*로 mock 전환.
+      'trends.decide': { provider: route('TRENDS_DECIDE', 'gemini'), alias: 'gemini-text', maxOutputTokens: 300 },
+      'questions.design': { provider: route('QUESTIONS_DESIGN', 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },
       'speech.transcribe': { provider: route('SPEECH_TRANSCRIBE', 'groq'), alias: 'groq-whisper', maxOutputTokens: 1000 },
       'speech.synthesize': { provider: route('SPEECH_SYNTHESIZE', String(env.TTS_PROVIDER || 'mock').toLowerCase()), alias: 'tts', maxOutputTokens: 0 },
     },
@@ -179,6 +182,7 @@ export function loadConfig(env = process.env) {
     adminToken: String(env.ADMIN_TOKEN || ''),
     // 합성 샘플 API(WP-C6). 기본 켬, DEMO_FIXTURES=off로 끔.
     demoFixtures: String(env.DEMO_FIXTURES ?? 'on').toLowerCase() !== 'off',
+    trendMockMonth: String(env.TREND_MOCK_MONTH || ''), // 학생 MVP Mock 트렌드 조회 월(비우면 현재 월). 시험·데모 시계 고정용
     // 빈 문자열을 명시하면 영속화를 끈다(테스트·격리 환경). 미설정 시 기본 파일 사용.
     trendsFile: env.TRENDS_FILE === undefined ? 'data/trends.json' : String(env.TRENDS_FILE),
   };

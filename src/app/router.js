@@ -122,7 +122,7 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
       if ((mm = /^\/api\/v1\/fixtures\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.consents.getFixtureById(id1()));
       if (mth === 'POST' && pth === '/api/v1/profiles') return send(await h.profiles.createProfile(owner, body, requestId));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)$/.exec(pth)) && mth === 'GET') return send(h.profiles.getProfile(owner, id1()));
-      if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/approve$/.exec(pth)) && mth === 'POST') return send(h.profiles.approveProfile(owner, id1(), body));
+      if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/approve$/.exec(pth)) && mth === 'POST') return send(await h.profiles.approveProfile(owner, id1(), body));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/school-analysis$/.exec(pth)) && mth === 'POST') return send(await h.profiles.analyzeSchool(owner, mm[1], body));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/sources$/.exec(pth)) && mth === 'POST') return send(h.profiles.addInstitutionSource(owner, id1(), body));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/sources\/([^/]+)\/fetch$/.exec(pth)) && mth === 'POST') return send(await h.profiles.fetchInstitutionSource(owner, mm[1], mm[2]));

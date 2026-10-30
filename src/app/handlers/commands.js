@@ -12,6 +12,8 @@ import { buildTypedEvaluation } from '../../domain/mock-eval-typed.js';
 import { validateEvaluationGeneric } from '../../domain/evaluation-generic.js';
 import { nextAiUtterance, moderatorLine, recordDiscussionTurn } from '../../domain/discussion.js';
 import { validateDialogueOutput, validateFollowupOutput } from '../../providers/validate.js';
+import { buildLlmEvaluation } from '../../domain/llm-eval.js';
+import { checkFeedbackSafety } from '../../domain/evaluation.js';
 
 export function createCommandHandlers(d) {
   const { config, store, err, now, caller, mock, requestContext, checkRate, publicSession } = d;
@@ -390,11 +392,17 @@ export function createCommandHandlers(d) {
         ctx: requestContext(owner, { forceMock: !!s.highschool_mock, synthetic: s.server_synthetic === true }),
         mockAlias: 'rule-based',
         reserve: { key: `session:${s.id}`, amount: config.budgets.evalReserve },
-        invoke: (a2) => a2.evaluate({ turnsWithText, dimensions: [] }),
+        // 모델 출력은 서버가 인용을 원문에서 재계산해 보고서로 만든 뒤 같은 검증기를 통과해야 한다(WP-E). 아니면 규칙 기반.
+        invoke: async (a2) => {
+          const rub = getRubric(rubric_version);
+          const out = await a2.evaluateAnswers({ turns: turnsWithText.map((t) => ({ turn_id: t.turn_id, text: t.text, elicited: t.elicited })), rubric: rub });
+          const built = buildLlmEvaluation({ parsed: out.parsed, turnsWithText, rubric: rub, checkSafety: checkFeedbackSafety });
+          return { report: built, model: out.model, usage: out.usage };
+        },
         mock: ruleBased, fallback: ruleBased,
-        validate: (g) => validateGenerated(g).ok === true,
+        validate: (o) => !!o?.report && validateGenerated(o.report).ok === true,
       });
-      const generated = evalRes.value;
+      const generated = evalRes.live ? evalRes.value.report : evalRes.value;
       const evalTrace = evalRes.trace;
       pushTrace(s, evalTrace);
       // 기관 연결: 공개 요구사항과 답변의 근거 연결 (평가 점수와 별도 레이어)
@@ -429,14 +437,14 @@ export function createCommandHandlers(d) {
         generated_at: now(),
         // 평가기 종류·실제 공급자는 provider_trace와 같은 값이다(BUG-6). 규칙 기반 평가를 AI 평가처럼 표기하지 않는다.
         provider: evalTrace.provider,
-        evaluator: { kind: evalTrace.mode === 'live' ? 'llm' : 'rule_based', provider: evalTrace.provider, model_alias: evalTrace.model_alias, version: evalTrace.mode === 'live' ? (generated.model_version || null) : 'rule-based-v1' },
+        evaluator: { kind: evalTrace.mode === 'live' ? 'llm' : 'rule_based', provider: evalTrace.provider, model_alias: evalTrace.model_alias, version: evalTrace.mode === 'live' ? 'eval-llm-v1' : 'rule-based-v1', ...(evalTrace.mode === 'live' ? { validated: false } : {}) },
         provider_trace: [...(s.provider_trace || [])],
         interviewer_role: s.interviewer_role || null,
         role_label: s.interviewer_role ? (ROLES[s.interviewer_role]?.label || null) : null,
         institution: institution_profile,
         institution_link,
         claim_links: buildClaimLinks(s, turnsWithText),
-        model_version: generated.model_version || 'mock-model-v1',
+        model_version: (evalRes.live ? evalRes.value.model : generated.model_version) || 'mock-model-v1',
         interview_type: it,
         rubric_version,
         transcript_turn_count: turnsWithText.length,

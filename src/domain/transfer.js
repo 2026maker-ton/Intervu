@@ -155,6 +155,9 @@ export function compareTransfer({ rubricVersion, competency, baseline, retry }) 
   if (questionSimilarity(b.questionText || '', r.questionText || '') >= 0.55) {
     return { status: 'insufficient_evidence', reason: '두 질문이 너무 유사합니다. 서로 다른 질문으로 다시 시도하세요.', baseline: b, retry: r };
   }
+  if (b.evaluatorKind && r.evaluatorKind && b.evaluatorKind !== r.evaluatorKind) {
+    return { status: 'insufficient_evidence', reason: '평가기 종류가 달라 비교할 수 없습니다', baseline: b, retry: r };
+  }
   if (b.rubricVersion !== r.rubricVersion) {
     return { status: 'insufficient_evidence', reason: '평가 기준 버전이 달라 비교할 수 없습니다.', baseline: b, retry: r };
   }
@@ -198,6 +201,7 @@ function normalizeAttempt(a) {
     excerpt: String(a.excerpt).slice(0, 500),
     rubricVersion: a.rubricVersion || 'behavioral-ko-v1',
     levels: a.levels || {},
+    evaluatorKind: a.evaluatorKind || null,
     turnId: a.turnId || null,
     revision: a.revision ?? null,
   };

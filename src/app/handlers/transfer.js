@@ -72,11 +72,12 @@ export function createTransferHandlers(d) {
     store.putTransferJob(transferId, {
       owner_id: owner, evaluation_id: eid, competency: comp, rubric_version: rubricVersion,
       baseline_session_id: baselineSessionId, retry_session_id: s.id,
-      baseline: { questionId: baselineTurnId ? undefined : 'baseline', questionText: baseline, excerpt: baselineExcerpt, rubricVersion, turnId: baselineTurnId, revision: baselineRevision, levels: levelsOfSession(owner, baselineSessionId, rubricVersion) },
+      baseline: { questionId: baselineTurnId ? undefined : 'baseline', questionText: baseline, excerpt: baselineExcerpt, rubricVersion, turnId: baselineTurnId, revision: baselineRevision, levels: levelsOfSession(owner, baselineSessionId, rubricVersion), evaluatorKind: evaluatorKindOf(baselineSessionId) },
       transfer_question: transfer, created_at: now(),
     });
     return { status: 201, body: { id: s.id, state: s.state, version: s.version, limits: { duration_seconds: s.duration_seconds }, rubric_version: rubricVersion, competency_id: comp, transfer_id: transferId, transfer_question: transfer, baseline_question: baseline, baseline_excerpt: baselineExcerpt, note: '같은 역량의 새 질문으로 연습합니다. 원래 평가를 수정하지 않습니다.' } };
   }
+  const evaluatorKindOf = (sid) => (sid ? store.evaluations.get(sid)?.evaluator?.kind : null) || null;
   // 세션 평가에서 차원별 수준을 꺼내 전이 비교용 baseline으로 쓴다.
   function levelsOfSession(owner, sid, rubricVersion) {
     if (!sid) return {};
@@ -111,7 +112,7 @@ export function createTransferHandlers(d) {
     const cmp = compareTransfer({
       rubricVersion: job.rubric_version, competency: comp,
       baseline: { ...job.baseline, rubricVersion: job.rubric_version },
-      retry: { questionId: retrySessionId, questionText: retryQ, excerpt: retryExcerpt, rubricVersion: retry.rubric_version, turnId: null, revision: null, levels: retryLevels },
+      retry: { questionId: retrySessionId, questionText: retryQ, excerpt: retryExcerpt, rubricVersion: retry.rubric_version, turnId: null, revision: null, levels: retryLevels, evaluatorKind: retry.evaluator?.kind || null },
     });
     job.retry_session_id = retrySessionId;
     job.retry = { session_id: retrySessionId, question: retryQ, excerpt: retryExcerpt, levels: retryLevels, rubric_version: retry.rubric_version };

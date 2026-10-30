@@ -1,6 +1,7 @@
 // Provider 어댑터: mock 기본 + gemini(게이트 통과 시에만). 키는 서버에서만 사용.
 import { estimateTokens } from '../domain/ledger.js';
 import { buildClaimsPrompt } from './prompts/claims.js';
+import { buildEvaluationMessages } from './prompts/evaluation.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -201,11 +202,16 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
       if (typeof utterance !== 'string' || !utterance.trim()) throw Object.assign(new Error('gemini bad output'), { code: 502, invalid: true });
       return { model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs, utterance: String(utterance).slice(0, 1000) };
     },
-    // 평가는 MVP에서 결정적 mock 생성기를 사용(근거 인용 불일치 원천 차단).
-    // Gemini 평가는 품질 검증 게이트(G4/G5) 통과 후 별도 활성화.
-    async evaluate() {
-      throw Object.assign(new Error('gemini evaluation disabled in MVP: deterministic evidence path is used'), { code: 501 });
+    // 평가(WP-E): 모델은 수준·관찰·인용 후보만 내고, 보고서 구성·좌표 계산·검증은 서버가 한다.
+    async evaluateAnswers({ turns, rubric }) {
+      const { system, user } = buildEvaluationMessages({ turns, rubric });
+      const r = await withFallback((model) => generateContent(model, { system, user, maxOutputTokens: 2500 }));
+      let parsed;
+      try { parsed = JSON.parse(String(r.text).trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw Object.assign(new Error('gemini bad json'), { code: 502, invalid: true }); }
+      if (!parsed || !Array.isArray(parsed.dimensions)) throw Object.assign(new Error('gemini bad schema'), { code: 502, invalid: true });
+      return { parsed, model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
     },
+    async evaluate() { throw Object.assign(new Error('use evaluateAnswers'), { code: 501 }); },
     async transcribeAudio({ base64, mimeType = 'audio/wav' }) {
       const r = await withFallback((model) => generateContent(model, {
         system: '한국어 음성을 정확히 전사하세요. JSON {"text":"..."} 만 반환. 들리지 않으면 빈 문자열.',

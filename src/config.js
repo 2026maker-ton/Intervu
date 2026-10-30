@@ -52,8 +52,8 @@ export function loadConfig(env = process.env) {
     registry: {
       'dialogue.next': { provider: route('DIALOGUE_NEXT', String(env.LLM_DIALOGUE_PROVIDER || 'gemini').toLowerCase()), alias: 'dialogue-text', maxOutputTokens: 500 },
       'claims.extract': { provider: route('CLAIMS_EXTRACT', env.LLM_ANALYSIS_PROVIDER || 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },
-      // 평가는 규칙 기반이 기본(Gemini 평가는 사람 평가 검증 후, DG-8)
-      'evaluation.generate': { provider: route('EVALUATION_GENERATE', 'mock'), alias: 'rule-based', maxOutputTokens: 2500 },
+      // 평가: Gemini(검증 전·참고용). 게이트 닫힘·실패·검증 불일치는 규칙 기반 폴백(고입 실입력은 게이트에서 항상 규칙 기반)
+      'evaluation.generate': { provider: route('EVALUATION_GENERATE', String(env.LLM_EVALUATION_PROVIDER || 'gemini').toLowerCase()), alias: 'rule-based', maxOutputTokens: 2500 },
       'speech.transcribe': { provider: route('SPEECH_TRANSCRIBE', 'groq'), alias: 'groq-whisper', maxOutputTokens: 1000 },
       'speech.synthesize': { provider: route('SPEECH_SYNTHESIZE', String(env.TTS_PROVIDER || 'mock').toLowerCase()), alias: 'tts', maxOutputTokens: 0 },
     },

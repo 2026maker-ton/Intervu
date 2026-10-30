@@ -260,7 +260,7 @@
 | 질문 설계 | AI 호출 없음(정적 팩+기관 템플릿+지원서 주장 질문+트렌드 보조 질문, `planGeneralQuestions` 공유) | Claude Sonnet | 근거 ID·지원서에 없는 사실 금지 검증 필요 |
 | 실시간 꼬리질문(`dialogue.next`) | 게이트 통과 시 Gemini `next` 또는 `LLM_DIALOGUE_PROVIDER=deepseek`일 때 DeepSeek(`validateFollowupOutput` 통과분만), 아니면 Mock 고정 문장, 실패·429는 정적 폴백으로 세션 계속 | DeepSeek | 질문당 1개·세션 3개 상한, 호출 14회/세션 상한 유지(`config.budgets`) |
 | STT(`speech.transcribe`) | 브라우저 녹음 → `POST /sessions/:id/transcriptions` → Groq Whisper(서버 키, `GROQ_LIVE_ACK` 필요). Gemini `transcribeAudio`는 정의만 있고 라우트 없음 | Groq Whisper | 원음은 전사 후 폐기, 전사 확인·교정 후 제출 |
-| 종합 평가(`evaluation.generate`) | 규칙 기반(`buildMockEvaluation`/`buildTypedEvaluation`), Gemini `evaluate`는 501, Claude 평가 어댑터 없음(B4 `[TODO]`) | Claude Sonnet(검증 후) | 인용·span 검증 통과 출력만 채택 |
+| 종합 평가(`evaluation.generate`) | Gemini `evaluateAnswers`(WP-E, 스텁 시험만·검증 전·참고용 `evaluator.kind=llm`; 서버가 인용 위치를 재계산하고 검증·금지어 통과분만 채택, 그 외·게이트 닫힘·장애는 규칙 기반 `buildMockEvaluation`/`buildTypedEvaluation`), Claude 평가 어댑터 없음(B4 `[TODO]`) | Claude Sonnet(검증 후) | 인용·span 검증 통과 출력만 채택 |
 | 새 질문 생성 | 템플릿 선택+유사도 검사 | Claude Sonnet(선택) | 유사도·역량 일치 검사 유지 |
 | TTS(`speech.synthesize`) | `POST /sessions/:id/tts`(세션 문장만) → `TTS_PROVIDER=elevenlabs`+전 조건 충족 시 ElevenLabs, 그 외 204+브라우저 `SpeechSynthesis` | ElevenLabs | 서버 프록시, 실패 시 브라우저 TTS 폴백(구현, 실호출 미실행) |
 

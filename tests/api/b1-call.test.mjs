@@ -178,7 +178,7 @@ test('B1 labels: provider_trace in responses, session and report match what was 
     assert.equal(rep.data.provider, 'mock');
     assert.equal(rep.data.model_version, 'mock-model-v1');
     const modes = rep.data.provider_trace.map((x) => `${x.operation}:${x.provider}:${x.mode}`);
-    assert.deepEqual(modes, ['dialogue.next:gemini:live', 'dialogue.next:mock:fallback', 'evaluation.generate:mock:mock']);
+    assert.deepEqual(modes, ['dialogue.next:gemini:live', 'dialogue.next:mock:fallback', 'evaluation.generate:mock:fallback']); // WP-E: 평가도 Gemini 경유, 429면 규칙 기반 폴백
     // 세션 조회의 요약도 같은 기록
     const got = await ctx.g(`/api/v1/sessions/${s.id}`);
     assert.deepEqual(got.data.provider_trace.slice(0, 2).map((x) => x.mode), ['live', 'fallback']);

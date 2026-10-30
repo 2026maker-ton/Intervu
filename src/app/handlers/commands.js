@@ -280,7 +280,10 @@ export function createCommandHandlers(d) {
         return { question: qq?.text || '', answer: last?.normalized_text || '' };
       }).filter((h) => h.question || h.answer);
       history.push({ question: q.followup || q.text, answer: text });
-      const dialogueInput = { persona: s.persona, role: panelRole, followupReason, questionText: q.followup || q.text, recentAnswer: text, interviewType: s.interview_type, history };
+      // 학교 맥락(09 §5.2): 승인된 학교 분석의 인재상 label 최대 5개. 없으면 빈 배열.
+      const sv = s.profile_version_id ? store.getVersion(s.profile_version_id) : null;
+      const school_context = (store.getInstitution(sv?.profile_id)?.profile?.school_analysis?.talent_traits || []).map((t) => String(t?.label || '').trim()).filter(Boolean).slice(0, 5);
+      const dialogueInput = { persona: s.persona, role: panelRole, followupReason, questionText: q.followup || q.text, recentAnswer: text, interviewType: s.interview_type, history, school_context };
       // 검증 기준 문맥: 모델 출력의 숫자는 이 안에 있어야 한다(새 사실·수치 금지)
       const contextText = `${dialogueInput.questionText}\n${text}\n${history.map((h) => `${h.question}\n${h.answer}`).join('\n')}`;
       const staticFollowup = () => (followupReason ? (followupForRole(panelRole, followupReason, null) || FOLLOWUPS[followupReason] || q.text) : q.text);

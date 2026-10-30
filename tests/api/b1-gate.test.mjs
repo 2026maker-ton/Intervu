@@ -120,7 +120,7 @@ test('B1 /providers/status: auth required, operation map only, no keys or model 
     assert.equal((await g('/api/v1/providers/status', { token: null })).status, 401);
     const r = await g('/api/v1/providers/status');
     assert.equal(r.status, 200);
-    assert.deepEqual(Object.keys(r.data.operations).sort(), ['claims.extract', 'dialogue.next', 'evaluation.generate', 'speech.synthesize', 'speech.transcribe']);
+    assert.deepEqual(Object.keys(r.data.operations).sort(), ['claims.extract', 'dialogue.next', 'evaluation.generate', 'questions.design', 'speech.synthesize', 'speech.transcribe', 'trends.decide']);
     for (const o of Object.values(r.data.operations)) assert.deepEqual(Object.keys(o).filter((k) => !['provider', 'mode', 'blocked_reason'].includes(k)), []);
     assert.equal(r.data.operations['dialogue.next'].blocked_reason, 'consent_missing');
     assert.equal(r.data.operations['evaluation.generate'].provider, 'mock');

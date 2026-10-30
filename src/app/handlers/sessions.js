@@ -157,7 +157,7 @@ export function createSessionHandlers(d) {
       coverage = { panel: qCount };
     } else {
       // general: 질문 계획은 GET /profiles/:id/plan과 같은 함수를 쓴다. 제외·동결은 승인 시점 스냅샷 기준.
-      const plan = planGeneralQuestions({ version, institution, orgType: orgOf, trends, qCount, seedNum, excludedClaimIds: version?.frozen_excluded_claim_ids || [] });
+      const plan = planGeneralQuestions({ version, institution, orgType: orgOf, trends, qCount, seedNum, excludedClaimIds: version?.frozen_excluded_claim_ids || [], modelQuestions: version?.plan?.model_questions || [] });
       questions = plan.questions; coverage = plan.coverage; question_basis = plan.question_basis;
     }
     const s =store.createSession(owner, {

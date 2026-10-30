@@ -6,7 +6,8 @@ const CLOSE = '</untrusted_data>';
 // 데이터 안의 꺾쇠는 전각으로 바꿔 구분자를 위조할 수 없게 한다.
 const defang = (s, n) => String(s ?? '').slice(0, n).replace(/</g, '＜').replace(/>/g, '＞');
 
-export function buildFollowupMessages({ persona, role, followupReason, questionText, recentAnswer, interviewType, history }) {
+export function buildFollowupMessages({ persona, role, followupReason, questionText, recentAnswer, interviewType, history, school_context }) {
+  const schoolLine = Array.isArray(school_context) && school_context.length ? `\n학교 인재상(참고): ${school_context.slice(0, 5).map((l) => defang(l, 20)).join(', ')}` : '';
   const tone = persona === 'challenging' ? '논리 검증형(대안·모순·근거 검증, 모욕·인신공격·출신 질문 금지)'
     : persona === 'supportive' ? '친절형(차분히 재표현, 답안 대리 금지)' : '일반형(중립)';
   const system = `당신은 한국어 면접관입니다(역할: ${defang(role || '실무자', 40)}, 성향: ${tone}, 유형: ${defang(interviewType || 'general', 30)}).
@@ -18,7 +19,7 @@ export function buildFollowupMessages({ persona, role, followupReason, questionT
 5. 출력은 JSON {"utterance":"..."} 한 개뿐입니다.`;
   const hist = Array.isArray(history) ? history.slice(-4).map((h, i) => `[${i + 1}] Q: ${defang(h.question, 200)}\n    A: ${defang(h.answer, 300)}`).join('\n') : '';
   const user = `${OPEN}
-직전 질문: ${defang(questionText, 300) || '(없음)'}
+직전 질문: ${defang(questionText, 300) || '(없음)'}${schoolLine}
 직전 답변: ${defang(recentAnswer, 1500) || '(없음)'}
 부족한 점(서버 판정): ${defang(followupReason, 40) || '없음'}
 최근 대화:

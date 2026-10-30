@@ -10,7 +10,7 @@ export function prependClaimQuestions(questions, version, excludedClaimIds, qCou
   return claimQs.length ? { questions: [...claimQs, ...questions].slice(0, qCount), n: claimQs.length } : { questions, n: 0 };
 }
 
-export function planGeneralQuestions({ version, institution, orgType, trends, qCount, seedNum, excludedClaimIds = [], yyyyMm = new Date().toISOString().slice(0, 7) }) {
+export function planGeneralQuestions({ version, institution, orgType, trends, qCount, seedNum, excludedClaimIds = [], modelQuestions = [], yyyyMm = new Date().toISOString().slice(0, 7) }) {
   const { picked, coverage } = selectQuestions(seedNum, qCount);
   let questions = picked.map((q) => ({ ...q }));
   let question_basis = 'general-template-v1';
@@ -24,6 +24,8 @@ export function planGeneralQuestions({ version, institution, orgType, trends, qC
     questions = [...instQs, ...questions].slice(0, qCount);
     question_basis = institution.badge || '기관 맞춤 검토 가능';
   }
+  // 모델 질문(승인 시점 동결, 09 §5.1)은 주장 질문 뒤·기관/정적 질문 앞. 주장 질문은 아래에서 항상 맨 앞에 붙는다.
+  if (modelQuestions.length) { questions = [...modelQuestions.map((q) => ({ ...q })), ...questions].slice(0, qCount); question_basis = '학교 분석 기반 질문(모델 생성·참고용)'; }
   const wc = prependClaimQuestions(questions, version, excludedClaimIds, qCount);
   questions = wc.questions;
   if (wc.n) question_basis = `지원서 주장 검증 ${wc.n}건 · ${question_basis}`;
@@ -42,14 +44,15 @@ export function planGeneralQuestions({ version, institution, orgType, trends, qC
 
 // 공개용 계획 항목(내부 필드 제외)
 export function publicPlanItem(q) {
-  const inst = !!q._institution_basis && !q.trend_ids;
+  const inst = !!q._institution_basis && !q.trend_ids?.length && !q.generator;
   return {
     question_id: q.id, text: q.text, target_competency: q.target_competency || q.primary,
     application_evidence_ids: q.application_evidence_ids || [],
     institution_evidence_ids: q.institution_evidence_ids || (inst ? [q.id] : []),
     trend_ids: q.trend_ids || [],
+    ...(q.trend_label ? { trend_label: q.trend_label } : {}),
     source_status: q.source_status || (inst ? 'institution_review' : 'static_pack'),
-    generator: 'rule', prompt_version: q.prompt_version || null,
-    provider_trace: { provider: 'mock', mode: 'mock', reason: 'rule_based_no_ai' },
+    generator: q.generator || 'rule', prompt_version: q.prompt_version || null,
+    provider_trace: q.provider_trace || { provider: 'mock', mode: 'mock', reason: 'rule_based_no_ai' },
   };
 }

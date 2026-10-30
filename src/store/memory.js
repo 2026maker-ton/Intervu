@@ -55,6 +55,7 @@ export function createStore({ ttlDays = 30 } = {}) {
       const doc = {
         id, owner_id: owner, org_type: data.org_type, target_name: String(data.target_name || '').slice(0, 100),
         role: String(data.role || '').slice(0, 100),
+        school_name: String(data.school_name || '').slice(0, 100), department: String(data.department || '').slice(0, 100), track: String(data.track || '').slice(0, 100),
         source_text: String(data.source_text || '').slice(0, 20000),
         application_text: String(data.application_text || '').slice(0, 20000), // 마스킹본만 전달됨
         source_url: data.source_url || null, experiences: (data.experiences || []).slice(0, 3).map((e) => String(e).slice(0, 2000)),
@@ -190,7 +191,7 @@ export function createStore({ ttlDays = 30 } = {}) {
     },
     getRevisions(turnId) { return revisions.get(turnId) || []; },
     addConsent(owner, data) {
-      const c = { id: randomUUID(), owner_id: owner, age_19_confirmed: data.age_19_confirmed === true, notice_version: data.notice_version, provider_modes_seen: {}, created_at: now() };
+      const c = { id: randomUUID(), owner_id: owner, age_19_confirmed: data.age_19_confirmed === true, minor_notice_ack: data.minor_notice_ack === true, notice_version: data.notice_version, provider_modes_seen: {}, created_at: now() };
       consents.set(owner, c);
       return c;
     },

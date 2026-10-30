@@ -7,7 +7,12 @@ import { questionCountForDuration } from '../../domain/interview-types.js';
 import { normalizeSource } from '../../domain/sources.js';
 import { isSyntheticProfileBody } from '../../domain/fixtures.js';
 import { fetchOfficialSource, parseAllowList } from '../../domain/fetcher.js';
+import { findSchool } from '../../domain/school-directory.js';
+import { verifyAnalysis, ruleBasedAnalysis, buildUnconfirmed, mergeIntoInstitution } from '../../domain/school-analysis.js';
 import { buildInstitutionProfile, normalizeOrgType, providerConstraintForOrg } from '../../domain/institution.js';
+
+// 데모 fixture 소스는 저장 형태(kind:'demo_fixture')를 유지하되 기관 프로필 규칙 분석에는 공식 자료처럼 넣는다.
+const asBuildSource = (s) => (s.kind === 'demo_fixture' ? { ...s, kind: 'official' } : s);
 
 export function createProfileHandlers(d) {
   const { config, store, err, now, caller, requestContext, trends, registry, checkRate, officialFetch = {} } = d;
@@ -26,8 +31,11 @@ export function createProfileHandlers(d) {
     if (application.length > 20000) return err('validation_error', '자기소개서·지원서 본문은 20,000자 이하여야 합니다.', 422, { requestId });
     if (!body.target_name && !body.role && !source && !application.trim()) return err('validation_error', '기관/직무/공고/지원서 중 하나는 필요합니다.', 422, { requestId });
     // 기관 구분: company·public·university·highschool (기존 general 호환)
-    const orgType = normalizeOrgType(body.org_type);
-    const mc = providerConstraintForOrg(orgType);
+    // 학교 입력(school_name/department/track)은 기존 target_name/role로 정규화해 기존 로직과 호환한다(기본 기관 구분은 대입).
+    if (body.school_name) body.target_name = String(body.school_name);
+    if (body.department) body.role = String(body.department);
+    const orgType = normalizeOrgType(body.org_type || 'university');
+    const mc = providerConstraintForOrg(orgType, { synthetic });
     if (mc.forceMock) {
       // 미성년자 이용 가능 기능: 외부 호출 없이 Mock으로만 처리
       body._forceMock = true;
@@ -49,6 +57,20 @@ export function createProfileHandlers(d) {
         return err('validation_error', e.message || '사용할 수 없는 출처 URL입니다.', 422, { requestId, details: e.details || null });
       }
     }
+    // 학교 자동 탐색(데모 레지스트리만): 일치하면 합성 자료를 소스로 등록, 아니면 추측하지 않고 실패로 표시한다.
+    let school_discovery = { status: 'not_requested' };
+    if (body.school_name && ['university', 'highschool'].includes(orgType)) {
+      const sch = findSchool(body.school_name, orgType);
+      if (sch) {
+        const t = now();
+        const row = { id: randomUUID(), url: sch.official_url_demo, host: null, title: sch.title, publisher: sch.label, published_at: null, retrieved_at: t, confirmed_at: t, kind: 'demo_fixture', status: 'demo_fixture', quote: sch.text, owner_id: owner };
+        store.addSource(profile.id, row);
+        providedSources.push(row);
+        school_discovery = { status: 'found', source_id: row.id, label: sch.label, school_name: sch.name };
+      } else {
+        school_discovery = { status: 'discovery_failed', message: '공식 자료를 찾지 못했습니다. 입학처 URL을 입력하거나 모집요강을 붙여넣어 주세요.' };
+      }
+    }
     const pubNotice = body.source_text && providedSources.length === 0
       ? null
       : (providedSources.length ? null : null);
@@ -56,7 +78,7 @@ export function createProfileHandlers(d) {
     const blind = buildBlindContext(masked);
     // 공고 키워드 추출: 공급자 라우팅·게이트·예산은 호출 래퍼가 처리한다(고교는 항상 Mock). 지원서 본문은 외부로 보내지 않는다.
     const ctx = requestContext(owner, { forceMock: !!body._forceMock });
-    if (caller.plan('claims.extract', ctx).live && ctx.synthetic && detectPii(source).length > 0) {
+    if (caller.plan('claims.extract', ctx).live && ctx.synthetic && detectPii(source).some((x) => x.type !== 'school')) { // 학교명은 모집요강의 공개 정보라 제외(가상 학교 fixture)
       return err('validation_error', '합성 테스트 데이터에 개인정보를 포함할 수 없습니다.', 422, { requestId });
     }
     // claims.extract가 Claude로 라우팅되면 Claude는 지원서 주장 전용이므로 공고 키워드는 규칙 기반으로 처리한다.
@@ -117,13 +139,13 @@ export function createProfileHandlers(d) {
     }
     store.setExtracted(version_id, { ...extracted, claims, applicant_claims, application_chars: Array.from(maskedApplication.trim()).length, masked_text: masked, blind_context: blind });
     // 기관 프로필 초안 생성(결정적 분석): 승인 전 사용자가 확인·수정한다
-    const institution = buildInstitutionProfile({
+    const institution = { ...buildInstitutionProfile({
       orgType, targetName: body.target_name, role: body.role,
-      sources: providedSources, claims, userNotes: (body.experiences || []).join('\n'),
-    });
+      sources: providedSources.map(asBuildSource), claims, userNotes: (body.experiences || []).join('\n'),
+    }), school_discovery };
     store.setInstitution(profile.id, institution, 'review');
     void pubNotice;
-    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, synthetic, provider_trace: traces, applicant_claims_count: applicant_claims.length, institution, institution_status: 'review' } };
+    return { status: 201, body: { id: profile.id, version_id, status: 'review', pii_warnings: pii.map((x) => x.type), provider: usedProvider, synthetic, provider_trace: traces, applicant_claims_count: applicant_claims.length, institution, institution_status: 'review', school_discovery } };
   }
 
   function getProfile(owner, id) {
@@ -141,6 +163,8 @@ export function createProfileHandlers(d) {
         sources: store.listSources(id),
         institution: inst?.profile || null,
         institution_status: inst?.status || null,
+        school_analysis: inst?.profile?.school_analysis || null,
+        school_discovery: inst?.profile?.school_discovery || null,
       },
     };
   }
@@ -217,12 +241,13 @@ export function createProfileHandlers(d) {
     const fetches = store.getSourceFetches(profileId);
     const sources = store.listSources(profileId).map((s) => {
       const f = fetches[s.id];
-      return f?.status === 'official_verified' ? { ...s, kind: 'official', status: 'official_verified', quote: f.excerpts.map((x) => x.text).join('\n') } : s;
+      return f?.status === 'official_verified' ? { ...s, kind: 'official', status: 'official_verified', quote: f.excerpts.map((x) => x.text).join('\n') } : asBuildSource(s);
     });
-    const institution = buildInstitutionProfile({
+    const prev = store.getInstitution(profileId)?.profile;
+    const institution = { ...buildInstitutionProfile({
       orgType: normalizeOrgType(p.org_type), targetName: p.target_name, role: p.role,
       sources, claims: ver?.extracted?.claims || [], userNotes: (p.experiences || []).join('\n'),
-    });
+    }), ...(prev?.school_discovery ? { school_discovery: prev.school_discovery } : {}), ...(prev?.school_analysis ? { school_analysis: prev.school_analysis } : {}) };
     store.setInstitution(profileId, institution, 'review');
     return institution;
   }
@@ -244,6 +269,57 @@ export function createProfileHandlers(d) {
     const institution = rebuildInstitution(p, profileId);
     const { text, kv, ...view } = result;
     return { status: 200, body: { source_id: sid, ...view, text_length: result.text_cp || 0, institution } };
+  }
+
+  // POST /profiles/:id/school-analysis — 등록·수집된 소스 본문(+붙여넣은 source_text)에서 인재상·전형요소·면접 형식을 뽑는다(docs/plan/09 §3.3).
+  // 외부 전송은 서버가 신뢰하는 합성 본문(데모 레지스트리·fixture 일치 본문)일 때만 게이트를 통과한다. 그 밖에는 규칙 기반이다.
+  async function analyzeSchool(owner, profileId, body = {}) {
+    const p = store.getProfile(owner, profileId);
+    if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
+    const t = now();
+    const fetches = store.getSourceFetches(profileId);
+    const segments = []; const used = [];
+    for (const s of store.listSources(profileId)) {
+      const f = fetches[s.id];
+      const text = s.kind === 'demo_fixture' ? s.quote : f?.status === 'official_verified' ? (f.text || f.excerpts.map((x) => x.text).join('\n')) : s.quote;
+      const clean = String(text || '').normalize('NFC').trim();
+      if (clean.length < 2) continue;
+      segments.push({ id: s.id, title: s.title, text: clean, trusted: s.kind === 'demo_fixture' });
+      used.push(s);
+    }
+    const override = typeof body.source_text === 'string' && body.source_text.trim() ? body.source_text : null;
+    const pastedRaw = maskPii(String(override ?? p.source_text ?? '')).normalize('NFC').trim().slice(0, 20000);
+    if (pastedRaw.length >= 2 && !segments.some((s) => s.text === pastedRaw)) segments.push({ id: 'pasted', title: '붙여넣은 모집요강', text: pastedRaw, trusted: !override && p.synthetic === true });
+    if (!segments.length) return err('conflict', '분석할 자료가 없습니다. 입학처 URL을 입력하거나 모집요강을 붙여넣어 주세요.', 409);
+    for (const s of used) s.confirmed_at = t; // 서버가 분석에 사용한 시점
+    const synthetic = segments.every((s) => s.trusted);
+    const mc = providerConstraintForOrg(p.org_type, { synthetic });
+    const ctx = requestContext(owner, { forceMock: mc.forceMock, synthetic });
+    const sourceText = segments.map((s) => s.text).join('\n\n');
+    const res = await caller.call('school.analyze', {
+      ctx, mockAlias: 'rule-based',
+      reserve: { key: `school:${profileId}`, amount: config.profileRate.reserve },
+      invoke: (a) => a.analyzeSchool({ sourceText }),
+      mock: () => null,
+      validate: (o) => !!o && ['talent_traits', 'admission_elements', 'interview_format'].every((k) => Array.isArray(o[k]) && o[k].length <= 30),
+    });
+    let mode = res.trace.mode === 'live' ? 'gemini' : 'rule_based';
+    let verified = mode === 'gemini' ? verifyAnalysis(res.value, segments) : null;
+    // 모델 결과가 전부 검증에서 탈락하면 규칙 기반으로 되돌린다.
+    if (verified && !verified.talent_traits.length && !verified.admission_elements.length && !verified.interview_format.length) { verified = null; mode = 'rule_based'; res.trace.degraded_reason = 'no_verified_quotes'; }
+    if (!verified) verified = verifyAnalysis(ruleBasedAnalysis(segments), segments);
+    const { dropped, ...cats } = verified;
+    const analysis = {
+      ...cats,
+      unconfirmed: buildUnconfirmed(cats, mode === 'gemini' ? res.value.unconfirmed : []),
+      sources: segments.map((s) => { const r = used.find((u) => u.id === s.id); return r ? { id: r.id, url: r.url, title: r.title, kind: r.kind, status: r.status, retrieved_at: r.retrieved_at, confirmed_at: t, published_at: r.published_at || null } : { id: s.id, url: null, title: s.title, kind: 'user', status: 'user_supplied', retrieved_at: t, confirmed_at: t, published_at: null }; }),
+      analysis_mode: mode, analyzed_at: t, provider_trace: [res.trace],
+      ...(mode === 'gemini' && dropped ? { rejected_quotes: dropped } : {}),
+    };
+    const inst = store.getInstitution(profileId)?.profile || rebuildInstitution(p, profileId);
+    const sourcesById = Object.fromEntries(analysis.sources.map((s) => [s.id, s]));
+    store.setInstitution(profileId, mergeIntoInstitution(inst, analysis, sourcesById), 'review');
+    return { status: 200, body: { profile_id: profileId, ...analysis, institution_status: 'review' } };
   }
 
   function getInstitution(owner, profileId) {
@@ -300,5 +376,5 @@ export function createProfileHandlers(d) {
     return { status: 200, body: { profile_id: profileId, version_id: version?.id || null, frozen, excluded_claim_ids: excluded, question_basis: plan.question_basis, questions: plan.questions.map(publicPlanItem) } };
   }
 
-  return { createProfile, getProfile, approveProfile, addInstitutionSource, fetchInstitutionSource, getInstitution, listClaims, setClaimExcluded, getPlan };
+  return { createProfile, analyzeSchool, getProfile, approveProfile, addInstitutionSource, fetchInstitutionSource, getInstitution, listClaims, setClaimExcluded, getPlan };
 }

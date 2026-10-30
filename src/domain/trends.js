@@ -3,7 +3,7 @@
 // 영속 저장: TRENDS_FILE(JSON) 기반. 저장 실패 시 메모리로만 동작하고 경고한다.
 // node:*를 쓰지 않는다(Workers 이식). 파일 영속은 src/node/trends-file.js가 persist/initial로 주입한다.
 
-export const SEGMENTS = ['company', 'university'];
+export const SEGMENTS = ['company', 'university', 'highschool'];
 
 // persist(snapshot): 변경 시 호출(어댑터 책임, 던지면 메모리 전용으로 계속). initial: 시작 시 복원할 스냅샷. label: status에 표시할 저장 위치.
 export function createTrendStore({ filePath = '', onWarn = null, persist: persistFn = null, initial = null, label = filePath } = {}) {
@@ -90,7 +90,7 @@ export function createTrendStore({ filePath = '', onWarn = null, persist: persis
   return {
     // 관리자: 초안 등록 (출처·코멘트 포함). status=draft.
     draft({ segment, yyyyMm, items, comment = '', sources = [] }) {
-      if (!SEGMENTS.includes(segment)) throw Object.assign(new Error('segment는 company/university만 가능합니다.'), { code: 422 });
+      if (!SEGMENTS.includes(segment)) throw Object.assign(new Error('segment는 company/university/highschool만 가능합니다.'), { code: 422 });
       if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(yyyyMm || '')) throw Object.assign(new Error('연월 형식이 올바르지 않습니다 (YYYY-MM).'), { code: 422 });
       const k = key(segment, yyyyMm);
       const row = store.get(k) || { segment, yyyyMm, versions: [] };

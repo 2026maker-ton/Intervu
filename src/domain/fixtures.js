@@ -1,6 +1,7 @@
 // 서버 보유 합성 샘플(WP-C6, DG-4, docs/plan/03 §5). 전부 가상의 기관·인물이며 개인정보 없음. 클라이언트 입력이 아니다.
 // 합성 판정은 오직 여기의 정규화 해시/문장 일치로만 한다. seed는 고정이다.
 import { sha256Hex } from '../app/crypto.js';
+import { schoolText } from './school-directory.js';
 
 export const FIXTURE_SEED = 20261029;
 
@@ -15,8 +16,17 @@ export const FIXTURES = Object.freeze([
     ],
   },
   {
+    id: 'fx-highschool-1', kind: 'highschool', seed: FIXTURE_SEED, title: '가상 고교 샘플 — 가온고등학교(가상) 자연계열',
+    school_name: '가온고등학교(가상)', department: '자연계열', posting_text: schoolText('sch-hs-1'),
+    application_text: '저는 중학교 과학 동아리에서 교내 하천의 물 온도를 측정하는 탐구 활동에 참여했습니다. 2학년 2학기에 팀원 두 명과 함께 측정 결과를 발표했습니다. 학급 도서부장으로서 독서 시간 운영을 맡았습니다. 이 활동을 통해 자연계열 공부에 관심을 갖게 되었습니다.',
+    answers: [
+      '하천 물 온도 탐구에서 저는 측정 시간표를 만들고 값을 표로 정리하는 역할을 맡았습니다. 아침과 오후 값을 비교해 오후에 온도가 더 높다는 결과를 얻었습니다.',
+      '도서부장으로서는 책을 읽지 않는 친구가 많아 짧은 책부터 추천하는 쪽지를 붙였고, 한 달 뒤 대출 기록이 늘었는지 확인했습니다.',
+    ],
+  },
+  {
     id: 'fx-university-1', kind: 'university', seed: FIXTURE_SEED, title: '가상 대학 샘플 — 새봄대학교(가상) 환경공학과 학생부종합',
-    posting_text: '새봄대학교(가상 대학) 환경공학과 학생부종합전형. 인재상: 탐구 역량, 공동체 역량, 전공 적합성. 면접: 서류 기반 개별 면접.',
+    school_name: '새봄대학교(가상)', department: '환경공학과', posting_text: schoolText('sch-uni-1'),
     application_text: '저는 고등학교 과학 동아리에서 교내 빗물 수질을 측정하는 탐구 활동에 참여했습니다. 3학년 1학기에 팀원 세 명과 함께 측정 결과를 발표했습니다. 학급 환경 부장으로서 분리배출 캠페인을 운영했습니다. 이 활동을 통해 환경공학에 관심을 갖게 되었습니다.',
     answers: [
       '빗물 수질 탐구에서 저는 시료 채취 시간대를 정하고 측정값을 정리하는 역할을 맡았습니다. 비 온 직후와 하루 뒤 값을 비교해 오염 물질이 초기에 가장 높다는 결과를 얻었습니다.',
@@ -28,7 +38,7 @@ export const FIXTURES = Object.freeze([
 export const getFixture = (id) => FIXTURES.find((f) => f.id === id) || null;
 // 목록용 요약: 본문 제외
 export const fixtureSummary = (f) => ({ id: f.id, kind: f.kind, title: f.title, synthetic: true });
-export const fixtureDetail = (f) => ({ ...fixtureSummary(f), posting_text: f.posting_text, application_text: f.application_text, answers: [...f.answers], seed: f.seed });
+export const fixtureDetail = (f) => ({ ...fixtureSummary(f), school_name: f.school_name || null, department: f.department || null, posting_text: f.posting_text, application_text: f.application_text, answers: [...f.answers], seed: f.seed });
 
 // NFC + 공백 정규화(비교 전용)
 export const normalizeText = (s) => String(s ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();

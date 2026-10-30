@@ -324,6 +324,10 @@
           <div id="aiReply" class="ai-reply" hidden aria-live="polite"></div>
           <div id="discussionLog" class="discussion-log" hidden aria-live="polite"></div>
 
+          <div id="sampleRow" class="sample-row" hidden>
+            <button class="ghost small" id="sampleAnswerBtn" type="button">샘플 답변 넣기</button>
+            <span class="fine">합성 샘플 세션입니다. 샘플 답변을 넣거나 소리 내어 읽으면 실제 AI API로 전송됩니다(합성 데이터만).</span>
+          </div>
           <label class="sr-only" for="answerText">답변 입력</label>
           <textarea id="answerText" rows="6" maxlength="4000" placeholder="답변을 입력하세요. (최대 4,000자)&#10;예: 제가 맡은 일 → 직접 한 행동 → 관찰된 결과"></textarea>
           <div class="input-tools">

@@ -11,13 +11,17 @@ export function createSttHandlers(d) {
     if (!config.groq.apiKey) return { configured: false, provider: 'none', message: '음성 인식 키가 없습니다. 텍스트로 답해 주세요.' };
     if (killedGroq) return { configured: true, provider: 'disabled', message: '음성 인식이 비활성화되어 있습니다. 텍스트로 답해 주세요.' };
     // 게이트가 닫혀 있으면(확인·동의 미충족) 사용 가능으로 보이지 않게 한다. 사유 코드만 노출한다.
-    const plan = caller.plan('speech.transcribe', requestContext(owner));
+    // 합성 샘플 세션의 음성 시연이 가능하면 사용 가능으로 본다(sample_only). 실제 음성(실데이터)은 별도 게이트라 real_data_allowed로 알린다.
+    const realPlan = caller.plan('speech.transcribe', requestContext(owner));
+    const plan = realPlan.live ? realPlan : caller.plan('speech.transcribe', requestContext(owner, { synthetic: true }));
     if (!plan.live) return { configured: true, provider: 'disabled', blocked_reason: plan.reason, message: '음성 인식을 사용할 수 없습니다. 텍스트로 답해 주세요.' };
     return {
       configured: true, provider: 'groq-whisper', model: groq.model,
       maxAudioMB: Math.round(config.groq.maxAudioBytes / 1024 / 1024),
       maxRecordingSeconds: config.groq.maxRecordingSeconds,
-      message: 'Groq Whisper 한국어 전사를 사용할 수 있습니다.',
+      real_data_allowed: realPlan.live === true,
+      sample_only: realPlan.live !== true,
+      message: realPlan.live ? 'Groq Whisper 한국어 전사를 사용할 수 있습니다.' : '합성 샘플 세션에서 샘플 답변을 소리 내어 읽는 음성 시연을 사용할 수 있습니다. 실제 음성은 운영자 허용(성인 동의·실데이터 허용)이 필요합니다.',
     };
   }
 
@@ -45,7 +49,8 @@ export function createSttHandlers(d) {
       return err('validation_error', `지원하지 않는 음성 형식입니다: ${mimeBase || 'unknown'}`, 422, { requestId });
     }
     // 게이트(LIVE_ACK·데이터 등급)·타임아웃·429를 호출 래퍼가 처리한다. 음성 크기·형식 오류(413/422)는 그대로 돌려준다.
-    const ctx = requestContext(owner, { forceMock: !!s.highschool_mock, synthetic: s.server_synthetic === true });
+    // 합성 샘플 세션(서버 fixture 판정)에서는 샘플 답변을 소리 내어 읽는 음성 시연을 허용한다. 그 외 음성은 실데이터 게이트(성인 동의+REAL_DATA_ACK)를 따른다.
+    const ctx = requestContext(owner, { forceMock: !!s.highschool_mock && !s.server_synthetic, synthetic: s.server_synthetic === true });
     let res;
     try {
       res = await caller.call('speech.transcribe', {

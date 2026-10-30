@@ -54,7 +54,7 @@ export function loadConfig(env = process.env) {
       'claims.extract': { provider: route('CLAIMS_EXTRACT', env.LLM_ANALYSIS_PROVIDER || 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },
       'school.analyze': { provider: route('SCHOOL_ANALYZE', env.LLM_ANALYSIS_PROVIDER || 'gemini'), alias: 'gemini-school', maxOutputTokens: 1500 },
       // 평가: Gemini(검증 전·참고용). 게이트 닫힘·실패·검증 불일치는 규칙 기반 폴백(고입 실입력은 게이트에서 항상 규칙 기반)
-      'evaluation.generate': { provider: route('EVALUATION_GENERATE', String(env.LLM_EVALUATION_PROVIDER || 'gemini').toLowerCase()), alias: 'rule-based', maxOutputTokens: 2500 },
+      'evaluation.generate': { provider: route('EVALUATION_GENERATE', String(env.LLM_EVALUATION_PROVIDER || 'gemini').toLowerCase()), alias: 'gemini-eval', maxOutputTokens: 2500 },
       // 학생 MVP(09 §4·§5.1): 트렌드 조회 필요 판단·질문 설계. 기본 gemini(게이트·합성/동의 규칙은 공통), ROUTE_*로 mock 전환.
       'trends.decide': { provider: route('TRENDS_DECIDE', 'gemini'), alias: 'gemini-text', maxOutputTokens: 300 },
       'questions.design': { provider: route('QUESTIONS_DESIGN', 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },

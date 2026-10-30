@@ -135,6 +135,7 @@ $('#setupForm')?.addEventListener('submit', async (e) => {
     };
     const s = await api('/sessions', { method: 'POST', idempotent: true, body });
     state.session = { id: s.id, version: s.version };
+    state.sampleAnswers = Array.isArray(s.sample_answers) && s.sample_answers.length ? s.sample_answers : null;
     state.flow = 'interview';
     state.transfer = null;
     state.comparison = null;

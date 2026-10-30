@@ -5,6 +5,7 @@ import { normalizeRole, ROLES } from '../../domain/roles.js';
 import { selectQuestions } from '../../domain/questions.js';
 import { INTERVIEW_TYPES, DURATIONS, normalizeInterviewType, validateCombination, questionCountForDuration } from '../../domain/interview-types.js';
 import { rubricForInterviewType } from '../../domain/rubrics.js';
+import { getFixture } from '../../domain/fixtures.js';
 import { createDiscussionState, DISCUSSION_TOPICS } from '../../domain/discussion.js';
 import { PT_TASKS, SITUATION_SCENARIOS, TECHNICAL_QUESTIONS, PANEL_PRESETS } from '../../domain/scenarios.js';
 
@@ -31,6 +32,8 @@ export function createSessionHandlers(d) {
       if (new Date(p.expires_at).getTime() < Date.now()) return err('conflict', '만료된 프로필입니다.', 409);
       institution = store.getInstitution(p.id)?.profile || null;
     }
+    // 서버가 fixture로 판정한 합성 프로필에서 만든 세션인지(음성 읽기 시연 등 STT 게이트에만 사용; 턴·평가는 답변 텍스트별로 따로 판정)
+    const fixtureSession = !!(version && store.getProfile(owner, version.profile_id)?.synthetic === true);
     // 면접 유형 + 설정 조합 검증 (유형과 블라인드/성향/역할/입력/시간은 독립 축)
     const rawType = body.interview_type ?? body.mode;
     const interview_type = normalizeInterviewType(rawType || 'general');
@@ -167,11 +170,13 @@ export function createSessionHandlers(d) {
       questions,
       ...extra,
       highschool_mock: institution?.org_type === 'highschool' ? true : !!body._forceMock,
+      server_synthetic: fixtureSession,
+      sample_fixture_id: fixtureSession ? (store.getProfile(owner, version.profile_id)?.fixture_id || null) : null,
       policy_snapshot: { provider: dialoguePlan.provider, model: config.gemini.textModel, rubric: rubric_version, pack: 'general-entry-ko@0.1.0-draft', budget_cap: config.budgets.sessionHardCap, interviewer_role: role, persona: body.persona || 'standard', question_basis, institution_approved: !!institution },
     });
     store.updateSession(s, { coverage, question_basis });
     store.pushEvent(s.id, 'session.snapshot', { state: 'ready', questions: s.questions.length, interviewer_role: role, question_basis });
-    return { status: 201, body: { id: s.id, state: s.state, version: s.version, interview_type, task_type: s.task_type, participant_layout: s.participant_layout, free_test: !!s.free_test, limits: { duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: dialoguePlan.provider, provider_trace: [planTrace(dialoguePlan)], coverage, interviewer_role: role, role_label: ROLES[role].label, panel_roles: s.panel_roles || null, topic: s.topic_title ? { id: s.topic_id, title: s.topic_title, brief: s.topic_brief } : null, pt_task: s.pt_task_id ? { id: s.pt_task_id, title: s.pt_task_title, brief: s.pt_brief, prepare_seconds: s.pt_prepare_seconds, present_seconds: s.pt_present_seconds } : null, scenario: s.scenario_id ? { id: s.scenario_id, title: s.scenario_title } : null, rubric_version, question_basis } };
+    return { status: 201, body: { sample_answers: sampleAnswersOf(s), id: s.id, state: s.state, version: s.version, interview_type, task_type: s.task_type, participant_layout: s.participant_layout, free_test: !!s.free_test, limits: { duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: dialoguePlan.provider, provider_trace: [planTrace(dialoguePlan)], coverage, interviewer_role: role, role_label: ROLES[role].label, panel_roles: s.panel_roles || null, topic: s.topic_title ? { id: s.topic_id, title: s.topic_title, brief: s.topic_brief } : null, pt_task: s.pt_task_id ? { id: s.pt_task_id, title: s.pt_task_title, brief: s.pt_brief, prepare_seconds: s.pt_prepare_seconds, present_seconds: s.pt_present_seconds } : null, scenario: s.scenario_id ? { id: s.scenario_id, title: s.scenario_title } : null, rubric_version, question_basis } };
   }
 
   function getSession(owner, id) {
@@ -179,8 +184,10 @@ export function createSessionHandlers(d) {
     if (!s) return err('not_found', '세션을 찾을 수 없습니다.', 404);
     return { status: 200, body: publicSession(s) };
   }
+  const sampleAnswersOf = (s) => (s.sample_fixture_id ? getFixture(s.sample_fixture_id)?.answers || null : null);
   function publicSession(s) {
     const base = {
+      sample_answers: sampleAnswersOf(s),
       id: s.id, state: s.state, version: s.version, mode: s.mode, task_type: s.task_type,
       interview_type: s.interview_type || s.mode || 'general',
       participant_layout: s.participant_layout || 'one_to_one',

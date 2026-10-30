@@ -272,7 +272,10 @@ export function createCommandHandlers(d) {
         action = 'ask_followup';
       }
       // 공급자는 서버 상태(ctx)로만 정한다(요청 본문 무시). 고교 세션은 Mock 강제(미성년자 보호).
-      const ctx = requestContext(owner, { forceMock: !!s.highschool_mock, synthetic: s.server_synthetic === true });
+      // 합성 판정은 서버가 한다: 이 턴의 답변이 서버 fixture 샘플 답변과 일치할 때만 합성(클라이언트 값 아님).
+      // 고입 세션은 Mock 강제를 유지하되, 합성 샘플 답변일 때만 외부 호출을 허용한다(미성년자 실입력은 계속 차단).
+      const turnSynthetic = rev.synthetic === true;
+      const ctx = requestContext(owner, { forceMock: !!s.highschool_mock && !turnSynthetic, synthetic: turnSynthetic });
       // 최근 대화(최대 4턴)를 문맥으로 전달: 모델이 답변 근거를 활용하도록
       const pastTurns = store.sessionTurns(s.id).slice(-5, -1);
       const history = pastTurns.map((t) => {
@@ -364,6 +367,7 @@ export function createCommandHandlers(d) {
     store.updateSession(s, { state: 'completing' });
     const turns = store.sessionTurns(s.id).filter((t) => t.speaker_id === 'user');
     const turnsWithText = [];
+    let allSynthetic = turns.length > 0;
     for (const t of turns) {
       const revs = store.getRevisions(t.id);
       const rev = revs[revs.length - 1];
@@ -374,6 +378,7 @@ export function createCommandHandlers(d) {
       if (Array.isArray(t.elicited_dims) && t.elicited_dims.length) elicited = [...t.elicited_dims];
       else if (t.followup) elicited = [...(q?.followup_dimensions || [q?.primary || 'reflection'])];
       else elicited = q ? [q.primary, ...(q.secondary || [])] : [];
+      if (rev.synthetic !== true) allSynthetic = false;
       turnsWithText.push({ turn_id: t.id, question_id: t.question_id, revision: rev.revision, text: rev.normalized_text, elicited });
     }
     let report = null;
@@ -392,7 +397,8 @@ export function createCommandHandlers(d) {
       };
       // 평가 라우팅(evaluation.generate): 기본은 규칙 기반. 모델 평가가 켜져도 같은 검증을 통과한 출력만 쓴다.
       const evalRes = await caller.call('evaluation.generate', {
-        ctx: requestContext(owner, { forceMock: !!s.highschool_mock, synthetic: s.server_synthetic === true }),
+        // 평가 입력(모든 사용자 답변)이 전부 서버 fixture 샘플 답변일 때만 합성으로 본다.
+        ctx: requestContext(owner, { forceMock: !!s.highschool_mock && !allSynthetic, synthetic: allSynthetic }),
         mockAlias: 'rule-based',
         reserve: { key: `session:${s.id}`, amount: config.budgets.evalReserve },
         // 모델 출력은 서버가 인용을 원문에서 재계산해 보고서로 만든 뒤 같은 검증기를 통과해야 한다(WP-E). 아니면 규칙 기반.

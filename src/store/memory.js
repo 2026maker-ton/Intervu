@@ -138,6 +138,7 @@ export function createStore({ ttlDays = 30 } = {}) {
         interviewer_role: data.interviewer_role || 'practitioner',
         question_basis: data.question_basis || 'general-template-v1',
         free_test: data.free_test === true, // 서버가 정한 합성 전용 인스턴스 표시(요청 본문 값 아님)
+        sample_fixture_id: data.sample_fixture_id || null, // 서버 fixture 세션이면 샘플 답변 제공용(클라이언트 값 아님)
         server_synthetic: data.server_synthetic === true, // 서버 판정 합성 세션(WP-C6 fixture 해시). 클라이언트 값은 복사하지 않는다
         provider_trace: [], // 공급자 호출 결과 라벨(WP-B1). 본문·키 없음
         panel_roles: data.panel_roles || null,

@@ -29,6 +29,7 @@ export function enterRoom({ started, session, inputMode = 'text', durationSecond
   state.paused = false;
   state.pausedAt = 0;
   state.inputMode = inputMode;
+  setupSampleRow(session);
   storeSet(state.flow === 'interview' && state.session?.id ? state.session.id : null);
   $('#roomMeta').textContent = meta || `${typeLabel(session.interview_type)} 면접`;
   setRoomState('live');
@@ -778,3 +779,24 @@ export async function restoreRoom() {
   } catch { storeSet(null); return false; }
 }
 setTimeout(restoreRoom, 0); // 순환 import(state↔setup↔room)가 모두 평가된 뒤 실행
+
+// 합성 샘플 세션: 서버가 준 샘플 답변을 넣는 버튼(샘플 답변만 실제 AI API로 나간다).
+let sampleIdx = 0;
+function setupSampleRow(session) {
+  const answers = session ? session.sample_answers : state.sampleAnswers;
+  state.sampleAnswers = Array.isArray(answers) && answers.length ? answers : null;
+  const row = $('#sampleRow');
+  if (!row) return;
+  row.hidden = !(state.sampleAnswers && state.sampleAnswers.length);
+  sampleIdx = 0;
+}
+$('#sampleAnswerBtn')?.addEventListener('click', () => {
+  const list = state.sampleAnswers || [];
+  if (!list.length) return;
+  const ta = $('#answerText');
+  ta.value = list[sampleIdx % list.length];
+  sampleIdx += 1;
+  $('#charCount').textContent = String([...ta.value].length);
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+  ta.focus();
+});

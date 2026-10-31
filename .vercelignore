@@ -5,3 +5,7 @@ tools
 .claude
 *.cmd
 wrangler.toml
+
+# Vercel이 src/server.js를 서버 진입점으로 자동 인식해 정적 화면과 api/를 가리는 것을 막는다(함수는 api/에서만 시작)
+src/server.js
+src/node/server.js

@@ -161,3 +161,43 @@ test('Claude routes: school.analyze / questions.design / evaluation.generate use
     assert.ok(!ctx.calls.some((c) => c.url.includes('generateContent')), 'no Gemini call');
   });
 });
+
+test('cost: thinking is off per model; school analysis and plan are reused for identical input, refresh bypasses, caches never reach the client', async () => {
+  const text = (o) => new Response(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(o) }], usage: { input_tokens: 80, output_tokens: 40 } }), { status: 200 });
+  const env = { ...CLAUDE, ROUTE_SCHOOL_ANALYZE: 'claude', ROUTE_QUESTIONS_DESIGN: 'claude', ROUTE_DIALOGUE_NEXT: 'mock', ROUTE_QUESTIONS_WRITE: 'claude', CLAUDE_WRITER_MODEL: 'stub-haiku-model' };
+  const respond = (c) => {
+    const b = JSON.stringify(c.body);
+    if (b.includes('SCHOOL_TEXT_UNTRUSTED')) return text({ talent_traits: [{ label: '탐구', quote: '탐구 역량' }], admission_elements: [], interview_format: [], unconfirmed: [] });
+    if (b.includes('질문 구조 설계기')) return text({ stages: [{ stage: 'intro', evidence_ids: [], focus: 'motivation', form: 'open' }, { stage: 'academic', evidence_ids: ['trait-1'], focus: 'concept', form: 'case' }] });
+    if (b.includes('질문 한 개와 연결 문장')) return text({ stages: [{ stage: 'intro', question: '지원한 동기는 무엇인가요?', bridge: '잘 들었습니다.' }] });
+    return text({ claims: [] });
+  };
+  await withProviders({ env, overrides: syn, respond }, async (ctx) => {
+    const n = (needle) => ctx.calls.filter((c) => c.url.includes('/claude/messages') && JSON.stringify(c.body).includes(needle)).length;
+    const p = await ctx.g('/api/v1/profiles', { method: 'POST', body: { org_type: 'university', school_name: '임의대학교', department: '국문과', source_text: '인재상: 탐구 역량을 봅니다.', application_text: S1 } });
+    const id = p.data.id;
+    const analyze = (body = {}) => ctx.g(`/api/v1/profiles/${id}/school-analysis`, { method: 'POST', body });
+    const approve = (body = {}) => ctx.g(`/api/v1/profiles/${id}/approve`, { method: 'POST', body: { version_id: p.data.version_id, ...body } });
+    await analyze();
+    assert.equal(n('SCHOOL_TEXT_UNTRUSTED'), 1);
+    const again = await analyze();
+    assert.equal(n('SCHOOL_TEXT_UNTRUSTED'), 1, 'same text -> no second model call');
+    assert.equal(again.data.analysis_provider, 'claude');
+    assert.equal(again.data.provider_trace[0].cached, true);
+    await analyze({ refresh: true });
+    assert.equal(n('SCHOOL_TEXT_UNTRUSTED'), 2, 'refresh bypasses the stored result');
+    assert.equal((await approve()).status, 200);
+    assert.equal(n('질문 구조 설계기'), 1);
+    assert.equal((await approve()).status, 200);
+    assert.equal(n('질문 구조 설계기'), 1, 'same evidence -> plan reused');
+    assert.equal(n('질문 한 개와 연결 문장'), 1);
+    assert.equal((await approve({ refresh: true })).status, 200);
+    assert.equal(n('질문 구조 설계기'), 2, 'refresh redesigns');
+    const plan = (await ctx.g(`/api/v1/profiles/${id}/plan`)).data;
+    assert.equal(plan.stages.find((s) => s.stage === 'intro').text, '지원한 동기는 무엇인가요?');
+    const bodies = ctx.calls.filter((c) => c.url.includes('/claude/messages')).map((c) => c.body);
+    assert.ok(bodies.every((b) => (b.model === 'stub-haiku-model' ? b.thinking?.type === 'disabled' : b.thinking?.type === 'between_tools')), 'thinking off: Haiku disabled, Sonnet between_tools');
+    const prof = (await ctx.g(`/api/v1/profiles/${id}`)).data;
+    assert.ok(!('analysis_cache' in prof) && !('plan_cache' in prof), 'caches stay server-side');
+  });
+});

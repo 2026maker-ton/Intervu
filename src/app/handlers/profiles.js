@@ -158,10 +158,11 @@ export function createProfileHandlers(d) {
     const approved = p.approved_version_id ? store.getVersion(p.approved_version_id) : null;
     const current = p.version_id ? store.getVersion(p.version_id) : null;
     const inst = store.getInstitution(id);
+    const { analysis_cache: _a, plan_cache: _c, ...pub } = p; // 재사용용 캐시는 응답에 싣지 않는다
     return {
       status: 200,
       body: {
-        ...p,
+        ...pub,
         current_version: current ? { id: current.id, status: current.status, extracted: current.extracted } : null,
         approved_version: approved ? { id: approved.id, extracted: approved.extracted } : null,
         sources: store.listSources(id),
@@ -204,7 +205,7 @@ export function createProfileHandlers(d) {
   // 승인 시점 1회 질문 설계(일반 면접 5단계, 2026-10-31). 본질문·근거·연결 문장을 모두 정해 버전에 동결한다(v.plan.general).
   // 외부 호출은 서버 게이트가 연 경우(합성 fixture 또는 확인된 성인 실데이터)에만 일어난다. 막히면 호출 0건·규칙 기반 계획.
   // 레거시 세션(interview_format 미지정)을 위해 v.plan의 기존 필드(model_questions 등)는 빈 규칙 계획으로 유지한다.
-  async function designPlan(owner, p, v, inst) {
+  async function designPlan(owner, p, v, inst, { refresh = false } = {}) {
     const orgType = normalizeOrgType(p.org_type);
     const synthetic = p.synthetic === true;
     const ctx = requestContext(owner, { synthetic, forceMock: isMinorPossible(orgType) && !synthetic });
@@ -215,7 +216,11 @@ export function createProfileHandlers(d) {
     const seed = parseInt(String(p.id).replace(/[^0-9a-f]/g, '').slice(0, 8), 16) || 0;
     const gate = caller.plan('questions.design', ctx);
     let modelStages = {};
-    if (!gate.live) plan.provider_trace.push({ operation: gate.operation, provider: 'mock', mode: gate.mode, reason: gate.reason, model_alias: 'rule-based', latency_ms: null });
+    // 근거(역량·주장·한계 문장)와 학과가 같으면 앞서 모델로 만든 질문 구조·문장을 재사용한다(재승인할 때 Sonnet·Haiku를 다시 부르지 않는다). 승인 body.refresh=true면 다시 만든다.
+    const planKey = JSON.stringify([p.role || '', competencies.map((x) => [x.id, x.label, x.quote]), claims.map((c) => [c.id, c.quote]), limits.map((c) => [c.id, c.quote])]);
+    const planHit = !refresh && gate.live && p.plan_cache?.key === planKey ? p.plan_cache : null;
+    if (planHit) { modelStages = planHit.modelStages; plan.provider_trace.push(...planHit.traces.map((t) => ({ ...t, cached: true, latency_ms: 0 }))); }
+    else if (!gate.live) plan.provider_trace.push({ operation: gate.operation, provider: 'mock', mode: gate.mode, reason: gate.reason, model_alias: 'rule-based', latency_ms: null });
     else if (!competencies.length && !claims.length) plan.provider_trace.push({ operation: 'questions.design', provider: 'mock', mode: 'mock', reason: 'no_evidence', model_alias: 'rule-based', latency_ms: null });
     else if (registry.route('questions.design').provider === 'claude') {
       // 2단계(Claude): Sonnet이 질문 구조(단계별 근거·초점·방식)만 정하고, Haiku가 그 구조와 근거 원문으로 문장을 쓴다.
@@ -262,6 +267,7 @@ export function createProfileHandlers(d) {
         modelStages = v2.stages; plan.dropped_model_questions = v2.dropped;
       }
     }
+    if (!planHit && Object.keys(modelStages).length && plan.provider_trace.some((t) => t.mode === 'live')) p.plan_cache = { key: planKey, modelStages, traces: plan.provider_trace };
     plan.general = buildGeneralPlan({ department: p.role || '', competencies, claims, limits, modelStages, seed, generator: [...plan.provider_trace].reverse().find((t) => t.mode === 'live')?.provider || 'gemini', provider_trace: plan.provider_trace });
     plan.generator = plan.general.generator;
     return plan;
@@ -293,7 +299,7 @@ export function createProfileHandlers(d) {
       approvedInst = { ...inst.profile, user_confirmed_at: now() };
     }
     if (approvedInst) store.setInstitution(id, approvedInst, 'approved');
-    v.plan = await designPlan(owner, p, v, approvedInst);
+    v.plan = await designPlan(owner, p, v, approvedInst, { refresh: body.refresh === true });
     return { status: 200, body: { id: v.id, profile_id: id, status: 'approved', approved_at: v.approved_at, institution_status: approvedInst ? 'approved' : null, plan: { generator: v.plan.generator, model_question_count: v.plan.model_questions.length, trend_used: v.plan.trend.used, provider_trace: v.plan.provider_trace } } };
   }
 
@@ -380,13 +386,16 @@ export function createProfileHandlers(d) {
     const mc = providerConstraintForOrg(p.org_type, { synthetic });
     const ctx = requestContext(owner, { forceMock: mc.forceMock, synthetic });
     const sourceText = segments.map((s) => s.text).join('\n\n');
-    const res = await caller.call('school.analyze', {
+    // 같은 자료 텍스트를 이미 모델로 분석했으면 그 결과를 재사용한다(body.refresh=true면 다시 호출). 사용자 프로필 안에서만 쓰고 다른 사용자와 공유하지 않는다.
+    const hit = !body.refresh && p.analysis_cache?.text === sourceText ? p.analysis_cache : null;
+    const res = hit ? { value: hit.value, trace: { ...hit.trace, cached: true, latency_ms: 0 } } : await caller.call('school.analyze', {
       ctx, mockAlias: 'rule-based',
       reserve: { key: `school:${profileId}`, amount: config.profileRate.reserve },
       invoke: (a) => a.analyzeSchool({ sourceText }),
       mock: () => null,
       validate: (o) => !!o && ['talent_traits', 'admission_elements', 'interview_format'].every((k) => Array.isArray(o[k]) && o[k].length <= 30),
     });
+    if (!hit && res.trace.mode === 'live') p.analysis_cache = { text: sourceText, value: res.value, trace: res.trace };
     let mode = res.trace.mode === 'live' ? 'gemini' : 'rule_based';
     let verified = mode === 'gemini' ? verifyAnalysis(res.value, segments) : null;
     // 모델 결과가 전부 검증에서 탈락하면 규칙 기반으로 되돌린다.

@@ -123,7 +123,7 @@ test('5-stage turn flow: opening + ack, intro never follows up, model follow-up 
     assert.ok(t1.data.utterance.startsWith(t1.data.bridge) && t1.data.bridge);
     const t2 = await cmd('turn.text', { text: '탐구 역량을 기르려고 실험 보고서를 꾸준히 썼습니다.' });
     assert.equal(t2.data.action, 'ask_followup');
-    const t3 = await cmd('turn.text', { text: '제가 측정 시간을 고정하는 기준을 정했습니다.', cut_off: true, voice_metrics: { speech_ratio: 0.7, pitch_jitter: 9, silence_count: 2 } });
+    const t3 = await cmd('turn.text', { text: '제가 측정 시간을 고정하는 기준을 정했습니다.', cut_off: true, voice_metrics: { speech_ratio: 0.7, pitch_jitter: 9, silence_count: 2, timeline: { total_seconds: 5, envelope: [0, 50, 100], segments: [{ k: 'speech', s: 0.5, e: 4 }] } } });
     assert.equal(t3.data.action, 'next_question', 'one follow-up per question');
     assert.equal(t3.data.cut_off, true);
     for (let i = 0; i < 6 && (await ctx.g(`/api/v1/sessions/${s.data.id}`)).data.state === 'active'; i++) await cmd('turn.text', { text: fx.answers[i % fx.answers.length] });
@@ -133,6 +133,7 @@ test('5-stage turn flow: opening + ack, intro never follows up, model follow-up 
     assert.ok(rep.transcript.some((t) => t.is_followup && t.question_text.includes('기준')));
     const cut = rep.transcript.find((t) => t.cut_off);
     assert.ok(cut && cut.voice_metrics.speech_ratio === 0.7 && !('pitch_jitter' in cut.voice_metrics), 'out-of-range voice metric dropped');
+    assert.deepEqual(cut.voice_metrics.timeline.segments, [{ k: 'speech', s: 0.5, e: 4 }]);
     assert.ok(rep.transcript.every((t) => t.turn_score && t.turn_score.relevance >= 1));
     assert.ok(Array.isArray(rep.competency_fit) && rep.competency_fit.some((c) => c.label === '탐구 역량' && c.answers >= 1));
     assert.ok(!('claim_links' in rep) && !('institution_link' in rep), 'duplicate sections removed');

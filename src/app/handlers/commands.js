@@ -372,7 +372,24 @@ export function createCommandHandlers(d) {
     if (!v || typeof v !== 'object') return null;
     const out = {};
     for (const [k, max] of Object.entries(VOICE_KEYS)) { const n = Number(v[k]); if (Number.isFinite(n) && n >= 0 && n <= max) out[k] = Math.round(n * 1000) / 1000; }
+    const tl = sanitizeTimeline(v.timeline);
+    if (tl) out.timeline = tl;
     return Object.keys(out).length ? out : null;
+  };
+  // 답변 음량 그래프(0~100 정수, 최대 120칸)와 구간(speech·pause, 초). 형식이 어긋나면 통째로 버린다.
+  const sanitizeTimeline = (t) => {
+    if (!t || typeof t !== 'object' || !Array.isArray(t.envelope) || !Array.isArray(t.segments)) return null;
+    const total = Number(t.total_seconds);
+    if (!Number.isFinite(total) || total <= 0 || total > 600 || t.envelope.length > 120 || t.segments.length > 80) return null;
+    const envelope = t.envelope.map((x) => Math.round(Number(x)));
+    if (envelope.some((x) => !Number.isFinite(x) || x < 0 || x > 100)) return null;
+    const segments = [];
+    for (const g of t.segments) {
+      const sv = Number(g?.s); const ev = Number(g?.e);
+      if ((g?.k !== 'speech' && g?.k !== 'pause') || !Number.isFinite(sv) || !Number.isFinite(ev) || sv < 0 || ev < sv || ev > total + 0.1) return null;
+      segments.push({ k: g.k, s: Math.round(sv * 10) / 10, e: Math.round(ev * 10) / 10 });
+    }
+    return { total_seconds: Math.round(total * 10) / 10, envelope, segments };
   };
 
   async function generalTurn(owner, s, text, payload, commandId, accept) {

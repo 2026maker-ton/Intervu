@@ -26,6 +26,8 @@ export function loadConfig(env = process.env) {
       fallbackModel: env.GEMINI_FALLBACK_MODEL || 'gemini-3.6-flash',
       transcribeModel: env.GEMINI_TRANSCRIBE_MODEL || 'gemini-3.5-transcribe',
       timeoutMs: num('GEMINI_TIMEOUT_MS', 12000),
+      // 생각 수준(비우면 모델 기본값). 예: minimal·low. [UNVERIFIED] 모델별로 허용 값이 다르니 실호출로 확인한 뒤에만 설정한다.
+      thinkingLevel: env.GEMINI_THINKING_LEVEL || '',
       // Paid 확인(유료 결제계정 + DPA/보존 확인) 없이는 실제 사용자 데이터 전송 금지
       paidAck: String(env.GEMINI_PAID_ACK || 'false').toLowerCase() === 'true',
       allowUnpaid: String(env.GEMINI_ALLOW_UNPAID || 'false').toLowerCase() === 'true',
@@ -42,6 +44,8 @@ export function loadConfig(env = process.env) {
       writerModel: env.CLAUDE_WRITER_MODEL || '', // 질문 문장 작성용 가벼운 모델(Haiku). 비우면 2단계 설계를 쓰지 않는다
       monthlyCapUsd: num('CLAUDE_MONTHLY_CAP_USD', 0), // 0 = 미설정. 공급자별 상한은 아직 미강제(전역 월 예산만 적용)
       apiVersion: env.CLAUDE_API_VERSION || '',
+      // 생각(thinking) 토큰은 출력 단가로 과금된다(2026-10-31 실측: Sonnet 출력의 68%). 기본은 끔. 'on'이면 모델 기본값(켜짐)을 쓴다.
+      thinking: String(env.CLAUDE_THINKING || 'off').toLowerCase() === 'on' ? 'on' : 'off',
       price: { input: num('CLAUDE_PRICE_IN_PER_M_USD', 0), output: num('CLAUDE_PRICE_OUT_PER_M_USD', 0) },
     },
     groq: {

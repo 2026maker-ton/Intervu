@@ -14,6 +14,9 @@ const WRENCH = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stro
 let ctx = { loading: true, busy: false, searching: false, detail: null, claims: null, plan: null };
 
 const section = (id, title, body, tools = '') => `<section class="ev-sec" id="ev-${id}"><div class="ev-head"><h3>${esc(title)}</h3>${tools}</div><div class="ev-body">${body}</div></section>`;
+const REFRESH = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>';
+// 같은 자료는 저장된 분석 결과를 재사용한다(비용 절감). 이 버튼은 저장본을 무시하고 다시 분석한다.
+const refreshBtn = (id, label) => `<button class="icon-btn" type="button" id="${id}" aria-label="${label}" title="${label}"${ctx.busy || ctx.searching ? ' disabled' : ''}>${REFRESH}</button>`;
 const wrench = (id) => `<button class="icon-btn" type="button" id="${id}" aria-label="직접 수정" title="직접 수정">${WRENCH}</button>`;
 
 // 핵심 역량·인재상을 한 표로: 직접 입력한 항목이 먼저, 그 뒤 학교 자료에서 뽑은 인재상·역량(원문 인용 포함). 질문 계획의 '학업·전공 적합성' 단계가 이 표의 항목을 쓴다.
@@ -23,7 +26,9 @@ function competencies(inst) {
     ...(inst?.custom_competencies || []).map((c) => ({ label: c.label, src: StateBadge('직접 입력', 'info'), quote: '' })),
     ...(sa.talent_traits || []).map((t) => ({ label: t.label, src: StateBadge('자료 원문', 'ok'), quote: t.quote !== t.label ? t.quote : '' })),
   ];
-  if (!rows.length) return '<p class="missing">확인된 역량·인재상이 없습니다. 렌치로 직접 입력해 주세요.</p>';
+  // 분석·검색이 도는 동안에는 "검색 중…", 끝났는데도 없으면 직접 등록을 권한다.
+  if (!rows.length && (ctx.busy || ctx.loading || ctx.searching)) return '<p class="fine" role="status">검색 중…</p>';
+  if (!rows.length) return '<p class="missing" role="status">인재상·역량을 찾지 못했습니다. 직접 등록해 주세요. <button class="ghost small" type="button" id="compAddBtn">직접 등록</button></p>';
   return `<table class="ev-table"><thead><tr><th scope="col">역량·인재상</th><th scope="col">출처</th><th scope="col">원문 근거</th></tr></thead><tbody>${rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th><td>${r.src}</td><td>${r.quote ? `<q>${esc(r.quote)}</q>` : '<span class="meta">—</span>'}</td></tr>`).join('')}</tbody></table>`;
 }
 
@@ -37,7 +42,7 @@ function formatBody(inst) {
 function searchBody(inst) {
   const fresh = ctx.lastSearch;
   const h = fresh || inst?.search_history?.[0];
-  const btn = `<button class="ghost small" type="button" id="schoolSearchBtn"${ctx.searching ? ' disabled' : ''}>${ctx.searching ? '검색 중…' : h ? '다시 검색' : '학교·전형 검색'}</button>`;
+  const btn = `<button class="ghost small" type="button" id="schoolSearchBtn"${ctx.searching ? ' disabled' : ''}>${ctx.searching ? '검색 중…' : h ? `${REFRESH} 다시 검색` : '학교·전형 검색'}</button>`;
   if (!h) return `<div class="actions">${btn}</div><p class="fine" id="searchNote" role="status">${esc(ctx.searching ? '학교·전형을 검색하는 중입니다…' : ctx.searchNote || '')}</p>`;
   const src = (fresh?.sources || []).map((s) => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title || s.url)}</a></li>`).join('');
   return `<div class="actions">${btn}${StateBadge(FIXED.aiSearch, 'warn')}<span class="meta">${esc(fmtDate(h.searched_at))}${fresh ? '' : ' · 지난 기록'}</span></div>
@@ -66,7 +71,7 @@ function paint() {
   const inst = detail.institution || null;
   $('#evidenceBody').innerHTML = `${Stepper(['지원 정보', '근거 확인', '면접 준비'], 1)}
     <div class="ev-grid">
-      ${section('comp', '핵심 역량·인재상', competencies(inst), wrench('editCompBtn'))}
+      ${section('comp', '핵심 역량·인재상', competencies(inst), `${refreshBtn('reanalyzeBtn', '다시 분석')}${wrench('editCompBtn')}`)}
       ${section('format', '면접 형태', formatBody(inst), wrench('editFormatBtn'))}
     </div>
     ${section('search', '학교·전형', `<p class="val">${esc([detail.school_name || detail.target_name, detail.department || detail.role, detail.track].filter(Boolean).join(' · '))}</p>${searchBody(inst)}`)}
@@ -125,6 +130,11 @@ async function saveCustom(body) {
     await refresh(state.profile.id);
   } catch (err) { setError('#evidenceError', err.message); }
 }
+async function reanalyze() {
+  ctx.busy = true; paint();
+  try { await api(`/profiles/${state.profile.id}/school-analysis`, { method: 'POST', idempotent: true, body: { refresh: true } }); await refresh(state.profile.id); } catch (err) { setError('#evidenceError', err.message); }
+  ctx.busy = false; paint();
+}
 async function runSearch() {
   ctx.searching = true; paint();
   try {
@@ -138,7 +148,8 @@ async function runSearch() {
 
 $('#evidenceBody')?.addEventListener('click', (e) => {
   if (!state.profile) return;
-  if (e.target.closest('#editCompBtn')) editCompetencies();
+  if (e.target.closest('#editCompBtn, #compAddBtn')) editCompetencies();
+  else if (e.target.closest('#reanalyzeBtn') && !ctx.busy) reanalyze();
   else if (e.target.closest('#editFormatBtn')) editFormat();
   else if (e.target.closest('#schoolSearchBtn') && !ctx.searching) runSearch();
   else if (e.target.closest('#detailToggle')) {

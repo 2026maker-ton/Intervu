@@ -32,7 +32,7 @@ function pitchPeriod(b, sampleRate) {
   return best / energy > 0.5 ? bestLag : null;
 }
 
-import { createSpeechGate, thresholdFrom, FLOOR_RMS } from './speech-gate.js';
+import { createSpeechGate, thresholdFrom, FLOOR_RMS, voiceTimeline } from './speech-gate.js';
 
 // 주변 소음 크기로 발화 임계값을 정한다(질문 음성이 나가기 전, 마이크가 열린 직후 0.4초). 면접 동안 한 번만 한다.
 export async function calibrate(mic, ms = 400) {
@@ -52,7 +52,7 @@ export function createCapture(mic, { silenceMs = 3000, onSegment, onState = () =
   // 잡음(작은 소리·짧은 소리·주기성 없는 소리)은 말로 치지 않는다: 구간에 말이 확인되기 전에는 정적 컷도 전사 전송도 하지 않는다.
   let gate = createSpeechGate(mic.threshold || FLOOR_RMS);
   // 지표 누적
-  const m = { frames: 0, voiced: 0, silenceCount: 0, longestSilence: 0, curSilence: 0, rms: [], periods: [] };
+  const m = { frames: 0, voiced: 0, silenceCount: 0, longestSilence: 0, curSilence: 0, rms: [], periods: [], env: [], flags: [] }; // env·flags: 결과 화면 음량 그래프·구간용 프레임 기록
 
   function startRecorder() {
     chunks = [];
@@ -88,6 +88,7 @@ export function createCapture(mic, { silenceMs = 3000, onSegment, onState = () =
     let pitch = null;
     const r = gate.push(rms, () => { pitch = pitchPeriod(b, mic.sampleRate); return !!pitch; });
     if (r.spoke && !wasSpoke) onState('speaking');
+    m.env.push(rms); m.flags.push(r.voice ? 1 : 0);
     if (r.voice) {
       lastVoice = now; m.voiced += 1; m.rms.push(rms);
       if (m.curSilence >= 600) m.silenceCount += 1;
@@ -117,6 +118,7 @@ export function createCapture(mic, { silenceMs = 3000, onSegment, onState = () =
         speech_ratio: m.frames ? m.voiced / m.frames : 0,
         volume_cv: mean ? sd / mean : 0,
         pitch_jitter: m.periods.length > 1 && pm ? d / (m.periods.length - 1) / pm : 0,
+        timeline: voiceTimeline(m.env, m.flags, FRAME_MS),
       };
     },
   };

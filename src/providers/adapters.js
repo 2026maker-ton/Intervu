@@ -56,7 +56,7 @@ export function createMockAdapter() {
 }
 
 // Gemini 어댑터: REST generateContent. human-review/unpaid 금지 게이트는 호출자가 강제.
-export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutMs = 12000, fetchFn = (...a) => globalThis.fetch(...a), freeOnly = true, baseUrl = 'https://generativelanguage.googleapis.com/v1beta' }) {
+export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutMs = 12000, fetchFn = (...a) => globalThis.fetch(...a), freeOnly = true, thinkingLevel = '', baseUrl = 'https://generativelanguage.googleapis.com/v1beta' }) {
   if (!apiKey) throw new Error('GEMINI_API_KEY missing');
   const base = String(baseUrl).replace(/\/+$/, '');
   // 호출 통계(운영 로그용, 본문 미포함)
@@ -71,6 +71,7 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
       generationConfig: {
         maxOutputTokens,
         temperature: 0.2,
+        ...(thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {}),
         ...(json ? { responseMimeType: 'application/json' } : {}),
       },
       safetySettings: [

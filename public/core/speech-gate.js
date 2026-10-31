@@ -28,3 +28,31 @@ export function createSpeechGate(threshold = FLOOR_RMS) {
     reset() { run = 0; voiced = 0; sampled = 0; periodic = 0; spoke = false; },
   };
 }
+
+// 한 답변의 음량 그래프와 구간(결과 화면용, 순수 함수). rms·voice는 프레임별 값(목소리 확정 여부 1/0).
+// 반환: envelope(최대 120칸, 그 답변의 최대 음량 대비 0~100), segments(실제 답변 구간 speech / 600ms 이상 정적 pause, 초 단위).
+// 첫 발화 전 대기와 마지막 발화 뒤 3초 정적은 답변 시간에 넣지 않는다.
+export const PAUSE_MS = 600;
+export function voiceTimeline(rms, voice, frameMs = 50) {
+  const n = rms.length;
+  const total = Math.round((n * frameMs) / 100) / 10;
+  if (!n) return { total_seconds: 0, envelope: [], segments: [] };
+  const B = Math.min(120, n); const step = n / B; const buckets = [];
+  for (let b = 0; b < B; b++) {
+    const a = Math.floor(b * step); const z = Math.max(a + 1, Math.floor((b + 1) * step));
+    let s = 0; for (let i = a; i < z; i++) s += rms[i]; buckets.push(s / (z - a));
+  }
+  const peak = Math.max(...buckets) || 1;
+  const envelope = buckets.map((x) => Math.round((x / peak) * 100));
+  const sec = (f) => Math.round((f * frameMs) / 100) / 10;
+  const gapFrames = Math.ceil(PAUSE_MS / frameMs);
+  const segments = []; let start = -1; let last = -1;
+  for (let i = 0; i < n; i++) {
+    if (!voice[i]) continue;
+    if (start < 0) start = i;
+    else if (i - last - 1 >= gapFrames) { segments.push({ k: 'speech', s: sec(start), e: sec(last + 1) }, { k: 'pause', s: sec(last + 1), e: sec(i) }); start = i; }
+    last = i;
+  }
+  if (start >= 0) segments.push({ k: 'speech', s: sec(start), e: sec(last + 1) });
+  return { total_seconds: total, envelope, segments: segments.slice(0, 80) };
+}

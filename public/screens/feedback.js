@@ -59,8 +59,13 @@ function radar(dims) {
   const rings = [1, 2, 3, 4].map((v) => `<polygon class="grid" points="${ds.map((_, i) => pt(i, (R * v) / 4)).join(' ')}"/>`).join('');
   const val = (d) => (d.status === 'scored' ? Number(d.level) || 0 : 0);
   const shape = `<polygon class="area" points="${ds.map((d, i) => pt(i, (R * val(d)) / 4)).join(' ')}"/>`;
-  const labels = ds.map((d, i) => { const [x, y] = pt(i, R + 18).split(','); return `<text class="axis" x="${x}" y="${y}" text-anchor="middle">${esc(dimLabel(d.id))}</text>`; }).join('');
-  return `<figure class="chart"><figcaption>답변 차원별 관찰</figcaption><svg viewBox="0 0 220 230" role="img" aria-label="평가 차원 레이더 차트">${rings}${shape}${labels}</svg>
+  // 좌우 라벨은 바깥쪽으로 정렬하고 viewBox 양옆에 여백을 둬 글자가 잘리지 않게 한다.
+  const labels = ds.map((d, i) => {
+    const [x, y] = pt(i, R + 12).split(','); const c = Math.cos(ang(i));
+    const anchor = c > 0.3 ? 'start' : c < -0.3 ? 'end' : 'middle';
+    return `<text class="axis" x="${x}" y="${Number(y) + 4}" text-anchor="${anchor}">${esc(dimLabel(d.id))}</text>`;
+  }).join('');
+  return `<figure class="chart"><figcaption>답변 차원별 관찰</figcaption><svg viewBox="-80 4 380 216" role="img" aria-label="평가 차원 레이더 차트">${rings}${shape}${labels}</svg>
     ${srTable('답변 차원별 관찰', ['차원', '수준'], ds.map((d) => [dimLabel(d.id), d.status === 'scored' ? `${d.level} / 4` : FIXED.abstain]))}</figure>`;
 }
 
@@ -71,6 +76,23 @@ function voiceChart(tr) {
   const avg = (k) => v.reduce((s, x) => s + (x[k] || 0), 0) / v.length;
   const rows = [['발화 비율', avg('speech_ratio'), 1, (x) => `${Math.round(x * 100)}%`], ['최장 정적', avg('longest_silence_seconds'), 10, (x) => `${x.toFixed(1)}초`], ['음량 변동', avg('volume_cv'), 1.5, (x) => x.toFixed(2)], ['목소리 떨림', avg('pitch_jitter'), 0.2, (x) => x.toFixed(3)]];
   return `<figure class="chart"><figcaption>음성 <span class="chip-note">${esc(FIXED.voiceLabel)}</span></figcaption>${rows.map(([l, x, max, f]) => `<div class="hbar"><span class="hbar-label">${esc(l)}</span><span class="hbar-track"><span class="hbar-fill alt" style="width:${Math.min(100, (x / max) * 100)}%"></span></span><span class="hbar-val">${esc(f(x))}</span></div>`).join('')}</figure>`;
+}
+
+// 답변별 음성: 음량 그래프(그 답변의 최대 음량 대비) + 아래 띠에 실제 답변 구간(초록)·중간 정적 구간(주황).
+const fmtS = (x) => `${Number(x).toFixed(1)}초`;
+function voiceTimelineChart(tl, idx) {
+  if (!tl?.envelope?.length || !tl.total_seconds) return '';
+  const W = 600; const H = 60; const T = tl.total_seconds; const n = tl.envelope.length;
+  const X = (sec) => (sec / T) * W;
+  const pts = tl.envelope.map((v, i) => `${(((i + 0.5) / n) * W).toFixed(1)},${(H - (v / 100) * (H - 4)).toFixed(1)}`).join(' ');
+  const segs = tl.segments.map((g) => `<rect class="seg ${g.k}" x="${X(g.s).toFixed(1)}" y="${H + 6}" width="${Math.max(1, X(g.e) - X(g.s)).toFixed(1)}" height="12"><title>${g.k === 'speech' ? '답변' : '정적'} ${fmtS(g.s)}~${fmtS(g.e)}</title></rect>`).join('');
+  const speech = tl.segments.filter((g) => g.k === 'speech'); const pauses = tl.segments.filter((g) => g.k === 'pause');
+  const spoken = speech.reduce((a, g) => a + g.e - g.s, 0);
+  const paused = pauses.reduce((a, g) => a + g.e - g.s, 0);
+  return `<figure class="voice-tl"><figcaption>음량과 구간 <span class="chip-note">${esc(FIXED.voiceLabel)}</span></figcaption>
+    <svg viewBox="0 0 ${W} ${H + 20}" preserveAspectRatio="none" role="img" aria-label="답변 음량 그래프와 답변·정적 구간"><polygon class="vol-area" points="0,${H} ${pts} ${W},${H}"/><rect class="seg-track" x="0" y="${H + 6}" width="${W}" height="12"/>${segs}</svg>
+    <p class="legend"><span><i class="sw seg-speech"></i>실제 답변 ${fmtS(spoken)}</span><span><i class="sw seg-pause"></i>중간 정적 ${pauses.length}회 · ${fmtS(paused)}</span><span class="meta">녹음 ${fmtS(T)}</span></p>
+    ${srTable(`답변 ${idx + 1} 구간`, ['구간', '시작', '끝'], tl.segments.map((g) => [g.k === 'speech' ? '답변' : '정적', fmtS(g.s), fmtS(g.e)]))}</figure>`;
 }
 
 function evidenceList(ev) {
@@ -87,6 +109,7 @@ function transcriptHtml(tr) {
       ${t.is_followup ? '' : `<button class="icon-btn info" type="button" aria-label="근거 보기" aria-expanded="false" aria-controls="ev-${i}">i</button>`}</header>
     ${t.is_followup ? '' : `<div class="qa-evidence" id="ev-${i}" hidden>${evidenceList(t.evidence)}</div>`}
     <p class="qa-a">${esc(t.answer_text)}</p>
+    ${voiceTimelineChart(t.voice_metrics?.timeline, i)}
     ${t.cut_off ? '<p class="meta">제한시간 초과</p>' : ''}
   </article>`).join('');
 }

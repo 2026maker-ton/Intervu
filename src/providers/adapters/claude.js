@@ -6,8 +6,10 @@ import { buildStageMessages } from '../prompts/interview.js';
 import { buildEvaluationMessages } from '../prompts/evaluation.js';
 import { buildSkeletonMessages, buildWriteMessages } from '../prompts/skeleton.js';
 
-export function createClaudeAdapter({ apiKey, baseUrl, model, writerModel = '', timeoutMs = 20000, apiVersion = '', fetchFn = (...a) => globalThis.fetch(...a) }) {
+export function createClaudeAdapter({ apiKey, baseUrl, model, writerModel = '', timeoutMs = 20000, apiVersion = '', thinking = 'off', fetchFn = (...a) => globalThis.fetch(...a) }) {
   async function post(body) {
+    // 생각 끔: Haiku는 disabled, Sonnet 5.5는 disabled가 400이라 between_tools(도구를 쓰지 않으니 사실상 끔). 켜면(thinking='on') 지정하지 않는다.
+    if (thinking === 'off') body = { ...body, thinking: { type: /haiku/i.test(String(body.model)) ? 'disabled' : 'between_tools' } };
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
     const headers = { 'Content-Type': 'application/json', 'x-api-key': apiKey }; // [UNVERIFIED]

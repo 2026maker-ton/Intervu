@@ -6,6 +6,7 @@ import { askConfirm } from '../core/dialog.js';
 import { api } from '../core/api.js';
 import { resetFlow } from '../core/state.js';
 import { go } from '../core/router.js';
+import { restorePractice } from './repractice.js';
 import { openSession } from './dashboard.js';
 
 // ---- 8. 기록·데이터 ----
@@ -23,17 +24,17 @@ export async function loadHistory() {
     box.innerHTML = sessions.map((s) => `
       <div class="list-item">
         <div>
-          <strong>${esc(typeLabel(s.interview_type))} 면접</strong>
-          <div class="meta">${esc(fmtDate(s.created_at))} · ${esc(String(s.question_count || 0))}문항 · ${esc(s.persona || '')} · ${esc(stateLabel(s.state))}${s.blind ? ' · 블라인드' : ''}</div>
+          <strong>${esc(s.school_name || '학교 정보 없음')} · ${s.session_kind === 'practice' ? '90초 재연습' : '본 면접'}</strong>
+          <div class="meta">${esc(fmtDate(s.created_at))} · ${esc(String(s.question_count || 0))}문항 · ${esc(s.department || '')} · ${esc(stateLabel(s.state))}${s.blind ? ' · 블라인드' : ''}</div>
         </div>
         <div class="list-actions">
           <span class="state-badge ${s.state === 'completed' ? 'ok' : ''}">${esc(stateLabel(s.state))}</span>
-          <button class="ghost small" type="button" data-open-session="${esc(s.id)}" data-state="${esc(s.state)}">${s.state === 'completed' ? '코칭 보기' : '열기'}</button>
+          <button class="ghost small" type="button" data-transfer-id="${esc(s.transfer_id || '')}" data-open-session="${esc(s.id)}" data-state="${esc(s.state)}">${s.state === 'completed' ? '코칭 보기' : '열기'}</button>
           <button class="ghost small" type="button" data-export-session="${esc(s.id)}">내보내기</button>
           <button class="ghost small danger-text" type="button" data-delete-session="${esc(s.id)}">삭제</button>
         </div>
       </div>`).join('');
-    $$('[data-open-session]').forEach((b) => b.addEventListener('click', () => openSession(b.dataset.openSession, b.dataset.state)));
+    $$('[data-open-session]').forEach((b) => b.addEventListener('click', () => b.dataset.transferId ? restorePractice(b.dataset.transferId) : openSession(b.dataset.openSession, b.dataset.state)));
     $$('[data-export-session]').forEach((b) => b.addEventListener('click', async () => {
       try {
         const ex = await api('/exports', { method: 'POST', idempotent: true, body: { format: 'json', session_id: b.dataset.exportSession } });
@@ -55,6 +56,7 @@ export async function loadHistory() {
     $('#historyRetry')?.addEventListener('click', loadHistory);
   }
   loadProviderStatus();
+  try {const h=await api('/health');$('#restartNote').textContent=h.data_policy?.durable ? '이 서버는 재시작 후에도 기록을 유지합니다.' : '이 서버는 임시 저장 방식으로, 재시작하면 기록이 사라집니다.';}catch{}
 }
 
 // 인증된 사용자에게만: 기능별 실제 공급자·모드(키·모델 ID 없음)
@@ -83,14 +85,14 @@ $('#deleteAllBtn')?.addEventListener('click', async () => {
   try {
     const { sessions } = await api('/sessions');
     for (const s of sessions || []) await api(`/sessions/${s.id}`, { method: 'DELETE', idempotent: true });
-    $('#deleteAllResult').textContent = `${(sessions || []).length}개 세션을 삭제했습니다. (백업 최장 30일)`;
+    $('#deleteAllResult').textContent = `${(sessions || []).length}개 세션을 삭제했습니다. `;
     toast('전체 삭제 완료');
     loadHistory();
   } catch (err) { toast(err.message, true); }
 });
 
 $('#deleteAccountBtn')?.addEventListener('click', async () => {
-  const typed = await dialog({ title: '계정 전체 삭제', message: '세션·프로필·보고서·이의가 모두 삭제되며 되돌릴 수 없습니다. 활성 저장소에서는 즉시, 백업은 최장 30일 뒤 파기됩니다. 계속하려면 아래에 "계정삭제"를 입력하세요.', label: '확인 문구', okText: '계정 삭제', danger: true });
+  const typed = await dialog({ title: '계정 전체 삭제', message: '세션·프로필·보고서·이의가 모두 삭제되며 되돌릴 수 없습니다. 활성 저장소에서는 즉시, 외부 백업 정책은 확인되지 않았습니다 뒤 파기됩니다. 계속하려면 아래에 "계정삭제"를 입력하세요.', label: '확인 문구', okText: '계정 삭제', danger: true });
   if (typed !== '계정삭제') { if (typed) toast('확인 문구가 일치하지 않아 취소했습니다.', true); return; }
   try {
     const d = await api('/account', { method: 'DELETE', idempotent: true });

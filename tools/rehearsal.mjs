@@ -172,7 +172,7 @@ async function scenario(fx, rows, dir) {
 
 // 공급자 다운: 합성 인스턴스 + Gemini 구성 + 스텁 fetch가 500/429. 폴백으로 계속되고 mode=fallback이어야 한다.
 async function providerDown(rows) {
-  const fx = FIXTURES[0];
+  const fx = FIXTURES[0]; // company 레거시 샘플
   for (const status of [500, 429]) {
     const tag = `provider-down-${status}`;
     let calls = 0;
@@ -211,7 +211,8 @@ export async function runRehearsal() {
   const rows = [];
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intervu-rehearsal-'));
   try {
-    for (const fx of FIXTURES) await scenario(fx, rows, path.join(root, fx.kind));
+    // 레거시 API 경로(유형별 팩·재연습·전이 비교) 리허설: 가상 fixture 3종만. 일반 면접 5단계는 tests/api/s2-questions.test.mjs가 다룬다.
+    for (const fx of [FIXTURES.find((f) => f.kind === 'company'), ...FIXTURES.filter((f) => f.ui).slice(0, 2)]) await scenario(fx, rows, path.join(root, fx.kind));
     await providerDown(rows);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
   return { ok: rows.length > 0 && rows.every((r) => r.ok), rows };

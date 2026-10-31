@@ -115,17 +115,10 @@ test('role separation: same persona different role changes followup focus, rubri
   assert.match(execU, /결정|책임/);
 });
 
-test('highschool forces mock and blocks gemini path', async () => {
+test('highschool journey is closed for real input (adult-only service, 2026-10-31)', async () => {
   await cleanupAll();
   const p = await call('/api/v1/profiles', { method: 'POST', body: { org_type: 'highschool', target_name: '테스트고', role: '일반전형', source_text: '지원동기와 진로계획, 봉사 경험을 말해주세요.' } });
-  assert.equal(p.status, 201);
-  assert.equal(p.data.provider, 'mock');
-  assert.equal(p.data.institution.org_type, 'highschool');
-  const ok = await call(`/api/v1/profiles/${p.data.id}/approve`, { method: 'POST', body: { version_id: p.data.version_id } });
-  assert.equal(ok.status, 200);
-  const s = await call('/api/v1/sessions', { method: 'POST', body: { profile_version_id: p.data.version_id, interviewer_role: 'admissions', duration_minutes: 10 } });
-  // 현재 서버가 Mock이므로 세션 생성 허용(Mock 검증 범위). Gemini 실키 환경에서는 422 차단.
-  assert.ok([201, 422].includes(s.status));
+  assert.equal(p.status, 422);
 });
 
 test('invalid interviewer role rejected', async () => {

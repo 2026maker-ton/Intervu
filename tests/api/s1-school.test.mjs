@@ -6,8 +6,8 @@ import { withProviders, rawReply, statusReply } from '../helpers/provider-stub.m
 import { getFixture } from '../../src/domain/fixtures.js';
 import { SCHOOLS } from '../../src/domain/school-directory.js';
 
-const uni = getFixture('fx-university-1');
-const hs = getFixture('fx-highschool-1');
+const uni = getFixture('smp-snu-bio');
+const hs = getFixture('smp-yonsei-cs'); // (고입 fixture는 삭제됨) 두 번째 대입 샘플
 const LIVE = { GEMINI_LIVE_ACK: 'true' };
 const fxBody = (f, extra = {}) => ({ org_type: f.kind, school_name: f.school_name, department: f.department, source_text: f.posting_text, application_text: f.application_text, fixture_id: f.id, ...extra });
 const isSchoolCall = (c) => JSON.stringify(c.body).includes('SCHOOL_TEXT_UNTRUSTED');
@@ -16,31 +16,25 @@ const reply = (o) => rawReply(JSON.stringify(o));
 const post = (c, body) => c('/api/v1/profiles', { method: 'POST', body, noConsent: true }).then((r) => { if (r.status !== 201) console.log('POSTFAIL', r.status, JSON.stringify(r.data)); return r; });
 const analyze = (c, id, body = {}) => c(`/api/v1/profiles/${id}/school-analysis`, { method: 'POST', body });
 
-test('S1 consent: age_19_confirmed=false needs minor_notice_ack; both fields stored; boolean required', () => withApp({}, async (c) => {
+test('S1 consent (2026-10-31): adult 18+ only; minor 403; boolean required; legacy age_19_confirmed accepted', () => withApp({}, async (c) => {
   const url = '/api/v1/consents';
   assert.equal((await c(url, { method: 'POST', body: { notice_version: 'v1' } })).status, 422);
-  assert.equal((await c(url, { method: 'POST', body: { age_19_confirmed: false, notice_version: 'v1' } })).status, 422);
-  assert.equal((await c(url, { method: 'POST', body: { age_19_confirmed: false, minor_notice_ack: false, notice_version: 'v1' } })).status, 422);
-  const ok = await c(url, { method: 'POST', body: { age_19_confirmed: false, minor_notice_ack: true, notice_version: 'v1' } });
+  assert.equal((await c(url, { method: 'POST', body: { age_18_confirmed: false, notice_version: 'v1' } })).status, 403);
+  assert.equal((await c(url, { method: 'POST', body: { age_19_confirmed: false, minor_notice_ack: true, notice_version: 'v1' } })).status, 403);
+  const ok = await c(url, { method: 'POST', body: { age_18_confirmed: true, notice_version: 'v1' } });
   assert.equal(ok.status, 201);
-  assert.equal(ok.data.age_19_confirmed, false);
-  assert.equal(ok.data.minor_notice_ack, true);
-  const adult = await c(url, { method: 'POST', body: { age_19_confirmed: true, notice_version: 'v1' } });
-  assert.equal(adult.status, 201);
-  assert.equal(adult.data.age_19_confirmed, true);
-  assert.equal(adult.data.minor_notice_ack, false);
+  assert.equal(ok.data.age_18_confirmed, true);
+  const legacy = await c(url, { method: 'POST', body: { age_19_confirmed: true, notice_version: 'v1' } });
+  assert.equal(legacy.status, 201);
+  assert.equal(legacy.data.age_18_confirmed, true);
 }));
 
-test('S1 consent: minor consent unlocks POST /profiles but never opens the external gate (age19 stays false)', async () => {
+test('S1 consent: without adult consent a real profile is 428 and nothing leaves the server', async () => {
   await withProviders({ env: { ...LIVE, GEMINI_REAL_DATA_ACK: 'true' }, respond: () => claimsStub() }, async (ctx) => {
-    await ctx.g('/api/v1/consents', { method: 'POST', body: { age_19_confirmed: false, minor_notice_ack: true, notice_version: 'v1' } });
-    const r = await post(ctx.g, { org_type: 'university', school_name: '임의대학교', department: '국문과', source_text: '인재상: 탐구 역량. 면접: 개별 면접.', application_text: '저는 동아리에서 행사를 기획했습니다.' });
-    assert.equal(r.status, 201, JSON.stringify(r.data));
-    assert.equal(r.data.synthetic, false);
-    const a = await analyze(ctx.g, r.data.id);
-    assert.equal(a.status, 200);
-    assert.equal(a.data.analysis_mode, 'rule_based');
-    assert.equal(ctx.calls.length, 0, 'minor consent: nothing leaves the server');
+    await ctx.g('/api/v1/consents', { method: 'POST', body: { age_18_confirmed: false, notice_version: 'v1' } });
+    const r = await ctx.g('/api/v1/profiles', { method: 'POST', body: { org_type: 'university', school_name: '임의대학교', department: '국문과', source_text: '인재상: 탐구 역량.', application_text: '저는 동아리에서 행사를 기획했습니다.' }, noConsent: true });
+    assert.equal(r.status, 428);
+    assert.equal(ctx.calls.length, 0);
   });
 });
 
@@ -56,7 +50,7 @@ test('S1 profile: default org_type is university; school fields normalize to tar
   assert.equal(p.data.school_name, uni.school_name);
   assert.equal(p.data.target_name, uni.school_name);
   const src = p.data.sources.find((s) => s.kind === 'demo_fixture');
-  assert.ok(src && src.status === 'demo_fixture' && src.retrieved_at && src.confirmed_at && src.publisher.includes('실제 학교 아님'));
+  assert.ok(src && src.status === 'demo_fixture' && src.retrieved_at && src.confirmed_at && src.publisher.includes('공식 모집요강 아님'));
   assert.equal(p.data.school_discovery.status, 'found');
 }));
 
@@ -74,19 +68,20 @@ test('S1 profile: unknown school -> discovery_failed with guidance, no guessed s
   assert.ok('school_analysis' in (await c(`/api/v1/profiles/${r.data.id}`)).data);
 }));
 
-test('S1 directory: only fictional schools; fixture posting_text equals directory text; GET /fixtures lists highschool/university only', () => withApp({}, async (c) => {
-  assert.ok(SCHOOLS.length >= 3 && SCHOOLS.every((s) => s.label.includes('실제 학교 아님') && s.name.includes('(가상)')));
-  assert.equal(SCHOOLS.filter((s) => s.kind === 'highschool').length, 1);
+test('S1 directory (2026-10-31): only the 10 real-name samples (example text, not official); posting_text equals directory text; no virtual schools', () => withApp({}, async (c) => {
+  assert.equal(SCHOOLS.length, 10);
+  assert.ok(SCHOOLS.every((s) => s.label.includes('공식 모집요강 아님') && !s.name.includes('(가상)')));
   assert.equal(SCHOOLS.find((s) => s.name === uni.school_name).text, uni.posting_text);
   assert.equal(SCHOOLS.find((s) => s.name === hs.school_name).text, hs.posting_text);
   const l = await c('/api/v1/fixtures');
-  assert.deepEqual(l.data.fixtures.map((f) => f.id).sort(), ['fx-highschool-1', 'fx-university-1']);
-  const d = await c('/api/v1/fixtures/fx-highschool-1');
-  assert.equal(d.data.school_name, hs.school_name);
+  assert.equal(l.data.fixtures.length, 10);
+  assert.equal((await c('/api/v1/fixtures/fx-highschool-1')).status, 404);
+  assert.equal((await c('/api/v1/fixtures/fx-university-1')).status, 404);
+  assert.equal((await c(`/api/v1/fixtures/${hs.id}`)).data.school_name, hs.school_name);
 }));
 
 test('S1 analyze (Gemini stub): verbatim quotes kept with server-recomputed spans, fabricated dropped, unconfirmed filled', async () => {
-  const model = { talent_traits: [{ label: '탐구 역량', quote: '탐구 역량' }, { label: '가짜 인재상', quote: '창의 융합 리더십' }], admission_elements: [{ label: '전형', quote: '학생부종합전형' }], interview_format: [{ label: '개별 면접', quote: '서류 기반 개별 면접' }], unconfirmed: ['면접 배점'] };
+  const model = { talent_traits: [{ label: '학업역량', quote: '학업역량' }, { label: '가짜 인재상', quote: '창의 융합 리더십' }], admission_elements: [{ label: '전형', quote: '서류평가와 면접' }], interview_format: [{ label: '개별 면접', quote: '면접 및 구술고사' }], unconfirmed: ['면접 배점'] };
   await withProviders({ env: LIVE, overrides: { syntheticTraffic: true }, respond: (c) => (isSchoolCall(c) ? reply(model) : claimsStub()) }, async (ctx) => {
     const r = await post(ctx.g, fxBody(uni));
     const a = await analyze(ctx.g, r.data.id);
@@ -110,7 +105,7 @@ test('S1 analyze (Gemini stub): verbatim quotes kept with server-recomputed span
     const p = await ctx.g(`/api/v1/profiles/${r.data.id}`);
     assert.equal(p.data.school_analysis.talent_traits[0].id, 'trait-1');
     assert.equal(p.data.institution_status, 'review');
-    assert.ok(p.data.institution.core_values.some((v) => v.source_quote === '탐구 역량' && v.confirmed_at));
+    assert.ok(p.data.institution.core_values.some((v) => v.source_quote === '학업역량' && v.confirmed_at));
     const ap = await ctx.g(`/api/v1/profiles/${r.data.id}/approve`, { method: 'POST', body: { version_id: r.data.version_id } });
     assert.equal(ap.data.institution_status, 'approved');
     assert.equal((await ctx.g(`/api/v1/profiles/${r.data.id}`)).data.school_analysis.analysis_mode, 'gemini');
@@ -131,10 +126,10 @@ test('S1 analyze: all quotes fabricated, bad JSON, or 429 -> rule_based fallback
   }
 });
 
-test('S1 analyze: school without 면접 text -> 면접 형식 미확인 (no guessing)', () => withApp({}, async (c) => {
-  await c('/api/v1/consents', { method: 'POST', body: { age_19_confirmed: true, notice_version: 'v1' } });
-  const r = await post(c, { org_type: 'university', school_name: '푸른강대학교(가상)', department: '컴퓨터공학과', application_text: '저는 코딩 동아리에서 앱을 만들었습니다.' });
-  assert.equal(r.data.school_discovery.status, 'found');
+test('S1 analyze: pasted posting without 면접 text -> 면접 형식 미확인 (no guessing)', () => withApp({}, async (c) => {
+  await c('/api/v1/consents', { method: 'POST', body: { age_18_confirmed: true, notice_version: 'v1' } });
+  const r = await post(c, { org_type: 'university', school_name: '레지스트리에없는대학교', department: '컴퓨터공학과', source_text: '인재상: 문제 해결 역량, 협업 태도. 전형 요소: 학생부 교과 성적과 서류 평가를 반영한다.', application_text: '저는 코딩 동아리에서 앱을 만들었습니다.' });
+  assert.equal(r.data.school_discovery.status, 'discovery_failed');
   const a = await analyze(c, r.data.id);
   assert.equal(a.status, 200);
   assert.equal(a.data.analysis_mode, 'rule_based');
@@ -142,13 +137,13 @@ test('S1 analyze: school without 면접 text -> 면접 형식 미확인 (no gues
   assert.equal(a.data.interview_format.length, 0);
 }));
 
-test('S1 highschool: real (non-fixture) data forced to Mock even with every ack; fixture-synthetic may call', async () => {
-  await withProviders({ env: { ...LIVE, GEMINI_REAL_DATA_ACK: 'true' }, respond: (c) => (isSchoolCall(c) ? reply({ talent_traits: [{ label: '탐구', quote: '탐구 역량' }], admission_elements: [], interview_format: [] }) : claimsStub()) }, async (ctx) => {
+test('S1 real data: highschool rejected (422); sample (fixture) may call; pasted posting is never trusted', async () => {
+  // REAL_DATA_ACK 없음: 붙여넣은 본문은 합성이 아니므로 외부로 나가지 않는다(성인 실데이터 전송은 REAL_DATA_ACK+동의가 모두 필요).
+  await withProviders({ env: { ...LIVE }, respond: (c) => (isSchoolCall(c) ? reply({ talent_traits: [{ label: '논리', quote: '논리적 사고' }], admission_elements: [], interview_format: [] }) : claimsStub()) }, async (ctx) => {
     await ctx.g('/api/v1/consents', { method: 'POST', body: { age_19_confirmed: true, notice_version: 'v1' } });
-    const real = await post(ctx.g, { org_type: 'highschool', school_name: '가온고등학교(가상)', department: '자연계열', source_text: '직접 붙여넣은 요강: 탐구 역량을 봅니다.', application_text: '저는 실제 학생 지원서 내용을 적었습니다.' });
-    assert.equal(real.data.synthetic, false);
-    const a = await analyze(ctx.g, real.data.id);
-    assert.equal(a.data.analysis_mode, 'rule_based');
+    // 2026-10-31: 고입 실입력은 프로필 자체를 받지 않는다(성인 대상 서비스).
+    const real = await ctx.g('/api/v1/profiles', { method: 'POST', body: { org_type: 'highschool', school_name: '가온고등학교(가상)', department: '자연계열', source_text: '직접 붙여넣은 요강: 탐구 역량을 봅니다.', application_text: '저는 실제 학생 지원서 내용을 적었습니다.' } });
+    assert.equal(real.status, 422);
     assert.equal(ctx.calls.length, 0, 'real highschool data never leaves');
     // 붙여넣은 본문 override는 합성 프로필이어도 신뢰하지 않는다.
     const syn = await post(ctx.g, fxBody(hs));
@@ -158,7 +153,7 @@ test('S1 highschool: real (non-fixture) data forced to Mock even with every ack;
     assert.equal(o.data.analysis_mode, 'rule_based');
     assert.equal(ctx.calls.length, n);
   });
-  await withProviders({ env: LIVE, respond: (c) => (isSchoolCall(c) ? reply({ talent_traits: [{ label: '탐구 역량', quote: '탐구 역량' }], admission_elements: [], interview_format: [] }) : claimsStub()) }, async (ctx) => {
+  await withProviders({ env: LIVE, respond: (c) => (isSchoolCall(c) ? reply({ talent_traits: [{ label: '논리적 사고', quote: '논리적 사고' }], admission_elements: [], interview_format: [] }) : claimsStub()) }, async (ctx) => {
     const syn = await post(ctx.g, fxBody(hs));
     assert.equal(syn.data.synthetic, true);
     const a = await analyze(ctx.g, syn.data.id);
@@ -193,3 +188,14 @@ test('S1 delete: account deletion removes school analysis; other owner cannot an
   const p = await c(`/api/v1/profiles/${r.data.id}`);
   assert.ok(p.status === 404 || (p.data.school_analysis == null && p.data.institution == null));
 }));
+
+test('S1 analyze: model leaves talent_traits empty (traits put under admission_elements) -> rule-based traits fill the floor so 핵심 역량 is not empty', async () => {
+  const model = { talent_traits: [], admission_elements: [{ label: '전형', quote: '서류평가와 면접' }], interview_format: [], unconfirmed: [] };
+  await withProviders({ env: LIVE, overrides: { syntheticTraffic: true }, respond: (c) => (isSchoolCall(c) ? reply(model) : claimsStub()) }, async (ctx) => {
+    const r = await post(ctx.g, fxBody(uni));
+    const a = await analyze(ctx.g, r.data.id);
+    assert.equal(a.data.analysis_mode, 'gemini');
+    assert.ok(a.data.talent_traits.length >= 1, 'floor from rules');
+    assert.ok(a.data.talent_traits.every((t) => uni.posting_text.includes(t.quote)));
+  });
+});

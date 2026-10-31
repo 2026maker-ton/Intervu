@@ -12,7 +12,7 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
 const json = (status, body, extra = {}) => new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...extra } });
 
-export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }) {
+export function createFetchHandler({ store, auth, bearer = () => null, handlers: h, requestLog = [] }) {
   const mutex = createKeyedMutex();
 
   async function fetch(request, _env, _ctx) {
@@ -27,18 +27,26 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
     const notFound = () => json(404, { error: { code: 'not_found', message: '경로를 찾을 수 없습니다.', retryable: false, request_id: requestId, details: null } });
 
     try {
-      if (p === '/api/v1/health') return send(h.ops.health(!!auth(request)));
+      if (p === '/api/v1/health') return send(h.ops.health(!!(await auth(request))));
       if (p === '/api/v1/interview-types' && method === 'GET') return send(h.ops.interviewTypes());
       // 정적 UI는 어댑터 책임(Pages/Node). 라우터는 API만 다룬다.
       if (!p.startsWith('/api/')) return notFound();
+      // 가입·로그인은 인증 전 경로다. 시도 제한 키에 쓰는 IP는 프록시 헤더(없으면 'local').
+      if (method === 'POST' && (p === '/api/v1/auth/signup' || p === '/api/v1/auth/login')) {
+        const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local';
+        const { json: b } = await readJsonBody(request);
+        return send(await h.auth[p.endsWith('signup') ? 'signup' : 'login'](b, ip));
+      }
 
-      const owner = auth(request);
+      const owner = await auth(request);
       if (!owner) return json(401, err('unauthorized', '인증이 필요합니다.', 401, { requestId }).error);
+      if (p === '/api/v1/auth/me' && method === 'GET') return send(h.auth.getMe(owner));
+      if (p === '/api/v1/auth/logout' && method === 'POST') return send(await h.auth.logout(bearer(request)));
 
       if (p === '/api/v1/metrics' && method === 'GET') return send(await h.ops.metrics(request));
       // Groq STT 연결 상태(키 노출 없음, 상태만 반환)
-      if (p === '/api/v1/stt/status' && method === 'GET') return json(200, h.stt.sttStatus(owner));
-      if (p === '/api/v1/providers/status' && method === 'GET') return send(h.ops.providersStatus(owner));
+      if (p === '/api/v1/stt/status' && method === 'GET') return json(200, h.stt.sttStatus(owner, url.searchParams));
+      if (p === '/api/v1/providers/status' && method === 'GET') return send(h.ops.providersStatus(owner, url.searchParams));
       if (p === '/api/v1/diagnostics/gemini-models' && method === 'GET') return send(await h.ops.geminiModels(request, requestId));
 
       let m;
@@ -130,7 +138,8 @@ export function createFetchHandler({ store, auth, handlers: h, requestLog = [] }
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/claims$/.exec(pth)) && mth === 'GET') return send(h.profiles.listClaims(owner, id1()));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/claims\/([^/]+)$/.exec(pth)) && mth === 'PATCH') return send(h.profiles.setClaimExcluded(owner, mm[1], decodeURIComponent(mm[2]), body));
       if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/plan$/.exec(pth)) && mth === 'GET') return send(h.profiles.getPlan(owner, id1(), Object.fromEntries(u.searchParams)));
-      if (mth === 'POST' && pth === '/api/v1/sessions') return send(h.sessions.createSession(owner, body));
+      if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/customization$/.exec(pth)) && mth === 'PATCH') return send(h.profiles.customize(owner, id1(), body));
+      if ((mm = /^\/api\/v1\/profiles\/([^/]+)\/school-search$/.exec(pth)) && mth === 'POST') return send(await h.profiles.searchSchool(owner, id1()));      if (mth === 'POST' && pth === '/api/v1/sessions') return send(h.sessions.createSession(owner, body));
       if (mth === 'GET' && pth === '/api/v1/sessions') return send(h.ops.listSessions(owner));
       if ((mm = /^\/api\/v1\/sessions\/([^/]+)$/.exec(pth))) {
         if (mth === 'GET') return send(h.sessions.getSession(owner, id1()));

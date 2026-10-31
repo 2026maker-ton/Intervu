@@ -17,6 +17,8 @@ export function createStore({ ttlDays = 30 } = {}) {
   const attempts = new Map();       // id -> practice attempt
   const deletions = new Map();      // id -> deletion job
   const consents = new Map();       // owner -> 최신 동의 행(감사 기록, WP-C6)
+  const users = new Map();          // user id -> { id, email, name, pass:{salt,hash,iter}, created_at }
+  const authSessions = new Map();   // sha256(token) -> { owner, expires_at }
   const profileCalls = new Map();   // owner -> [timestamps] (프로필 추출 속도 제한)
   const instSources = new Map();    // profile_id -> [source rows] (기관 자료 출처)
   const sourceFetches = new Map();  // profile_id -> { source_id: 수집 결과 } (WP-C2)
@@ -58,7 +60,7 @@ export function createStore({ ttlDays = 30 } = {}) {
         school_name: String(data.school_name || '').slice(0, 100), department: String(data.department || '').slice(0, 100), track: String(data.track || '').slice(0, 100),
         source_text: String(data.source_text || '').slice(0, 20000),
         application_text: String(data.application_text || '').slice(0, 20000), // 마스킹본만 전달됨
-        source_url: data.source_url || null, experiences: (data.experiences || []).slice(0, 3).map((e) => String(e).slice(0, 2000)),
+        source_url: data.source_url || null, experiences: (data.experiences || []).slice(0, 8).map((e) => String(e).slice(0, 2000)),
         synthetic: data.synthetic === true, fixture_id: data.synthetic === true ? data.fixture_id : null, // 서버 판정값(본문 플래그 아님)
         status: 'extracting', created_at: now(), expires_at: new Date(Date.now() + ttlMs).toISOString(),
       };
@@ -192,15 +194,36 @@ export function createStore({ ttlDays = 30 } = {}) {
     },
     getRevisions(turnId) { return revisions.get(turnId) || []; },
     addConsent(owner, data) {
-      const c = { id: randomUUID(), owner_id: owner, age_19_confirmed: data.age_19_confirmed === true, minor_notice_ack: data.minor_notice_ack === true, notice_version: data.notice_version, provider_modes_seen: {}, created_at: now() };
+      const c = { id: randomUUID(), owner_id: owner, age_18_confirmed: data.age_18_confirmed === true || data.age_19_confirmed === true, age_19_confirmed: data.age_19_confirmed === true, minor_notice_ack: data.minor_notice_ack === true, notice_version: data.notice_version, provider_modes_seen: {}, created_at: now() };
       consents.set(owner, c);
       return c;
     },
     getConsent(owner) { return consents.get(owner) || null; },
+    // 계정(이메일 로그인). pass는 PBKDF2 해시·salt만 보관한다. 로그인 세션은 토큰 SHA-256 해시를 키로 둔다.
+    createUser(data) {
+      const u = { id: `u-${randomUUID()}`, email: data.email, name: data.name, pass: data.pass, created_at: now() };
+      users.set(u.id, u);
+      return u;
+    },
+    getUser(id) { return users.get(id) || null; },
+    getUserByEmail(email) { for (const u of users.values()) if (u.email === email) return u; return null; },
+    deleteUser(id) { users.delete(id); for (const [k, s] of authSessions) if (s.owner === id) authSessions.delete(k); },
+    putAuthSession(tokenHash, rec) {
+      authSessions.set(tokenHash, rec);
+      if (authSessions.size > 5000) for (const [k, s] of authSessions) if (s.expires_at < Date.now()) authSessions.delete(k);
+    },
+    getAuthSession(tokenHash) {
+      const s = authSessions.get(tokenHash);
+      if (s && s.expires_at < Date.now()) { authSessions.delete(tokenHash); return null; }
+      return s || null;
+    },
+    deleteAuthSession(tokenHash) { authSessions.delete(tokenHash); },
     recordRate,
     recordProfileCall(owner) { return recordRate(owner, 'profile'); },
     deleteAccount(owner) {
       consents.delete(owner);
+      users.delete(owner);
+      for (const [k, s] of authSessions) if (s.owner === owner) authSessions.delete(k);
       const deletionId = randomUUID();
       const requested_at = now();
       for (const [sid, s] of sessions) {
@@ -306,10 +329,13 @@ export function createStore({ ttlDays = 30 } = {}) {
         for (const [vid, v] of profileVersions) if (v.profile_id === id) profileVersions.delete(vid);
       }
       for (const [k, r] of idempotency) if (r.expires_at < nowMs) idempotency.delete(k);
+      // 학교 검색 이력(grounding 결과): 보관 기한(기본 150일)이 지난 항목을 지운다.
+      for (const row of institutions.values()) if (row.profile?.search_history?.length) row.profile.search_history = row.profile.search_history.filter((h) => Date.parse(h.expires_at) > nowMs);
+      for (const [k, s] of authSessions) if (s.expires_at < nowMs) authSessions.delete(k);
       return removed;
     },
     // WP-A2: 영속용 내부 맵(내보내기·티켓 제외 — 메모리 전용 TTL).
-    _maps: { profiles, profileVersions, sessions, turns, revisions, events, commands, evaluations, appeals, attempts, deletions, profileCalls, instSources, sourceFetches, institutions, transferJobs, idempotency, consents, documents, docRevisions },
+    _maps: { profiles, profileVersions, sessions, turns, revisions, events, commands, evaluations, appeals, attempts, deletions, profileCalls, instSources, sourceFetches, institutions, transferJobs, idempotency, consents, documents, docRevisions, users, authSessions },
 
     // 호환: 컬렉션 맵을 직접 노출(테스트·삭제 경로가 사용). 새 코드는 메서드를 우선한다.
     events, pushEvent, commands, evaluations, appeals, attempts, deletions,

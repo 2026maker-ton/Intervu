@@ -10,7 +10,8 @@ import { createElevenlabsAdapter } from '../providers/adapters/elevenlabs.js';
 import { createRegistry } from '../providers/registry.js';
 import { createCaller } from '../providers/call.js';
 import { err, now } from './util.js';
-import { safeEqual } from './crypto.js';
+import { safeEqual, sha256Hex } from './crypto.js';
+import { createAuthHandlers } from './handlers/auth.js';
 import { createProfileHandlers } from './handlers/profiles.js';
 import { createConsentHandlers } from './handlers/consents.js';
 import { createSessionHandlers } from './handlers/sessions.js';
@@ -35,7 +36,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const gemini = config.gemini.apiKey ? createGeminiAdapter({ apiKey: config.gemini.apiKey, textModel: config.gemini.textModel, fallbackModel: config.gemini.fallbackModel, timeoutMs: config.gemini.timeoutMs, freeOnly: config.gemini.freeOnly, baseUrl: config.providerGate.gemini.baseUrl }) : null;
   const groq = config.groq.apiKey ? createGroqWhisperAdapter({ apiKey: config.groq.apiKey, model: config.groq.model, timeoutMs: config.groq.timeoutMs, maxAudioBytes: config.groq.maxAudioBytes, baseUrl: config.providerGate.groq.baseUrl }) : null;
   const cg = config.providerGate.claude;
-  const claude = cg.apiKey && cg.baseUrl && cg.model ? createClaudeAdapter({ apiKey: cg.apiKey, baseUrl: cg.baseUrl, model: cg.model, timeoutMs: config.claude.timeoutMs, apiVersion: config.claude.apiVersion }) : null;
+  const claude = cg.apiKey && cg.baseUrl && cg.model ? createClaudeAdapter({ apiKey: cg.apiKey, baseUrl: cg.baseUrl, model: cg.model, writerModel: config.claude.writerModel, timeoutMs: config.claude.timeoutMs, apiVersion: config.claude.apiVersion }) : null;
   const dg = config.providerGate.deepseek;
   const deepseek = dg.apiKey && dg.baseUrl && dg.model ? createDeepseekAdapter({ apiKey: dg.apiKey, baseUrl: dg.baseUrl, model: dg.model, timeoutMs: config.deepseek.timeoutMs }) : null;
   const eg = config.providerGate.elevenlabs;
@@ -52,10 +53,11 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     timeouts: { gemini: config.gemini.timeoutMs, groq: config.groq.timeoutMs, claude: config.claude.timeoutMs, deepseek: config.deepseek.timeoutMs, elevenlabs: config.elevenlabs.timeoutMs },
   });
   // 요청 컨텍스트: synthetic은 서버가 코드로 켠 인스턴스이거나 서버 판정 훅(extra.synthetic, WP-C6 fixture 해시)일 때만 true.
-  // consent/age19는 Store의 동의 기록에서만 온다(동의 API 전에는 항상 false).
+  // forceRealData는 microphone audio처럼 합성 fixture와 함께 있어도 실데이터인 입력에 사용한다.
+  // consent/adult는 Store의 동의 기록(가입 시 만 18세 확인)에서만 온다.
   const requestContext = (owner, extra = {}) => {
     const consent = store.getConsent?.(owner) || null;
-    return { owner, synthetic: syntheticTraffic === true || extra.synthetic === true, forceMock: !!extra.forceMock, consent: !!consent, age19: !!consent?.age_19_confirmed };
+    return { owner, synthetic: extra.forceRealData === true ? false : syntheticTraffic === true || extra.synthetic === true, forceMock: !!extra.forceMock, consent: !!consent, adult: !!(consent?.age_18_confirmed || consent?.age_19_confirmed) };
   };
   // 서버 기본 컨텍스트에서 실제로 외부 호출이 열려 있는 공급자(없으면 mock): 상태 표시·구 호환용.
   const providerName = ['dialogue.next', 'claims.extract'].map((op) => caller.plan(op, requestContext(null))).find((p) => p.live)?.provider || 'mock';
@@ -72,11 +74,13 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     }
     return null;
   }
-  const auth = (req) => {
-    const h = req.headers.get('authorization') || '';
-    const m = /^Bearer\s+(.+)$/.exec(h);
-    if (!m) return null;
-    return config.devTokens[m[1]] || null;
+  // 인증: 로그인 토큰(SHA-256 조회) 우선, DEV_TOKEN_*은 설정돼 있을 때만 개발·테스트용으로 받는다.
+  const bearer = (req) => /^Bearer\s+(.+)$/.exec(req.headers.get('authorization') || '')?.[1] || null;
+  const auth = async (req) => {
+    const t = bearer(req);
+    if (!t) return null;
+    if (config.devTokens[t]) return config.devTokens[t];
+    return store.getAuthSession(await sha256Hex(t))?.owner || null;
   };
   const priceOf = (model, usage) => {
     if (model && model === cg.model) return ((usage.input || 0) * config.claude.price.input + (usage.output || 0) * config.claude.price.output) / 1e6;
@@ -136,9 +140,10 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     stt: createSttHandlers(d),
     tts: createTtsHandlers(d),
     ops: createOpsHandlers(d),
+    auth: createAuthHandlers(d),
   };
   const requestLog = [];
-  const fetch = createFetchHandler({ store, auth, handlers, requestLog });
+  const fetch = createFetchHandler({ store, auth, bearer, handlers, requestLog });
 
   return {
     fetch, config, store, ledger, providerInfo, providerName, handlers,

@@ -10,9 +10,8 @@ import { fetchOfficialSource, parseAllowList } from '../../domain/fetcher.js';
 import { findSchool } from '../../domain/school-directory.js';
 import { verifyAnalysis, ruleBasedAnalysis, buildUnconfirmed, mergeIntoInstitution } from '../../domain/school-analysis.js';
 import { buildInstitutionProfile, normalizeOrgType, providerConstraintForOrg, isMinorPossible } from '../../domain/institution.js';
-import { segmentOfOrg, trendCatalog, lookupTrends, TREND_MOCK_LABEL } from '../../domain/trend-mock.js';
-import { validateDesignedQuestions, decideTrendUse, MODEL_MAX } from '../../domain/question-design.js';
-import { QUESTIONS_PROMPT_VERSION } from '../../providers/prompts/questions.js';
+import { buildGeneralPlan, validateModelStages, validateSkeleton, limitationSentences, INTERVIEW_FORMATS } from '../../domain/interview-format.js';
+import { STAGES_PROMPT_VERSION } from '../../providers/prompts/interview.js';
 
 // 데모 fixture 소스는 저장 형태(kind:'demo_fixture')를 유지하되 기관 프로필 규칙 분석에는 공식 자료처럼 넣는다.
 const asBuildSource = (s) => (s.kind === 'demo_fixture' ? { ...s, kind: 'official' } : s);
@@ -27,7 +26,9 @@ export function createProfileHandlers(d) {
     }
     // 합성 판정은 서버가 fixture 해시로만 한다(클라이언트 synthetic/free_test 값은 읽지 않음).
     const synthetic = await isSyntheticProfileBody(body, { demoFixtures: config.demoFixtures });
-    if (!synthetic && !store.getConsent(owner)) return err('consent_required', '만 19세 이상 확인과 안내 동의가 필요합니다. 먼저 동의해 주세요.', 428, { requestId });
+    if (!synthetic && !store.getConsent(owner)) return err('consent_required', '만 18세 이상 확인과 안내 동의가 필요합니다. 먼저 동의해 주세요.', 428, { requestId });
+    // 고입(미성년) 여정은 2026-10-31부터 새 프로필을 받지 않는다(서비스 대상 만 18세 이상). 서버 fixture 샘플은 레거시 테스트용으로 허용.
+    if (normalizeOrgType(body.org_type || 'university') === 'highschool' && !synthetic) return err('validation_error', '고입 여정은 지원하지 않습니다. 대입으로 진행해 주세요.', 422, { requestId });
     const source = String(body.source_text || '');
     if (source.length > 20000) return err('validation_error', '공고 본문은 20,000자 이하여야 합니다.', 422, { requestId });
     const application = String(body.application_text || '');
@@ -164,7 +165,7 @@ export function createProfileHandlers(d) {
         current_version: current ? { id: current.id, status: current.status, extracted: current.extracted } : null,
         approved_version: approved ? { id: approved.id, extracted: approved.extracted } : null,
         sources: store.listSources(id),
-        institution: inst?.profile || null,
+        institution: inst?.profile ? { ...inst.profile, search_history: liveHistory(inst.profile) } : null,
         institution_status: inst?.status || null,
         school_analysis: inst?.profile?.school_analysis || null,
         school_discovery: inst?.profile?.school_discovery || null,
@@ -187,58 +188,82 @@ export function createProfileHandlers(d) {
     ver.excluded_claim_ids = (ver.excluded_claim_ids || []).filter((x) => ids.has(x));
   }
 
-  // 승인 시점 1회 질문 설계(09 §5.1·§4). 결과는 버전에 동결(v.plan)되고 세션 생성·GET plan이 같은 값을 쓴다.
+  // 학업·전공 적합성 단계의 근거 후보: 사용자 커스텀 역량 > 학교 분석 인재상 > 전형 요소 > AI 검색 결과(최대 8).
+  function competencyItems(inst) {
+    const sa = inst?.school_analysis || {};
+    const items = (arr, prefix, status) => (Array.isArray(arr) ? arr : []).map((t, i) => ({ id: t.id || `${prefix}-${i + 1}`, label: String(t.label || '').slice(0, 20), quote: String(t.quote || ''), status: t.status || status, source_title: t.source_title || null, url: t.url || null })).filter((t) => t.label);
+    // 전형 요소(서류평가·면접평가 등)는 역량이 아니므로 넣지 않는다.
+    // 검색(grounding) 결과는 약관상 질문 생성 근거로 쓰지 않는다: 사용자가 읽고 렌치로 직접 입력한 역량만 쓴다.
+    return [...items(inst?.custom_competencies, 'trait-u', 'user_supplied'), ...items(sa.talent_traits, 'trait', 'source_quote')].slice(0, 8);
+  }
+  const claimItems = (v, excluded) => {
+    const ex = new Set(excluded || []);
+    return (v?.extracted?.applicant_claims || []).filter((c) => !ex.has(c.id)).map((c) => ({ id: c.id, quote: c.quote, gaps: c.gaps || [], start_cp: c.start_cp, end_cp: c.end_cp }));
+  };
+
+  // 승인 시점 1회 질문 설계(일반 면접 5단계, 2026-10-31). 본질문·근거·연결 문장을 모두 정해 버전에 동결한다(v.plan.general).
   // 외부 호출은 서버 게이트가 연 경우(합성 fixture 또는 확인된 성인 실데이터)에만 일어난다. 막히면 호출 0건·규칙 기반 계획.
+  // 레거시 세션(interview_format 미지정)을 위해 v.plan의 기존 필드(model_questions 등)는 빈 규칙 계획으로 유지한다.
   async function designPlan(owner, p, v, inst) {
     const orgType = normalizeOrgType(p.org_type);
     const synthetic = p.synthetic === true;
     const ctx = requestContext(owner, { synthetic, forceMock: isMinorPossible(orgType) && !synthetic });
     const plan = { generator: 'rule', model_questions: [], provider_trace: [], trend: { used: false, lookup: false }, designed_at: now() };
+    const competencies = competencyItems(inst);
+    const claims = claimItems(v, v.frozen_excluded_claim_ids);
+    const limits = limitationSentences(p.application_text);
+    const seed = parseInt(String(p.id).replace(/[^0-9a-f]/g, '').slice(0, 8), 16) || 0;
     const gate = caller.plan('questions.design', ctx);
-    if (!gate.live) { plan.provider_trace.push({ operation: gate.operation, provider: 'mock', mode: gate.mode, reason: gate.reason, model_alias: 'rule-based', latency_ms: null }); return plan; }
-    const sa = inst?.school_analysis || {};
-    const items = (arr, prefix) => (Array.isArray(arr) ? arr : []).slice(0, 8).map((t, i) => ({ id: t.id || `${prefix}-${i + 1}`, label: String(t.label || ''), quote: String(t.quote || '') })).filter((t) => t.quote);
-    const schoolItems = [...items(sa.talent_traits, 'trait'), ...items(sa.admission_elements, 'elem')];
-    const ex = new Set(v.frozen_excluded_claim_ids || []);
-    const claims = (v.extracted?.applicant_claims || []).filter((c) => !ex.has(c.id)).map((c) => ({ id: c.id, quote: c.quote, gaps: c.gaps || [] }));
-    if (!schoolItems.length && !claims.length) { plan.provider_trace.push({ operation: 'questions.design', provider: 'mock', mode: 'mock', reason: 'no_evidence', model_alias: 'rule-based', latency_ms: null }); return plan; }
-    // 1) 트렌드 조회 필요 여부 판단. true+유효 id일 때만 Mock 본문을 조회한다(그 전에는 색인 id·태그만 본다). 막힘·실패·무효는 '사용 안 함'.
-    const segment = segmentOfOrg(orgType);
-    const yyyyMm = config.trendMockMonth || now().slice(0, 7);
-    const catalog = segment ? trendCatalog(segment, yyyyMm) : null;
-    let trendItems = [];
-    if (catalog) {
-      const dres = await caller.call('trends.decide', {
-        ctx, mockAlias: 'rule-based', reserve: { key: `profile:${p.id}:trend`, amount: config.profileRate.reserve },
-        invoke: (a) => a.decideTrend({ segment, yyyyMm, traitLabels: schoolItems.filter((x) => x.label).slice(0, 5).map((x) => x.label), claimLabels: claims.map((c) => [...c.quote].slice(0, 30).join('')), catalog }),
-        mock: () => ({ use_trend: false, trend_ids: [], reason: 'mock' }),
-        validate: (o) => typeof o?.use_trend === 'boolean',
+    let modelStages = {};
+    if (!gate.live) plan.provider_trace.push({ operation: gate.operation, provider: 'mock', mode: gate.mode, reason: gate.reason, model_alias: 'rule-based', latency_ms: null });
+    else if (!competencies.length && !claims.length) plan.provider_trace.push({ operation: 'questions.design', provider: 'mock', mode: 'mock', reason: 'no_evidence', model_alias: 'rule-based', latency_ms: null });
+    else if (registry.route('questions.design').provider === 'claude') {
+      // 2단계(Claude): Sonnet이 질문 구조(단계별 근거·초점·방식)만 정하고, Haiku가 그 구조와 근거 원문으로 문장을 쓴다.
+      // 구조는 enum·근거 id 계약으로, 문장은 단계 질문 검증(validateModelStages)으로 서버가 검사하고 위반 단계는 규칙 템플릿이 대신한다.
+      const all = [...claims, ...limits];
+      const textOf = new Map([...competencies.map((x) => [x.id, `${x.label} ${x.quote}`.trim()]), ...all.map((c) => [c.id, c.quote])]);
+      const sres = await caller.call('questions.design', {
+        ctx, mockAlias: 'rule-based', reserve: { key: `profile:${p.id}:skeleton`, amount: config.profileRate.reserve },
+        invoke: (a) => a.designSkeleton({ department: p.role || '', competencies, claims: all }),
+        mock: () => ({ stages: [] }), validate: (o) => Array.isArray(o?.stages),
       });
-      plan.provider_trace.push(dres.trace);
-      const dec = dres.trace.mode === 'live' ? decideTrendUse(dres.value, catalog) : { use_trend: false, trend_ids: [] };
-      plan.trend = { used: false, lookup: false, decision: dec.use_trend, yyyyMm, segment };
-      if (dec.use_trend) {
-        const found = lookupTrends(segment, yyyyMm, dec.trend_ids);
-        plan.trend.lookup = true; plan.trend.status = found.status;
-        trendItems = found.items;
-        plan.trend.used = trendItems.length > 0; plan.trend.label = TREND_MOCK_LABEL; plan.trend.ids = trendItems.map((x) => x.id);
+      plan.provider_trace.push(sres.trace);
+      if (sres.trace.mode === 'live') {
+        const { skeleton, dropped } = validateSkeleton(sres.value, new Set(textOf.keys()));
+        const picked = Object.values(skeleton).map((s) => ({ ...s, evidence: s.evidence_ids.map((i) => textOf.get(i)) }));
+        plan.dropped_skeleton_stages = dropped;
+        if (picked.length) {
+          const wres = await caller.call('questions.write', {
+            ctx, mockAlias: 'rule-based', reserve: { key: `profile:${p.id}:write`, amount: config.profileRate.reserve },
+            invoke: (a) => a.writeQuestions({ department: p.role || '', stages: picked }),
+            mock: () => ({ stages: [] }), validate: (o) => Array.isArray(o?.stages),
+          });
+          plan.provider_trace.push(wres.trace);
+          if (wres.trace.mode === 'live') {
+            // 근거 id는 구조에서 서버가 붙인다(작성 모델이 바꿀 수 없다).
+            const written = wres.value.stages.map((w) => ({ stage: w?.stage, question: w?.question, bridge: w?.bridge, evidence_ids: skeleton[w?.stage]?.evidence_ids || [] })).filter((w) => skeleton[w.stage]);
+            const evidence = [...textOf].map(([id, text]) => ({ id, text }));
+            const v2 = validateModelStages({ stages: written }, evidence, { promptVersion: 'skeleton-write-v1', extraText: String(p.role || '') });
+            modelStages = v2.stages; plan.dropped_model_questions = v2.dropped;
+          }
+        }
       }
-    } else plan.trend = { used: false, lookup: false, status: 'unavailable', yyyyMm, segment };
-    // 2) 질문 설계. 서버가 질문 단위로 검증하고, 전부 폐기되면 규칙 기반 계획으로 남는다.
-    const qres = await caller.call('questions.design', {
-      ctx, mockAlias: 'rule-based', reserve: { key: `profile:${p.id}:qdesign`, amount: config.profileRate.reserve },
-      invoke: (a) => a.designQuestions({ department: p.role || '', schoolItems, claims, trendItems, count: MODEL_MAX }),
-      mock: () => ({ questions: [] }),
-      validate: (o) => Array.isArray(o?.questions),
-    });
-    plan.provider_trace.push(qres.trace);
-    if (qres.trace.mode !== 'live') return plan;
-    const evidence = [...schoolItems.map((x) => ({ id: x.id, text: `${x.label} ${x.quote}` })), ...claims.map((c) => ({ id: c.id, text: c.quote })), ...trendItems.map((t) => ({ id: t.id, text: `${t.title} ${t.summary}` }))];
-    const { questions, dropped } = validateDesignedQuestions(qres.value, evidence, { promptVersion: QUESTIONS_PROMPT_VERSION, extraText: String(p.role || '') });
-    plan.dropped_model_questions = dropped;
-    plan.model_questions = questions.map((q) => ({ ...q, provider_trace: qres.trace, ...(q.trend_ids.length ? { trend_label: TREND_MOCK_LABEL } : {}) }));
-    if (plan.model_questions.length) plan.generator = 'gemini';
-    if (!plan.model_questions.some((q) => q.trend_ids.length)) { plan.trend.used = false; plan.trend.ids = []; }
+    } else {
+      const qres = await caller.call('questions.design', {
+        ctx, mockAlias: 'rule-based', reserve: { key: `profile:${p.id}:qdesign`, amount: config.profileRate.reserve },
+        invoke: (a) => a.designStages({ department: p.role || '', competencies, claims: [...claims, ...limits] }),
+        mock: () => ({ stages: [] }),
+        validate: (o) => Array.isArray(o?.stages),
+      });
+      plan.provider_trace.push(qres.trace);
+      if (qres.trace.mode === 'live') {
+        const evidence = [...competencies.map((x) => ({ id: x.id, text: `${x.label} ${x.quote}` })), ...[...claims, ...limits].map((c) => ({ id: c.id, text: c.quote }))];
+        const v2 = validateModelStages(qres.value, evidence, { promptVersion: STAGES_PROMPT_VERSION, extraText: String(p.role || '') });
+        modelStages = v2.stages; plan.dropped_model_questions = v2.dropped;
+      }
+    }
+    plan.general = buildGeneralPlan({ department: p.role || '', competencies, claims, limits, modelStages, seed, generator: [...plan.provider_trace].reverse().find((t) => t.mode === 'live')?.provider || 'gemini', provider_trace: plan.provider_trace });
+    plan.generator = plan.general.generator;
     return plan;
   }
 
@@ -348,7 +373,7 @@ export function createProfileHandlers(d) {
     }
     const override = typeof body.source_text === 'string' && body.source_text.trim() ? body.source_text : null;
     const pastedRaw = maskPii(String(override ?? p.source_text ?? '')).normalize('NFC').trim().slice(0, 20000);
-    if (pastedRaw.length >= 2 && !segments.some((s) => s.text === pastedRaw)) segments.push({ id: 'pasted', title: '붙여넣은 모집요강', text: pastedRaw, trusted: !override && p.synthetic === true });
+    if (pastedRaw.length >= 2 && !segments.some((s) => maskPii(s.text).normalize('NFC').trim() === pastedRaw)) segments.push({ id: 'pasted', title: '붙여넣은 모집요강', text: pastedRaw, trusted: !override && p.synthetic === true });
     if (!segments.length) return err('conflict', '분석할 자료가 없습니다. 입학처 URL을 입력하거나 모집요강을 붙여넣어 주세요.', 409);
     for (const s of used) s.confirmed_at = t; // 서버가 분석에 사용한 시점
     const synthetic = segments.every((s) => s.trusted);
@@ -367,12 +392,15 @@ export function createProfileHandlers(d) {
     // 모델 결과가 전부 검증에서 탈락하면 규칙 기반으로 되돌린다.
     if (verified && !verified.talent_traits.length && !verified.admission_elements.length && !verified.interview_format.length) { verified = null; mode = 'rule_based'; res.trace.degraded_reason = 'no_verified_quotes'; }
     if (!verified) verified = verifyAnalysis(ruleBasedAnalysis(segments), segments);
+    // 모델이 인재상·역량 칸을 비웠으면(역량을 전형 요소 칸에 넣는 경우가 있다) 규칙 기반 역량을 하한선으로 채운다. 근거 확인 화면의 '핵심 역량'이 비지 않게 한다.
+    if (mode === 'gemini' && !verified.talent_traits.length) verified.talent_traits = verifyAnalysis(ruleBasedAnalysis(segments), segments).talent_traits;
     const { dropped, ...cats } = verified;
+    // analysis_mode 'gemini'는 구 이름: 모델 분석이면 공급자와 무관하게 이 값이고, 실제 공급자는 analysis_provider다.
     const analysis = {
       ...cats,
       unconfirmed: buildUnconfirmed(cats, mode === 'gemini' ? res.value.unconfirmed : []),
       sources: segments.map((s) => { const r = used.find((u) => u.id === s.id); return r ? { id: r.id, url: r.url, title: r.title, kind: r.kind, status: r.status, retrieved_at: r.retrieved_at, confirmed_at: t, published_at: r.published_at || null } : { id: s.id, url: null, title: s.title, kind: 'user', status: 'user_supplied', retrieved_at: t, confirmed_at: t, published_at: null }; }),
-      analysis_mode: mode, analyzed_at: t, provider_trace: [res.trace],
+      analysis_mode: mode, analysis_provider: res.trace.mode === 'live' ? res.trace.provider : 'rule', analyzed_at: t, provider_trace: [res.trace],
       ...(mode === 'gemini' && dropped ? { rejected_quotes: dropped } : {}),
     };
     const inst = store.getInstitution(profileId)?.profile || rebuildInstitution(p, profileId);
@@ -432,8 +460,79 @@ export function createProfileHandlers(d) {
     const seedNum = (Number(query.seed) || 0) >>> 0;
     const institution = store.getInstitution(profileId)?.profile || null;
     const plan = planGeneralQuestions({ version, institution, orgType: p.org_type, trends, qCount: questionCountForDuration(duration), seedNum, excludedClaimIds: excluded, modelQuestions: approved?.plan?.model_questions || [] });
-    return { status: 200, body: { profile_id: profileId, version_id: version?.id || null, frozen, excluded_claim_ids: excluded, question_basis: plan.question_basis, generator: plan.questions.some((q) => q.generator === 'gemini') ? 'gemini' : 'rule', questions: plan.questions.map(publicPlanItem) } };
+    // 일반 면접 5단계: 승인본은 동결 계획, 승인 전에는 규칙 기반 미리보기(모델 호출 없음).
+    const general = approved?.plan?.general || buildGeneralPlan({ department: p.role || '', competencies: competencyItems(institution), claims: claimItems(version, excluded), limits: limitationSentences(p.application_text) });
+    return { status: 200, body: { profile_id: profileId, version_id: version?.id || null, frozen, excluded_claim_ids: excluded, question_basis: plan.question_basis, generator: plan.questions.some((q) => q.generator === 'gemini') ? 'gemini' : 'rule', questions: plan.questions.map(publicPlanItem), format: 'general', stages: general.stages, stages_generator: general.generator } };
   }
 
-  return { createProfile, analyzeSchool, getProfile, approveProfile, addInstitutionSource, fetchInstitutionSource, getInstitution, listClaims, setClaimExcluded, getPlan };
+  // ---- 렌치 커스텀: 핵심 역량·면접 형태 직접 입력(2026-10-31) ----
+  // 승인 전 초안에만 반영되고, 승인된 프로필은 재승인이 필요하다. 면접 형태는 일반 면접만 선택할 수 있다.
+  function customize(owner, profileId, body = {}) {
+    const p = store.getProfile(owner, profileId);
+    if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
+    const row = store.getInstitution(profileId);
+    if (!row) return err('not_found', '기관 분석이 없습니다.', 404);
+    const inst = { ...row.profile };
+    if (body.competencies !== undefined) {
+      if (!Array.isArray(body.competencies) || body.competencies.length > 8) return err('validation_error', '역량은 최대 8개까지 입력할 수 있습니다.', 422);
+      const list = body.competencies.map((x) => String(x ?? '').normalize('NFC').trim()).filter(Boolean);
+      if (list.some((x) => [...x].length > 20)) return err('validation_error', '역량 하나는 20자 이내로 입력해 주세요.', 422);
+      inst.custom_competencies = [...new Set(list)].map((label, i) => ({ id: `trait-u${i + 1}`, label, status: 'user_supplied' }));
+    }
+    if (body.interview_format !== undefined) {
+      const f = INTERVIEW_FORMATS.find((x) => x.id === body.interview_format);
+      if (!f) return err('validation_error', '알 수 없는 면접 형태입니다.', 422);
+      if (!f.enabled) return err('not_implemented', '특수 면접은 아직 준비 중입니다. 일반 면접으로 진행해 주세요.', 422);
+      inst.custom_interview_format = f.id;
+    }
+    const approvedNow = row.status === 'approved';
+    store.setInstitution(profileId, inst, approvedNow ? 'review' : row.status);
+    if (approvedNow) { p.status = 'review'; p.needs_reapproval = true; }
+    return { status: 200, body: { profile_id: profileId, custom_competencies: inst.custom_competencies || [], custom_interview_format: inst.custom_interview_format || 'general', needs_reapproval: approvedNow } };
+  }
+
+  // ---- 학교·전형 검색(Google Search grounding, 2026-10-31) ----
+  // 유료 티어 전용이라 GEMINI_GROUNDING_ACK=true + 무료 전용 해제가 모두 있어야 호출한다(조용한 유료 전환 금지).
+  // 결과 텍스트는 이 사용자 프로필 안에만 이력으로 보관하고(SEARCH_RETENTION_DAYS, 기본 150일) 다른 사용자와 공유·캐시하지 않는다.
+  const liveHistory = (inst) => (inst?.search_history || []).filter((h) => Date.parse(h.expires_at) > Date.now());
+  async function searchSchool(owner, profileId) {
+    const p = store.getProfile(owner, profileId);
+    if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
+    const row = store.getInstitution(profileId);
+    if (!row) return err('not_found', '기관 분석이 없습니다.', 404);
+    if (!p.school_name && !p.target_name) return err('validation_error', '학교명이 필요합니다.', 422);
+    const ctx = requestContext(owner, { synthetic: p.synthetic === true });
+    const planned = caller.plan('school.search', ctx);
+    const groundingOff = !config.gemini.groundingAck || config.gemini.freeOnly !== false;
+    if (!planned.live || groundingOff) {
+      const reason = groundingOff ? 'grounding_ack_missing' : planned.reason;
+      return { status: 200, body: { profile_id: profileId, status: 'blocked', reason, provider_trace: [{ operation: 'school.search', provider: 'mock', mode: 'blocked', reason, model_alias: 'none', latency_ms: null }], history: liveHistory(row.profile) } };
+    }
+    const limited = checkRate(owner, 'search');
+    if (limited) return limited;
+    const year = String(Number(now().slice(0, 4)) + 1); // 수시 지원 학년도(다음 해)
+    const res = await caller.call('school.search', {
+      ctx, mockAlias: 'none', reserve: { key: `profile:${profileId}:search`, amount: config.profileRate.reserve },
+      invoke: (a) => a.searchSchool({ school: p.school_name || p.target_name, department: p.department || p.role, track: p.track, year }),
+      mock: () => null, fallback: () => null,
+      validate: (o) => typeof o?.text === 'string' && o.text.trim().length > 0,
+    });
+    if (!res.live) return { status: 200, body: { profile_id: profileId, status: 'failed', reason: res.trace.reason, provider_trace: [res.trace], history: liveHistory(row.profile) } };
+    const g = res.value.grounding || {};
+    const sources = (g.groundingChunks || []).map((c) => c?.web).filter((w) => w && /^https?:\/\//.test(String(w.uri || ''))).slice(0, 8).map((w) => ({ url: String(w.uri).slice(0, 500), title: String(w.title || '').slice(0, 120) }));
+    // 출처가 하나도 없으면 검색 근거가 없는 답이므로 채택하지 않는다.
+    if (!sources.length) return { status: 200, body: { profile_id: profileId, status: 'failed', reason: 'no_grounding_sources', provider_trace: [res.trace], history: liveHistory(row.profile) } };
+    // Gemini API 추가 약관(Grounding, 2026-04-28 판, docs/decisions/2026-10-31-grounding-retention.md):
+    // - 결과는 수정 없이 프롬프트를 낸 사용자에게만, 추천 검색어(최대 5개)와 함께 보여 준다 → 텍스트를 그대로 돌려준다.
+    // - 저장은 '링크 제외 텍스트'만, 사용자가 자기 기록을 보는 목적으로 최대 6개월 → 출처 링크·추천 검색어 HTML은 저장하지 않는다.
+    // - 다른 목적(질문 생성 근거·분석·캐시) 사용 금지 → 역량 후보로 자동 투입하지 않는다. 사용자가 읽고 렌치로 직접 입력한다.
+    const t = now();
+    const text = res.value.text.normalize('NFC').trim().slice(0, 2000);
+    const entry = { id: randomUUID(), query: { school: p.school_name || p.target_name, department: p.department || p.role, track: p.track || '', year }, text, searched_at: t, expires_at: new Date(Date.now() + config.gemini.searchRetentionDays * 864e5).toISOString() };
+    store.setInstitution(profileId, { ...row.profile, search_history: [entry, ...liveHistory(row.profile)].slice(0, 5) }, row.status);
+    const display = { sources, suggestions_html: typeof g.searchEntryPoint?.renderedContent === 'string' ? g.searchEntryPoint.renderedContent.slice(0, 20000) : null };
+    return { status: 200, body: { profile_id: profileId, status: 'ok', entry: { ...entry, ...display }, provider_trace: [res.trace] } };
+  }
+
+  return { createProfile, analyzeSchool, getProfile, approveProfile, addInstitutionSource, fetchInstitutionSource, getInstitution, listClaims, setClaimExcluded, getPlan, customize, searchSchool };
 }

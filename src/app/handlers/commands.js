@@ -14,6 +14,7 @@ import { nextAiUtterance, moderatorLine, recordDiscussionTurn } from '../../doma
 import { validateDialogueOutput, validateFollowupOutput } from '../../providers/validate.js';
 import { buildLlmEvaluation } from '../../domain/llm-eval.js';
 import { checkFeedbackSafety } from '../../domain/evaluation.js';
+import { SPOKEN, ruleFollowup, ruleTurnScore, validTurnScore, competencyFit } from '../../domain/interview-format.js';
 
 export function createCommandHandlers(d) {
   const { config, store, err, now, caller, mock, requestContext, checkRate, publicSession } = d;
@@ -82,6 +83,12 @@ export function createCommandHandlers(d) {
       } else if (it === 'panel' && Array.isArray(s.panel_roles) && s.panel_roles.length) {
         store.pushEvent(s.id, 'assistant.message', { utterance: `패널 면접을 시작합니다. ${s.panel_roles.map((r) => ROLES[r]?.label || r).join(' · ')} 면접관이 돌아가며 질문합니다.`, speaker_id: 'moderator' });
       }
+      if (s.format === 'general') {
+        // 일반 면접: 인사 + 첫 질문. 질문을 보낸 시각부터 답변 제한시간을 잰다.
+        store.updateSession(s, { question_started_at: now(), awaiting_followup: false });
+        store.pushEvent(s.id, 'assistant.message', { utterance: `${SPOKEN.opening} ${s.questions[0].text}`, action: 'opening', stage: s.questions[0].stage });
+        return accept({ command_id: commandId, state: 'active', version: s.version, opening: SPOKEN.opening, question: roomQuestion(s.questions[0]), question_total: s.questions.length, answer_seconds: s.answer_seconds });
+      }
       const base0 = { command_id: commandId, state: 'active', version: s.version, question: s.questions[s.q_index], question_total: s.questions.length, last_seq: (store.events.get(s.id) || []).length };
       if (openings.length) base0.openings = openings;
       if (it === 'discussion') base0.discussion = publicSession(s).discussion;
@@ -136,6 +143,7 @@ export function createCommandHandlers(d) {
       const answered = store.sessionTurns(s.id).filter((t) => t.speaker_id === 'user').length;
       if (answered >= config.limits.maxUserTurns) return finishSession(owner, s, accept, commandId);
       const it = s.interview_type || s.mode || 'general';
+      if (s.format === 'general') return generalTurn(owner, s, text, payload, commandId, accept);
       // 토론 턴: 사용자 발언 → 상태 기록 → 다음 화자 1명 발언을 함께 반환.
       // 4번째 사용자 발언이 끝나면 사회자가 정리하고 자동 종료한다(발언 기회 4회 보장).
       if (it === 'discussion') {
@@ -351,6 +359,84 @@ export function createCommandHandlers(d) {
     return err('validation_error', '알 수 없는 명령입니다.', 422);
   }
 
+  // ---- 일반 면접 5단계(2026-10-31) ----
+  // 면접실에 보낼 질문: 질문 문장과 단계만(근거는 면접 중에 보여 주지 않는다).
+  const roomQuestion = (q) => (q ? { id: q.id, text: q.text, stage: q.stage } : null);
+  const schoolContextOf = (s) => {
+    const sv = s.profile_version_id ? store.getVersion(s.profile_version_id) : null;
+    return (sv?.plan?.general?.competencies || []).map((c) => String(c.label || '').trim()).filter(Boolean).slice(0, 5);
+  };
+  // 음성 지표는 브라우저에서 계산한 숫자만 받는다(오디오 없음). 범위를 벗어나면 버린다.
+  const VOICE_KEYS = { speech_seconds: 600, silence_count: 200, longest_silence_seconds: 600, speech_ratio: 1, volume_cv: 10, pitch_jitter: 1 };
+  const sanitizeVoice = (v) => {
+    if (!v || typeof v !== 'object') return null;
+    const out = {};
+    for (const [k, max] of Object.entries(VOICE_KEYS)) { const n = Number(v[k]); if (Number.isFinite(n) && n >= 0 && n <= max) out[k] = Math.round(n * 1000) / 1000; }
+    return Object.keys(out).length ? out : null;
+  };
+
+  async function generalTurn(owner, s, text, payload, commandId, accept) {
+    const q = s.questions[s.q_index];
+    if (!q) return err('conflict', '남은 질문이 없습니다.', 409);
+    const followupTurn = !!s.awaiting_followup;
+    const askedText = followupTurn ? s.current_followup : q.text;
+    const limitMs = (s.answer_seconds + config.budgets.answerGraceSeconds) * 1000;
+    const cutOff = payload.cut_off === true || (!!s.question_started_at && Date.now() - Date.parse(s.question_started_at) > limitMs);
+    const turn = store.createTurn(s.id, { speaker_id: 'user', question_id: q.id, competency: q.primary, followup: followupTurn, elicited_dims: followupTurn ? [q.primary] : [q.primary, ...(q.secondary || [])] });
+    const rev = store.addRevision(turn.id, text, 'user', detectPii(text).map((x) => x.type));
+    Object.assign(turn, { cut_off: cutOff, voice_metrics: sanitizeVoice(payload.voice_metrics), asked_text: askedText, stage: q.stage });
+    const canFollow = q.followup_allowed && !followupTurn;
+    const ctx = requestContext(owner, { synthetic: rev.synthetic === true });
+    const contextText = `${askedText}\n${text}`;
+    const followupReason = followupReasonFor(text);
+    const ruleNext = () => { const f = canFollow ? ruleFollowup(q.stage, text) : null; return f ? { action: 'followup', utterance: f, turn_score: ruleTurnScore(text) } : { action: 'next', turn_score: ruleTurnScore(text) }; };
+    let decision; let trace;
+    if (s.llm_calls >= config.budgets.maxLlmCallsPerSession - 3) {
+      decision = ruleNext(); trace = { operation: 'dialogue.next', provider: 'mock', mode: 'blocked', reason: 'budget_cap', model_alias: 'rule-based', latency_ms: null };
+    } else {
+      const res = await caller.call('dialogue.next', {
+        ctx, mockAlias: 'rule-based', reserve: { key: `session:${s.id}`, amount: 0.005 },
+        invoke: (a) => (a.decideTurn ? a.decideTurn({ stageLabel: q.stage_label, question: askedText, answer: text, followupReason, schoolContext: schoolContextOf(s), allowFollowup: canFollow }) : Promise.reject(Object.assign(new Error('decideTurn unsupported'), { invalid: true }))),
+        mock: ruleNext, fallback: ruleNext,
+        // 꼬리질문 문장은 기존 대화 검증기(240자·물음표 1개·금칙어·새 숫자 금지)를 통과해야 한다. 점수가 형식에 안 맞으면 규칙 점수로 바꾼다.
+        validate: (o) => o?.action === 'next' || (o?.action === 'followup' && validateDialogueOutput(o, contextText) && (String(o.utterance).match(/[?？]/g) || []).length === 1),
+      });
+      trace = res.trace; decision = res.value;
+      if (['live', 'fallback'].includes(trace.mode)) s.llm_calls += 1; // 실제로 호출한 경우만 센다
+      if (res.live && !validTurnScore(decision.turn_score)) decision = { ...decision, turn_score: ruleTurnScore(text), score_source: 'rule' };
+    }
+    pushTrace(s, trace);
+    if (decision.action === 'followup' && !canFollow) decision = { ...decision, action: 'next' };
+    turn.turn_score = { ...decision.turn_score, source: trace.mode === 'live' && decision.score_source !== 'rule' ? 'llm' : 'rule' };
+    const base = { command_id: commandId, turn_id: turn.id, revision: rev.revision, ack: SPOKEN.ack, cut_off: cutOff, provider: trace.mode === 'live' ? trace.provider : 'mock', provider_trace: [trace], llm_calls: s.llm_calls };
+    if (decision.action === 'followup') {
+      store.updateSession(s, { awaiting_followup: true, current_followup: String(decision.utterance).trim(), followups_used: s.followups_used + 1, question_started_at: now() });
+      store.pushEvent(s.id, 'assistant.message', { utterance: s.current_followup, action: 'ask_followup', stage: q.stage, followup_reason: followupReason });
+      return accept({ ...base, state: s.state, version: s.version, action: 'ask_followup', utterance: s.current_followup, followups_used: s.followups_used });
+    }
+    const nextIndex = s.q_index + 1;
+    store.updateSession(s, { awaiting_followup: false, current_followup: null, q_index: nextIndex });
+    if (nextIndex >= s.questions.length) {
+      let captured = null;
+      const fin = await finishSession(owner, s, (resp) => { captured = { ...resp, ...base, action: 'finish', closing: SPOKEN.closing, utterance: SPOKEN.closing }; accept(captured); }, commandId);
+      if (fin.error) return fin;
+      return { status: fin.status, body: captured || fin.body };
+    }
+    const nq = s.questions[nextIndex];
+    store.updateSession(s, { question_started_at: now() });
+    store.pushEvent(s.id, 'assistant.message', { utterance: `${q.bridge || ''} ${nq.text}`.trim(), action: 'next_question', stage: nq.stage });
+    return accept({ ...base, state: s.state, version: s.version, action: 'next_question', bridge: q.bridge || '', question: roomQuestion(nq), utterance: `${q.bridge || ''} ${nq.text}`.trim(), current_question: roomQuestion(nq) });
+  }
+
+  // 보고서용 질문·답변 기록(일반 면접): 본질문·꼬리질문을 구분하고, 근거(i 버튼)·참고 점수·음성 지표를 붙인다.
+  function generalTranscript(s) {
+    return store.sessionTurns(s.id).filter((t) => t.speaker_id === 'user').map((t) => {
+      const q = s.questions.find((x) => x.id === t.question_id) || {};
+      const revs = store.getRevisions(t.id); const rev = revs[revs.length - 1];
+      return { turn_id: t.id, question_id: q.id, stage: q.stage, stage_label: q.stage_label, is_followup: !!t.followup, question_text: t.asked_text || q.text, answer_text: rev?.normalized_text || '', revision: rev?.revision || 1, cut_off: !!t.cut_off, turn_score: t.turn_score || null, voice_metrics: t.voice_metrics || null, evidence: t.followup ? [] : (q.evidence || []) };
+    });
+  }
+
   function finishSession(owner, s, accept, commandId) {
     return finishSessionAsync(owner, s, accept, commandId);
   }
@@ -426,9 +512,10 @@ export function createCommandHandlers(d) {
           institution_link = linkAnswersToInstitution({ institution: inst, turnsWithText });
         }
       }
-      // 재연습 질문: 기관 미관찰 요구 우선
+      const general = s.format === 'general';
+      // 재연습 질문: 기관 미관찰 요구 우선(레거시). 일반 면접 보고서는 적합성 차트가 미관찰 역량을 보여 주므로 중복 항목을 만들지 않는다.
       const next_actions = [...(generated.next_actions || [])];
-      for (const u of (institution_link.uncovered || []).slice(0, 2)) {
+      for (const u of (general ? [] : institution_link.uncovered || []).slice(0, 2)) {
         if (next_actions.length >= 3) break;
         if (next_actions.some((a) => a.practice_question?.includes(u.requirement))) continue;
         next_actions.push({
@@ -451,8 +538,13 @@ export function createCommandHandlers(d) {
         interviewer_role: s.interviewer_role || null,
         role_label: s.interviewer_role ? (ROLES[s.interviewer_role]?.label || null) : null,
         institution: institution_profile,
-        institution_link,
-        claim_links: buildClaimLinks(s, turnsWithText),
+        ...(general ? (() => {
+          // 일반 면접: 질문·답변 기록과 역량 적합성(키워드 일치 기반 참고 지표). 주장 연결·기관 연결 문장은 i 버튼·차트와 겹쳐 싣지 않는다.
+          const transcript = generalTranscript(s);
+          const ver = store.getVersion(s.profile_version_id);
+          const fitTurns = transcript.map((t) => ({ turn_id: t.turn_id, text: t.answer_text, turn_score: t.turn_score }));
+          return { format: 'general', transcript, competency_fit: competencyFit(ver?.plan?.general?.competencies || [], fitTurns), score_label: '면접관 실시간 참고 점수 · 검증 전', fit_label: '역량 키워드 일치 기반 참고 지표 · 검증 전' };
+        })() : { institution_link, claim_links: buildClaimLinks(s, turnsWithText) }),
         model_version: (evalRes.live ? evalRes.value.model : generated.model_version) || 'mock-model-v1',
         interview_type: it,
         rubric_version,

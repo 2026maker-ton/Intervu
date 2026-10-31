@@ -41,22 +41,24 @@ try {
   failed = true;
 }
 
-// UI structure guard: 9 screens, journey-only entry, no prompt()/confirm().
+// UI structure guard (2026-10-31, PROJECT.md v1.4.0): 7 screens, university-only entry, extras hidden, no record button, no prompt()/confirm().
 try {
   const html = await readFile(resolve(root, 'public/index.html'), 'utf8');
   const jsFiles = (await readdir(resolve(root, 'public'), { recursive: true })).filter((f) => f.endsWith('.js'));
   const js = (await Promise.all(jsFiles.map((f) => readFile(resolve(root, 'public', f), 'utf8')))).join('\n');
   const screens = [...html.matchAll(/data-screen="([a-z]+)"/g)].map((m) => m[1]);
-  const want = ['dashboard', 'application', 'evidence', 'setup', 'room', 'feedback', 'repractice', 'history', 'admin'];
+  const want = ['login', 'dashboard', 'application', 'evidence', 'setup', 'room', 'feedback'];
   const problems = [];
   for (const s of want) if (!screens.includes(s)) problems.push(`missing screen ${s}`);
+  for (const s of ['repractice', 'history', 'admin']) if (screens.includes(s)) problems.push(`hidden feature screen present: ${s}`);
   if (/data-journey="(public|company)"/.test(html)) problems.push('company/public journey in main UI (out of scope: spec 09)');
   const journeys = [...html.matchAll(/data-journey="([a-z]+)"/g)].map((m) => m[1]).sort().join(',');
-  if (journeys !== 'highschool,university') problems.push(`journeys must be highschool,university (got ${journeys})`);
+  if (journeys !== 'university') problems.push(`journeys must be university only (got ${journeys})`);
+  if (/id="(sttRecBtn|skipApplicationBtn|roomHint)"/.test(html)) problems.push('record button / no-material practice / interview evidence hint must not be in UI');
   if (/\b(?:window\.)?(?:prompt|confirm)\s*\(/.test(js.replace(/ask(?:Confirm|Input)/g, ''))) problems.push('prompt()/confirm() used');
   if (/synthetic\s*:\s*(?:true|freeTest)|free_test\s*:/.test(js)) problems.push('client sends synthetic/free_test flag');
   if (problems.length) { console.error(`FAIL public UI: ${problems.join('; ')}`); failed = true; }
-  else console.log('PASS public UI: 9 screens, highschool/university journeys, no prompt/confirm');
+  else console.log('PASS public UI: 7 screens, university journey, extras hidden, no record button, no prompt/confirm');
 } catch (error) {
   console.error(`FAIL public UI: ${error.message}`);
   failed = true;

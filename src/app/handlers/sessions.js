@@ -8,6 +8,7 @@ import { rubricForInterviewType } from '../../domain/rubrics.js';
 import { getFixture } from '../../domain/fixtures.js';
 import { createDiscussionState, DISCUSSION_TOPICS } from '../../domain/discussion.js';
 import { PT_TASKS, SITUATION_SCENARIOS, TECHNICAL_QUESTIONS, PANEL_PRESETS } from '../../domain/scenarios.js';
+import { INTERVIEW_FORMATS, stageQuestions } from '../../domain/interview-format.js';
 
 // 레거시 mode 값: 하위 호환을 위해 interview_type으로 매핑한다.
 const LEGACY_TYPE_ALIASES = ['structured', 'discussion_beta', 'pt_beta', 'presentation'];
@@ -17,11 +18,9 @@ export function createSessionHandlers(d) {
   // 세션 생성 시점의 라우팅 예고(아직 호출 전): 실제 호출 결과는 명령 응답·보고서의 provider_trace가 알려 준다.
   const planTrace = (p) => ({ operation: p.operation, provider: p.provider, mode: p.mode, reason: p.reason, model_alias: p.live ? p.route.alias : 'mock', latency_ms: null });
   function createSession(owner, body) {
-    if (!body.profile_version_id) {
-      if (body.profile_version_id === undefined) {
-        // 공고 없음 일반모드 허용
-      }
-    }
+    // 일반 면접 5단계(2026-10-31): interview_format을 보내는 클라이언트(현재 UI)는 승인된 학교·학과 계획으로만 진행한다.
+    // interview_format 없이 오는 요청은 레거시 경로(유형별 질문 팩·자료 없는 일반모드)로 남긴다.
+    if (body.interview_format !== undefined) return createGeneralSession(owner, body);
     let version = null;
     let institution = null;
     if (body.profile_version_id) {
@@ -179,6 +178,39 @@ export function createSessionHandlers(d) {
     return { status: 201, body: { sample_answers: sampleAnswersOf(s), id: s.id, state: s.state, version: s.version, interview_type, task_type: s.task_type, participant_layout: s.participant_layout, free_test: !!s.free_test, limits: { duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: dialoguePlan.provider, provider_trace: [planTrace(dialoguePlan)], coverage, interviewer_role: role, role_label: ROLES[role].label, panel_roles: s.panel_roles || null, topic: s.topic_title ? { id: s.topic_id, title: s.topic_title, brief: s.topic_brief } : null, pt_task: s.pt_task_id ? { id: s.pt_task_id, title: s.pt_task_title, brief: s.pt_brief, prepare_seconds: s.pt_prepare_seconds, present_seconds: s.pt_present_seconds } : null, scenario: s.scenario_id ? { id: s.scenario_id, title: s.scenario_title } : null, rubric_version, question_basis } };
   }
 
+  function createGeneralSession(owner, body) {
+    const f = INTERVIEW_FORMATS.find((x) => x.id === body.interview_format);
+    if (!f) return err('validation_error', '알 수 없는 면접 형태입니다.', 422);
+    if (!f.enabled) return err('not_implemented', '특수 면접은 아직 준비 중입니다. 일반 면접으로 진행해 주세요.', 422);
+    if (!body.profile_version_id) return err('validation_error', '학교·학과 근거를 승인한 뒤 면접을 시작할 수 있습니다.', 422);
+    const version = store.getVersion(body.profile_version_id);
+    if (!version || version.status !== 'approved') return err('conflict', '승인된 공고 버전이 필요합니다.', 409);
+    const p = store.getProfile(owner, version.profile_id);
+    if (!p) return err('not_found', '프로필을 찾을 수 없습니다.', 404);
+    if (new Date(p.expires_at).getTime() < Date.now()) return err('conflict', '만료된 프로필입니다.', 409);
+    const plan = version.plan?.general;
+    if (!plan?.stages?.length) return err('conflict', '질문 계획이 없습니다. 근거를 다시 승인해 주세요.', 409);
+    const active = store.listSessions(owner).find((s) => ['active', 'paused', 'completing'].includes(s.state));
+    if (active) return err('conflict', '이미 진행 중인 세션이 있습니다.', 409, { details: { session_id: active.id } });
+    if (ledger.monthlyAvailable() < config.budgets.sessionHardCap) return err('quota_exceeded', '예산 한도를 초과했습니다.', 429, { retryable: true, details: { reason: 'monthly budget exceeded' } });
+    const sessionCtx = requestContext(owner, {});
+    const dialoguePlan = caller.plan('dialogue.next', sessionCtx);
+    const questions = stageQuestions(plan);
+    // 세션 상한: 본질문·꼬리질문 모두 답변 제한시간 + 여유. 화면에는 전체 시계를 보이지 않는다.
+    const duration_seconds = questions.length * 2 * (config.budgets.answerSeconds + 45);
+    const role = normalizeRole(null, p.org_type || 'university');
+    const s = store.createSession(owner, {
+      interview_type: 'general', mode: 'general', duration_minutes: Math.ceil(duration_seconds / 60), duration_seconds,
+      input_mode: ['groq', 'text'].includes(body.input_mode) ? body.input_mode : 'text', persona: 'standard', interviewer_role: role,
+      profile_version_id: version.id, questions, question_basis: '일반 면접 5단계', free_test: syntheticTraffic,
+      server_synthetic: p.synthetic === true, sample_fixture_id: p.synthetic === true ? p.fixture_id || null : null,
+      policy_snapshot: { provider: dialoguePlan.provider, model: config.gemini.textModel, rubric: 'behavioral-ko-v1', format: 'general', budget_cap: config.budgets.sessionHardCap, interviewer_role: role, question_basis: '일반 면접 5단계', institution_approved: true },
+    });
+    store.updateSession(s, { format: 'general', answer_seconds: config.budgets.answerSeconds, coverage: { general_stages: questions.length }, question_basis: '일반 면접 5단계' });
+    store.pushEvent(s.id, 'session.snapshot', { state: 'ready', questions: questions.length, format: 'general' });
+    return { status: 201, body: { id: s.id, state: s.state, version: s.version, interview_type: 'general', interview_format: 'general', limits: { duration_seconds, answer_seconds: config.budgets.answerSeconds, question_count: questions.length, max_user_turns: config.limits.maxUserTurns, budget_cap: config.budgets.sessionHardCap }, provider: dialoguePlan.provider, provider_trace: [planTrace(dialoguePlan)], rubric_version: 'behavioral-ko-v1', question_basis: '일반 면접 5단계', sample_answers: sampleAnswersOf(s) } };
+  }
+
   function getSession(owner, id) {
     const s = store.getSession(owner, id);
     if (!s) return err('not_found', '세션을 찾을 수 없습니다.', 404);
@@ -198,6 +230,7 @@ export function createSessionHandlers(d) {
       duration_minutes: s.duration_minutes, duration_seconds: s.duration_seconds, input_mode: s.input_mode,
       active_elapsed_ms: s.active_elapsed_ms + (s.state === 'active' && s.started_at ? Math.max(0, Date.now() - Date.parse(s.started_at)) : 0), questions: s.questions.map((q) => ({ id: q.id, text: q.text, primary: q.primary, secondary: q.secondary, ...(q.trend_ids ? { trend_ids: q.trend_ids, source_status: q.source_status, basis: q._institution_basis } : {}), ...(q.application_evidence ? { application_evidence: q.application_evidence, source_status: q.source_status, prompt_version: q.prompt_version } : {}) })), q_index: s.q_index,
       current_question: s.questions[s.q_index] || null, followups_used: s.followups_used, llm_calls: s.llm_calls,
+      format: s.format || null, answer_seconds: s.answer_seconds || null, awaiting_followup: !!s.awaiting_followup, current_followup: s.awaiting_followup ? s.current_followup : null,
       coverage: s.coverage || null, degraded_reason: s.degraded_reason, provider_trace: (s.provider_trace || []).slice(-20), last_seq: (store.events.get(s.id) || []).filter((e) => e.durable).length,
     };
     if (s.interview_type === 'discussion') {

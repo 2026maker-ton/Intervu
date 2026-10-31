@@ -112,6 +112,7 @@ export function extractApplicantClaims(text = '', { doc = null, bullets = false,
 
 const oneLine = (s) => String(s).replace(/\s+/g, ' ').trim();
 const cut = (s, n) => { const a = Array.from(s); return a.length > n ? `${a.slice(0, n).join('')}…` : s; };
+export const displayQuote = (q) => cut(oneLine(q), DISPLAY_QUOTE_CP);
 
 // 문서별 최신 revision(마스킹본) 주장. id는 startIndex부터 연번(버전 안에서 유일). posting은 제외.
 // docs: [{ id, kind, revision, text }]. span은 각 문서 revision 텍스트 기준.

@@ -12,7 +12,7 @@ test('부정 문맥·일반 문구는 허용', () => {
   for (const t of ['합격 예측이 아닙니다', '감정 분석은 하지 않습니다', '규칙 기반 참고 관찰', '']) assert.equal(containsBannedExpression(t), false, t);
 });
 test('reason 매핑 완전성', () => {
-  const reasons = ['rate_limited', 'timeout', 'invalid_output', 'budget_cap', 'kill_switch', 'not_configured', 'live_ack_missing', 'real_data_ack_missing', 'consent_missing', 'synthetic_only'];
+  const reasons = ['rate_limited', 'timeout', 'invalid_output', 'budget_cap', 'kill_switch', 'not_configured', 'live_ack_missing', 'real_data_ack_missing', 'consent_missing', 'synthetic_only', 'grounding_ack_missing', 'no_grounding_sources'];
   for (const r of reasons) assert.ok(REASON_COPY[r] && /[가-힣]/.test(REASON_COPY[r]), r);
   assert.equal(Object.keys(REASON_COPY).length, reasons.length);
   assert.ok(reasonCopy('unknown_x'));

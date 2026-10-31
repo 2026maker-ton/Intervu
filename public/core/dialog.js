@@ -1,7 +1,7 @@
 import { $ } from './format.js';
 
 // ---- 대화상자 (prompt/confirm 대체) ----
-export function dialog({ title, message = '', label = '', value = '', multiline = false, okText = '확인', danger = false }) {
+export function dialog({ title, message = '', label = '', value = '', multiline = false, okText = '확인', danger = false, choices = null }) {
   return new Promise((resolve) => {
     const dlg = $('#confirmDialog');
     if (!dlg) return resolve(null);
@@ -13,8 +13,11 @@ export function dialog({ title, message = '', label = '', value = '', multiline 
     const area = $('#confirmText');
     wrap.hidden = !label;
     if (label) $('#confirmInputLabel').textContent = label;
-    input.hidden = multiline;
-    area.hidden = !multiline;
+    document.getElementById('confirmChoice')?.remove();
+    let choice = null;
+    if(choices){choice=document.createElement('select');choice.id='confirmChoice';choice.setAttribute('aria-label',label);for(const [v,t,disabled] of choices){const o=document.createElement('option');o.value=v;o.textContent=t;o.disabled=!!disabled;choice.append(o);}if(value)choice.value=value;wrap.append(choice);}
+    input.hidden = multiline || !!choices;
+    area.hidden = !multiline || !!choices;
     if (multiline) area.value = value; else input.value = value;
     const ok = $('#confirmOk');
     const cancel = $('#confirmCancel');
@@ -31,13 +34,13 @@ export function dialog({ title, message = '', label = '', value = '', multiline 
     ok.onclick = (e) => {
       e.preventDefault();
       if (!label) return done('ok');
-      const v = (multiline ? area.value : input.value).trim();
+      const v = (choice ? choice.value : multiline ? area.value : input.value).trim();
       return done(v || null);
     };
     cancel.onclick = (e) => { e.preventDefault(); done(null); };
     dlg.showModal();
     // 입력이 없는 확인창은 기본 포커스를 취소에 둔다(위험 행동 오작동 방지, 06 오버레이 규칙).
-    setTimeout(() => { try { (!label ? cancel : multiline ? area : input).focus(); } catch { /* noop */ } }, 30);
+    setTimeout(() => { try { (!label ? cancel : choice || (multiline ? area : input)).focus(); } catch { /* noop */ } }, 30);
   });
 }
 export const askConfirm = async (title, message, opts = {}) => (await dialog({ title, message, ...opts })) === 'ok';

@@ -42,14 +42,24 @@ export const FIXED = {
   noLieJudge: '거짓 여부를 판정하지 않습니다',
   singleCompare: '단일 재연습 비교는 학습 효과를 입증하지 않습니다',
   fallback: 'AI 응답을 받지 못해 기본 질문으로 이어갑니다.',
+  // 면접관 고정 문장(서버 src/domain/interview-format.js SPOKEN과 같다)
+  opening: '안녕하세요. 지금부터 면접을 시작하겠습니다.',
+  ack: '네 답변 잘 들었습니다.',
+  cutoff: '네, 거기까지만 말해주시면 될 것 같습니다.',
+  closing: '이것으로 면접을 마치겠습니다. 수고하셨습니다.',
+  scoreLabel: '면접관 실시간 참고 점수 · 검증 전',
+  fitLabel: '역량 키워드 일치 기반 참고 지표 · 검증 전',
+  voiceLabel: '음성 참고 지표 · 기기 안에서 계산 · 검증 전',
+  aiSearch: 'AI 검색 · 미검증',
 };
+export const STAGE_LABEL = { intro: '도입 및 자기소개', academic: '학업 및 전공 적합성', experience: '경험 검증', reflection: '문제 해결 및 성찰', closing: '마무리' };
 
 // ---- 출처 상태 라벨 (06 §6, 고정) ----
 export const SOURCE_STATUS = {
   official_verified: { label: '공식 자료 확인', tone: 'ok', icon: '✓', hint: '서버가 공식 도메인에서 수집·발췌 확인(수집기 구현 후에만 사용)' },
   user_supplied: { label: '사용자 제공', tone: 'info', icon: '✎', hint: '직접 입력·업로드. 진위 미확인' },
   monthly_trend: { label: '월간 트렌드(보조)', tone: 'neutral', icon: '≈', hint: '관리자 검수 자료. 기관 공식 요구가 아님' },
-  demo_fixture: { label: '데모 fixture(실제 학교 아님)', tone: 'info', icon: '◇', hint: '합성 데모 자료. 실제 학교의 공식 자료가 아님' },
+  demo_fixture: { label: '샘플 예시 설명(공식 모집요강 아님)', tone: 'info', icon: '◇', hint: '합성 데모 자료. 실제 학교의 공식 자료가 아님' },
   monthly_trend_mock: { label: '월간 트렌드(Mock · 보조)', tone: 'neutral', icon: '≈', hint: 'Mock 데이터. 실제 입시·교육 이슈나 학교의 공식 요구가 아님' },
   unverified: { label: '확인되지 않음', tone: 'warn', icon: '?', hint: '근거 부족' },
   unavailable: { label: '수집 실패', tone: 'error', icon: '✕', hint: '접속 불가·거절·시간 초과' },
@@ -69,6 +79,8 @@ export const REASON_COPY = {
   real_data_ack_missing: '실제 지원 자료의 외부 전송 확인이 없어 사용하지 않습니다.',
   consent_missing: '동의가 없어 외부 AI를 사용하지 않습니다.',
   synthetic_only: '합성 샘플에만 외부 AI를 사용할 수 있습니다.',
+  grounding_ack_missing: '검색 기능이 꺼져 있습니다. 모집요강을 붙여넣거나 직접 입력해 주세요.',
+  no_grounding_sources: '검색 출처를 찾지 못해 결과를 쓰지 않았습니다.',
 };
 export const reasonCopy = (r) => REASON_COPY[r] || '기본 동작으로 대체했습니다.';
 

@@ -116,7 +116,48 @@ test('B3 default route stays Gemini/mock: claude is opt-in only and highschool s
   });
   await withProviders({ env: CLAUDE, overrides: syn, respond: () => reply([S1]) }, async (ctx) => {
     const r = await ctx.g('/api/v1/profiles', { method: 'POST', body: { org_type: 'highschool', role: 'x', application_text: APP } });
-    assert.equal(r.status, 201);
+    assert.equal(r.status, 422, 'highschool journey is closed (adult-only service, 2026-10-31)');
     assert.equal(ctx.calls.length, 0, 'highschool never leaves the server');
+  });
+});
+
+// 2026-10-31: Claude가 학교 분석·질문 설계·최종 평가도 맡는다(ROUTE_*). 검증·폴백은 Gemini 때와 같은 서버 규칙이다.
+test('Claude routes: school.analyze / questions.design / evaluation.generate use /messages, server validation unchanged, dialogue stays off Claude', async () => {
+  const text = (o) => new Response(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(o) }], usage: { input_tokens: 80, output_tokens: 40 } }), { status: 200 });
+  const env = { ...CLAUDE, ROUTE_SCHOOL_ANALYZE: 'claude', ROUTE_QUESTIONS_DESIGN: 'claude', ROUTE_EVALUATION_GENERATE: 'claude', ROUTE_DIALOGUE_NEXT: 'mock', ROUTE_QUESTIONS_WRITE: 'claude', CLAUDE_WRITER_MODEL: 'stub-haiku-model' };
+  const respond = (c) => {
+    const b = JSON.stringify(c.body);
+    if (b.includes('SCHOOL_TEXT_UNTRUSTED')) return text({ talent_traits: [{ label: '탐구', quote: '탐구 역량' }, { label: '가짜', quote: '없는 문장' }], admission_elements: [], interview_format: [], unconfirmed: [] });
+    if (b.includes('질문 구조 설계기')) return text({ stages: [{ stage: 'intro', evidence_ids: [], focus: 'motivation', form: 'open' }, { stage: 'academic', evidence_ids: ['trait-1'], focus: 'concept', form: 'case' }, { stage: 'experience', evidence_ids: ['claim-bad'], focus: 'role', form: 'case' }] });
+    if (b.includes('질문 한 개와 연결 문장')) return text({ stages: [{ stage: 'intro', question: '지원한 동기는 무엇인가요?', bridge: '잘 들었습니다.' }, { stage: 'academic', question: '탐구 역량과 관련해 가장 깊이 이해한 개념은 무엇인가요?', bridge: '이어서 들어 보겠습니다.' }, { stage: 'experience', question: '그 일에서 1000명을 만났다는 경험을 설명해 주세요?', bridge: '' }] });
+    return text({ claims: [] });
+  };
+  await withProviders({ env, overrides: syn, respond }, async (ctx) => {
+    const st = await ctx.g('/api/v1/providers/status');
+    for (const op of ['claims.extract', 'school.analyze', 'questions.design', 'evaluation.generate']) assert.equal(st.data.operations[op].provider, 'claude', op);
+    assert.equal(st.data.operations['dialogue.next'].provider, 'mock');
+    const p = await ctx.g('/api/v1/profiles', { method: 'POST', body: { org_type: 'university', school_name: '임의대학교', department: '국문과', source_text: '인재상: 탐구 역량을 봅니다.', application_text: S1 } });
+    assert.equal(p.status, 201, JSON.stringify(p.data));
+    const a = await ctx.g(`/api/v1/profiles/${p.data.id}/school-analysis`, { method: 'POST', body: {} });
+    assert.equal(a.data.analysis_provider, 'claude');
+    assert.deepEqual(a.data.talent_traits.map((t) => t.quote), ['탐구 역량'], 'fabricated quote dropped by the server');
+    assert.ok(ctx.calls.some((c) => c.url.includes('/claude/messages') && JSON.stringify(c.body).includes('SCHOOL_TEXT_UNTRUSTED')));
+    assert.equal(a.data.provider_trace[0].provider, 'claude');
+    const ap = await ctx.g(`/api/v1/profiles/${p.data.id}/approve`, { method: 'POST', body: { version_id: p.data.version_id } });
+    assert.equal(ap.status, 200);
+    const claude = ctx.calls.filter((c) => c.url.includes('/claude/messages'));
+    const sk = claude.find((c) => JSON.stringify(c.body).includes('질문 구조 설계기'));
+    const wr = claude.find((c) => JSON.stringify(c.body).includes('질문 한 개와 연결 문장'));
+    assert.ok(sk && wr, 'two-step: structure then sentences');
+    assert.equal(sk.body.model, 'stub-claude-model', 'Sonnet designs the structure');
+    assert.equal(wr.body.model, 'stub-haiku-model', 'Haiku writes the sentences');
+    assert.ok(!JSON.stringify(sk.body.messages).includes('question'), 'structure prompt never asks the model to write question text');
+    const plan = (await ctx.g(`/api/v1/profiles/${p.data.id}/plan`)).data;
+    const by = Object.fromEntries(plan.stages.map((s) => [s.stage, s]));
+    assert.equal(by.intro.generator, 'claude');
+    assert.equal(by.intro.text, '지원한 동기는 무엇인가요?');
+    assert.equal(by.academic.evidence[0].id, 'trait-1');
+    assert.equal(by.experience.generator, 'rule', 'unknown claim id in structure / fabricated number in sentence -> rule template');
+    assert.ok(!ctx.calls.some((c) => c.url.includes('generateContent')), 'no Gemini call');
   });
 });

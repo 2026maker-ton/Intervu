@@ -50,8 +50,8 @@ test('live gate: evaluation goes live only when every answer is a sample answer'
   });
 });
 
-test('live gate: Groq STT is allowed in a server-judged sample session (read the sample aloud) but not in a normal session', async () => {
-  const fx = FIXTURES.find((f) => f.kind === 'highschool');
+test('live gate: arbitrary microphone audio stays real data even in a fixture session', async () => {
+  const fx = FIXTURES.find((f) => f.ui);
   const audio = new Blob([new Uint8Array(4096).fill(7)], { type: 'audio/webm' });
   const send = async (ctx, id) => {
     const fd = new FormData(); fd.append('file', audio, 'a.webm');
@@ -62,8 +62,8 @@ test('live gate: Groq STT is allowed in a server-judged sample session (read the
   await withProviders({ env: LIVE, respond: (c) => (c.url.includes('stub.groq.test') ? new Response(JSON.stringify({ text: '샘플 답변을 읽었습니다', language: 'ko' }), { status: 200 }) : okReply()) }, async (ctx) => {
     const sample = await fixtureSession(ctx, fx);
     const r1 = await send(ctx, sample.id);
-    assert.equal(r1.status, 200, JSON.stringify(r1.data));
-    assert.ok(ctx.calls.some((c) => c.url.includes('stub.groq.test')), 'sample session reaches the (stub) Groq endpoint');
+    assert.equal(r1.status, 503, JSON.stringify(r1.data));
+    assert.equal(ctx.calls.filter((c) => c.url.includes('stub.groq.test')).length, 0, 'fixture session does not authorize real audio');
     const before = ctx.calls.length;
     await ctx.g(`/api/v1/sessions/${sample.id}`, { method: 'DELETE' }); // 사용자당 활성 세션 1개
     const normal = await ctx.startSession();

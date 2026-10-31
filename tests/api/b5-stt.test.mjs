@@ -5,7 +5,7 @@ import { withProviders, hang } from '../helpers/provider-stub.mjs';
 
 const GKEY = 'gsk_fake_b5_secret_KEY_999';
 const GROQ_BASE = 'https://stub.groq.test/v1';
-const ENV = { GEMINI_API_KEY: '', GROQ_WHISPER_KEY: GKEY, GROQ_BASE_URL: GROQ_BASE, GROQ_LIVE_ACK: 'true', GROQ_TIMEOUT_MS: '80' };
+const ENV = { GEMINI_API_KEY: '', GROQ_WHISPER_KEY: GKEY, GROQ_BASE_URL: GROQ_BASE, GROQ_LIVE_ACK: 'true', GROQ_REAL_DATA_ACK: 'true', GROQ_TIMEOUT_MS: '80' };
 const syn = { syntheticTraffic: true };
 const MARK = 'ZZ-B5-AUDIO-MARKER-ZZ';
 const audio = (n = 4096) => Buffer.from(MARK.repeat(Math.ceil(n / MARK.length))).subarray(0, n);
@@ -30,7 +30,11 @@ const assertNoAudio = (ctx) => {
   for (const needle of [MARK, Buffer.from(MARK).toString('base64').slice(0, 20), Buffer.from(MARK).toString('hex').slice(0, 20)]) assert.ok(!dump.includes(needle), `audio leaked into store: ${needle}`);
 };
 const noKey = (r) => { for (const x of [GKEY, 'upstream said', 'stub.groq.test']) assert.ok(!r.text.includes(x), `response leaks ${x}`); };
-const run = (o, fn) => withProviders({ env: { ...ENV, ...(o.env || {}) }, overrides: o.overrides ?? syn, respond: o.respond || (() => ok({ text: '안녕하세요' })) }, async (ctx) => { const s = await ctx.startSession(); await fn(ctx, s); });
+const run = (o, fn) => withProviders({ env: { ...ENV, ...(o.env || {}) }, overrides: o.overrides ?? syn, respond: o.respond || (() => ok({ text: '안녕하세요' })) }, async (ctx) => {
+  const consent = await ctx.g('/api/v1/consents', { method: 'POST', body: { age_19_confirmed: true, notice_version: 'stt-groq-2026-10' } });
+  assert.equal(consent.status, 201);
+  const s = await ctx.startSession(); await fn(ctx, s);
+});
 
 test('B5 happy path: multipart parsed, allowed mime forwarded, request shape, pii_warnings, no audio persisted, key hidden', async () => {
   let seen;
@@ -115,8 +119,18 @@ test('B5 empty transcription -> 200 empty:true with re-record guidance, no pii f
   });
 });
 
+test('B5 raw microphone audio needs adult consent even on a synthetic demo server', async () => {
+  await withProviders({ env: ENV, overrides: syn, respond: () => ok({ text: 'should not be called' }) }, async (ctx) => {
+    const s = await ctx.startSession();
+    const r = await post(ctx, s.id, multipart(audio()));
+    assert.equal(r.status, 503);
+    assert.match(r.data.message, /텍스트/);
+    assert.equal(ctx.calls.length, 0);
+  });
+});
+
 test('B5 gate closed (no key / no LIVE_ACK / real data without ack) -> 503 or blocked, zero outbound calls', async () => {
-  for (const [name, env, overrides] of [['no key', { GROQ_WHISPER_KEY: '' }, syn], ['no live ack', { GROQ_LIVE_ACK: '' }, syn], ['real data, no real-data ack', {}, {}]]) {
+  for (const [name, env, overrides] of [['no key', { GROQ_WHISPER_KEY: '' }, syn], ['no live ack', { GROQ_LIVE_ACK: '' }, syn], ['real data, no real-data ack', { GROQ_REAL_DATA_ACK: '' }, {}]]) {
     await run({ env, overrides }, async (ctx, s) => {
       const r = await post(ctx, s.id, multipart(audio()));
       assert.ok([503, 502].includes(r.status), `${name}: ${r.status} ${r.text}`);
@@ -133,5 +147,26 @@ test('B5 stt status never exposes the key or base URL', async () => {
     assert.equal(r.status, 200);
     const t = JSON.stringify(r.data);
     assert.ok(!t.includes(GKEY) && !t.includes('stub.groq.test'));
+  });
+});
+
+test('B5 stt status distinguishes configured Groq from missing adult consent', async () => {
+  await withProviders({ env: ENV, overrides: syn }, async (ctx) => {
+    const before = await ctx.g('/api/v1/stt/status');
+    assert.equal(before.data.configured, true);
+    assert.equal(before.data.provider, 'groq-whisper');
+    assert.equal(before.data.blocked_reason, 'consent_missing');
+    assert.equal(before.data.requires_adult_consent, true);
+    assert.equal(before.data.requires_stt_consent, true);
+    await ctx.g('/api/v1/consents', { method: 'POST', body: { age_19_confirmed: true, notice_version: 'mvp-2026-10' } });
+    const genericOnly = await ctx.g('/api/v1/stt/status');
+    assert.equal(genericOnly.data.adult_confirmed, true);
+    assert.equal(genericOnly.data.real_data_allowed, false, 'general profile consent does not grant microphone consent');
+    assert.equal(genericOnly.data.requires_stt_consent, true);
+    await ctx.g('/api/v1/consents', { method: 'POST', body: { age_19_confirmed: true, notice_version: 'stt-groq-2026-10' } });
+    const after = await ctx.g('/api/v1/stt/status');
+    assert.equal(after.data.real_data_allowed, true);
+    assert.equal(after.data.adult_confirmed, true);
+    assert.equal(after.data.requires_stt_consent, false);
   });
 });

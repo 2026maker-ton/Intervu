@@ -8,7 +8,7 @@ export function createOpsHandlers(d) {
   const { config, store, ledger, trends, err, now, provider, providerInfo, gemini, groq, killed, adminEnabled, checkAdmin, parseTrendId, registry, caller, requestContext } = d;
 
   // 공개 상태 확인은 최소 정보만: 설정·모델·예산 정보는 인증된 사용자에게만 준다.
-  const health = (authed) => ({ status: 200, body: { ok: true, provider: authed ? providerInfo() : { selected: provider.name }, time: now() } });
+  const health = (authed) => ({ status: 200, body: { ok: true, provider: authed ? providerInfo() : { selected: provider.name }, time: now(), ...(authed ? {data_policy:{durable:config.durableStorage === true,retention_days:config.limits.dataTtlDaysDefault,backup_retention_days:null}} : {}) } });
 
   const interviewTypes = () => ({
     status: 200,
@@ -89,16 +89,21 @@ export function createOpsHandlers(d) {
   }
 
   function listSessions(owner) {
-    return { status: 200, body: { sessions: store.listSessions(owner).filter((s) => !['deleted', 'deleting'].includes(s.state)).map((s) => ({ id: s.id, state: s.state, mode: s.mode, interview_type: s.interview_type || s.mode || 'general', persona: s.persona, blind: !!s.blind, created_at: s.created_at, completed_at: s.completed_at || null, question_count: s.questions.length })) } };
+    return { status: 200, body: { sessions: store.listSessions(owner).filter((s) => !['deleted', 'deleting'].includes(s.state)).map((s) => ({ id: s.id, state: s.state, mode: s.mode, interview_type: s.interview_type || s.mode || 'general', persona: s.persona, blind: !!s.blind, created_at: s.created_at, completed_at: s.completed_at || null, school_name: store.getProfile(owner, store.getVersion(s.profile_version_id)?.profile_id)?.target_name || null, department: store.getProfile(owner, store.getVersion(s.profile_version_id)?.profile_id)?.role || null, session_kind: s.policy_snapshot?.practice_of ? 'practice' : 'interview', baseline_session_id: s.policy_snapshot?.transfer_of || null, transfer_id: [...store._maps.transferJobs.entries()].find(([,j]) => j.owner_id === owner && j.retry_session_id === s.id)?.[0] || null, question_count: s.questions.length })) } };
   }
 
   // GET /providers/status: operation별 실제 사용 공급자·모드. 키·모델 ID·BASE_URL은 싣지 않는다(UI 모드 칩·설정 요약용).
   // provider는 실제로 응답할 공급자(막혀 있으면 mock)이고, blocked_reason은 설정된 공급자가 열리지 않은 이유 코드다.
-  function providersStatus(owner) {
-    const ctx = requestContext(owner);
+  function providersStatus(owner, params = new URLSearchParams()) {
+    const pid=params.get('profile_id'), sid=params.get('session_id');
+    if(pid && sid) return err('validation_error','하나의 연습만 선택하세요.',422);
+    const session=sid ? store.getSession(owner,sid):null;
+    const profile=pid ? store.getProfile(owner,pid) : session ? store.getProfile(owner,store.getVersion(session.profile_version_id)?.profile_id):null;
+    if((pid&&!profile)||(sid&&!session)) return err('not_found','연습을 찾을 수 없습니다.',404);
+    const ctx = requestContext(owner,{synthetic:profile?.synthetic === true,forceMock:profile?.org_type==='highschool'&&!profile?.synthetic});
     const operations = {};
     for (const op of registry.operations()) {
-      const p = caller.plan(op, ctx);
+      const p = caller.plan(op, op === 'speech.transcribe' ? requestContext(owner,{forceMock:profile?.org_type==='highschool',forceRealData:true}) : ctx);
       operations[op] = { provider: p.provider, mode: p.live ? 'live' : 'mock', ...(!p.live && p.reason ? { blocked_reason: p.reason } : {}) };
     }
     const live = Object.values(operations).filter((o) => o.mode === 'live').length;

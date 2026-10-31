@@ -17,11 +17,10 @@ test('P0 gate: forged synthetic flags with allowUnpaid never reach Gemini (profi
   });
 });
 
-test('P0 gate: highschool profile stays mock even when paidAck is set', async () => {
+test('P0 gate: highschool real profile is rejected even when paidAck is set (adult-only, 2026-10-31)', async () => {
   await withGeminiStub({ GEMINI_PAID_ACK: 'true' }, {}, async ({ gcall, outbound }) => {
     const pr = await gcall('/api/v1/profiles', { method: 'POST', body: { org_type: 'highschool', target_name: 'X', role: '학업', source_text: '문제 해결 협업 진로' } });
-    assert.equal(pr.status, 201, JSON.stringify(pr.data));
-    assert.equal(pr.data.provider, 'mock');
+    assert.equal(pr.status, 422, JSON.stringify(pr.data));
     assert.equal(outbound.length, 0);
   });
 });

@@ -6,7 +6,7 @@
 
 1. Read `PROJECT.md` in full, then this file, then code/tests and relevant historical docs.
 2. Identify the active PROJECT phase (P0–P5), concrete requirement(s), acceptance criteria and likely safety risks.
-3. Compare proposed work with the product differentiator: **application claim probing → evidence-grounded coaching → new-question transfer check**.
+3. Compare proposed work with the product differentiator: **application claim probing → evidence-grounded coaching** (the new-question transfer check is on hold since PROJECT.md v1.4.0; target users are adults 18+ applying to universities).
 4. Distinguish current implementation from future design. Existing historical docs/ADRs do not supersede `PROJECT.md` on product direction; current laws/provider terms and stricter protections always do.
 
 ## Development constraints

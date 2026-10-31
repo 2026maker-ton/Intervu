@@ -66,13 +66,13 @@ export function buildUnconfirmed(verified, modelNotes = []) {
 export function mergeIntoInstitution(inst, analysis, sourcesById) {
   const kwOf = (label) => COMPETENCY_KEYWORDS.find((k) => k.label === label);
   const core = analysis.talent_traits.map((t) => ({
-    label: t.label, competency: kwOf(t.label)?.competency || 'relevance', basis: 'official', trait_id: t.id,
+    label: t.label, competency: kwOf(t.label)?.competency || 'relevance', basis: sourcesById[t.source_id]?.status === 'official_verified' ? 'official' : 'user', source_id: t.source_id, source_status: sourcesById[t.source_id]?.status || 'unverified', trait_id: t.id,
     source_title: sourcesById[t.source_id]?.title || null, source_quote: t.quote, confirmed_at: sourcesById[t.source_id]?.confirmed_at || analysis.analyzed_at,
   }));
   return {
     ...inst,
     core_values: core.length ? core : inst.core_values,
-    formats: analysis.interview_format.length ? analysis.interview_format.map((f) => ({ item: f.label, basis: 'official', note: f.quote })) : inst.formats,
+    formats: analysis.interview_format.length ? analysis.interview_format.map((f) => ({ item: f.label, basis: sourcesById[f.source_id]?.status === 'official_verified' ? 'official' : 'user', source_id: f.source_id, source_status: sourcesById[f.source_id]?.status || 'unverified', note: f.quote })) : inst.formats,
     school_analysis: analysis,
   };
 }

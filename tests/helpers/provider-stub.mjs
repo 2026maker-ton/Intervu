@@ -33,7 +33,7 @@ export async function withProviders({ env = {}, overrides = {}, respond = () => 
   const app = createApp({
     env: {
       GEMINI_API_KEY: FAKE_KEY, GEMINI_BASE_URL: STUB_BASE, GEMINI_TEXT_MODEL: STUB_MODEL, GEMINI_FALLBACK_MODEL: STUB_MODEL,
-      GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', GEMINI_ALLOW_UNPAID: '', GEMINI_PAID_ACK: '', GEMINI_LIVE_ACK: '', GEMINI_REAL_DATA_ACK: '', DEV_TOKEN_A: A, DEV_TOKEN_B: 'dev-user-b-token', TRENDS_FILE: '',
+      GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', GROQ_LIVE_ACK: '', GROQ_REAL_DATA_ACK: '', GEMINI_ALLOW_UNPAID: '', GEMINI_PAID_ACK: '', GEMINI_LIVE_ACK: '', GEMINI_REAL_DATA_ACK: '', DEV_TOKEN_A: A, DEV_TOKEN_B: 'dev-user-b-token', TRENDS_FILE: '',
       PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100', ADMIN_TOKEN: 'b1-admin', ...env,
     },
     ...overrides,

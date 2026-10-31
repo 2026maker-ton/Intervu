@@ -8,11 +8,11 @@ import { enterRoom } from './room.js';
 
 // ---- 7. 재연습 비교 ----
 export async function startPractice(competency) {
-  const r = state.lastReport;
+  const r = state.baselineReport || state.lastReport;
   if (!r?.evaluation_id) { toast('먼저 코칭 보고서가 필요합니다.', true); return; }
   try {
     const p = await api('/practice-attempts', { method: 'POST', idempotent: true, body: { evaluation_id: r.evaluation_id, competency_id: competency } });
-    state.transfer = p;
+    state.transfer = { ...p, baseline_session_id: state.transfer?.baseline_session_id || state.session.id };
     state.comparison = null;
     state.flow = 'repractice';
     state.practiceSession = { id: p.id, version: p.version };
@@ -37,6 +37,7 @@ export function renderRepractice() {
   const cmp = state.comparison;
   const started = !!state.repracticeStarted;
   box.innerHTML = `
+    <div id="comparisonBox">${cmp ? renderComparisonHtml(cmp) : ''}</div>
     <div class="compare-grid">
       <article class="card compare-card baseline">
         <p class="eyebrow">1차 · 기준 답변</p>
@@ -55,23 +56,33 @@ export function renderRepractice() {
     <div class="card">
       <div class="card-head">
         <h2>진행</h2>
-        <span class="state-badge ${started ? 'ok' : 'warn'}">${started ? '재연습 진행/완료' : '시작 전'}</span>
+        <span class="state-badge ${started ? 'ok' : 'warn'}">${cmp ? '비교 완료' : started ? '진행 중' : '시작 전'}</span>
       </div>
       ${started
-        ? `<p class="hint">재연습 답변을 제출하면 같은 루브릭으로 비교가 자동 생성됩니다.</p>
+        ? `<p class="hint">${cmp ? '재연습 답변과 이전 답변을 같은 기준으로 비교했습니다.' : '진행 중인 재연습을 이어서 답해 주세요.'}</p>${!cmp ? '<button class="primary" type="button" id="continuePracticeBtn">재연습 이어서 하기</button>' : ''}
            <div class="actions"><button class="ghost" type="button" data-go="feedback">재연습 코칭 보기</button><button class="ghost" type="button" id="restartCompareBtn">다른 역량으로 다시 고르기</button></div>`
         : `<p class="hint">같은 역량을 묻지만 문면이 다른 질문입니다. 이전 답변과 같은 사례를 반복하지 말고 다른 상황·선택을 설명하세요.</p>
            <div class="actions"><button class="primary" type="button" id="startRepracticeBtn">재연습 시작 (90초)</button><button class="ghost" type="button" data-go="feedback">피드백으로</button></div>`}
       <p class="fine" id="repracticeError" role="alert"></p>
     </div>
-    <div id="comparisonBox">${cmp ? renderComparisonHtml(cmp) : ''}</div>`;
+    `;
   $$('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
   bindLoops();
   $('#startRepracticeBtn')?.addEventListener('click', startRepractice);
+  $('#continuePracticeBtn')?.addEventListener('click',async()=>{
+    const sess=await api('/sessions/'+p.id);
+    if(sess.state==='paused')await api('/sessions/'+p.id+'/commands',{method:'POST',idempotent:true,body:{command_id:uuid(),expected_version:sess.version,type:'session.resume',payload:{}}});
+    await restorePractice(p.transfer_id,'room');
+  });
   $('#restartCompareBtn')?.addEventListener('click', () => go('feedback'));
 }
 
 function bindLoops() {
+  $$('[data-loop="report"], [data-loop="other"]').forEach(b=>b.addEventListener('click',async()=>{
+    if(!state.transfer?.baseline_session_id) return;
+    state.session={id:state.transfer.baseline_session_id};state.flow='review';
+    const {loadReport}=await import('./feedback.js');await loadReport();
+  }));
   $$('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
   $$('[data-loop="again"]').forEach((b) => b.addEventListener('click', () => startPractice(b.dataset.competency || state.transfer?.competency_id)));
 }
@@ -140,7 +151,8 @@ export function renderComparisonHtml(out) {
       <p><strong>${esc(c.headline || c.reason || '')}</strong></p>
       ${reason && reason !== c.headline ? `<p class="fine">판단 보류 사유: ${esc(reason)}</p>` : ''}
       <p class="fine">역량: ${esc(dimLabel(out.competency || c.competency || ''))} · 루브릭: ${esc(c.rubric_version || out.rubric_version || '')}${Number.isFinite(c.delta) ? ` · 관찰 수준 차이: ${esc(String(c.delta))}` : ''}</p>
-      ${ev ? `<ul class="claims">${ev}</ul>` : '<p class="hint">비교할 발언 근거가 부족합니다.</p>'}
+      <div class="compare-grid"><article><h3>이전 질문</h3><p>${esc(state.transfer?.baseline_question || out.baseline?.questionText || '')}</p><blockquote>${esc(state.transfer?.baseline_excerpt || out.baseline?.excerpt || '인용할 답변이 없습니다.')}</blockquote></article><article><h3>새 질문</h3><p>${esc(state.transfer?.transfer_question?.text || '')}</p><blockquote>${esc(out.retry?.excerpt || '인용할 답변이 없습니다.')}</blockquote></article></div>
+      ${ev ? `<details><summary>비교 근거 자세히 보기</summary><ul class="claims">${ev}</ul></details>` : '<p class="hint">비교할 발언 근거가 부족합니다.</p>'}
       ${c.caution ? `<p class="fine">${esc(c.caution)}</p>` : ''}
       <p class="fine">단일 재연습 비교는 학습 효과를 입증하지 않습니다.</p>
       <div class="actions">
@@ -149,4 +161,18 @@ export function renderComparisonHtml(out) {
         <button class="primary" type="button" data-loop="again" data-competency="${esc(out.competency || c.competency || '')}">한 번 더 다른 질문으로</button>
       </div>
     </div>`;
+}
+
+export async function restorePractice(id,target='repractice') {
+ try {
+ const job=await api('/transfer-comparisons/'+encodeURIComponent(id));
+ const sess=await api('/sessions/'+job.retry_session_id);
+ state.transfer={...job,id:sess.id,competency_id:job.competency,baseline_question:job.baseline?.questionText,baseline_excerpt:job.baseline?.excerpt,limits:{duration_seconds:90}};
+ state.practiceSession={id:sess.id,version:sess.version}; state.repracticeStarted=sess.state!=='ready';state.comparison=job.comparison?job:null;
+ state.flow='repractice';state.session={id:sess.id,version:sess.version,state:sess.state};
+ if(job.baseline_session_id) state.baselineReport=await api('/sessions/'+job.baseline_session_id+'/report');
+ if(sess.state==='completed'&&!job.comparison) await runComparison(id,sess.id);
+ else if(target==='room'&&sess.state==='active') enterRoom({started:{question:sess.current_question,question_total:1},session:sess,inputMode:'text',durationSeconds:Math.max(1,90-Math.floor(sess.active_elapsed_ms/1000))});
+ else go('repractice');return true;
+ }catch(e){toast('이전 비교를 불러오지 못했습니다. 기록에서 다시 선택해 주세요.',true);return false;}
 }

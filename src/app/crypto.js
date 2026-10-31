@@ -20,6 +20,25 @@ export function timingSafeEqualBytes(a, b) {
   return diff === 0;
 }
 
+const b64u = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+export const randomToken = (n = 32) => b64u(globalThis.crypto.getRandomValues(new Uint8Array(n)));
+
+// 비밀번호 해시: PBKDF2-SHA256(Workers 상한 100,000회), 사용자별 16바이트 salt.
+const PBKDF2_ITER = 100_000;
+async function pbkdf2(password, salt, iter) {
+  const key = await globalThis.crypto.subtle.importKey('raw', enc.encode(String(password)), 'PBKDF2', false, ['deriveBits']);
+  return new Uint8Array(await globalThis.crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iter }, key, 256));
+}
+export async function hashPassword(password) {
+  const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  return { alg: 'pbkdf2-sha256', iter: PBKDF2_ITER, salt: b64u(salt), hash: b64u(await pbkdf2(password, salt, PBKDF2_ITER)) };
+}
+export async function verifyPassword(password, rec) {
+  if (!rec?.salt || !rec?.hash) return false;
+  return timingSafeEqualBytes(await pbkdf2(password, unb64u(rec.salt), rec.iter || PBKDF2_ITER), unb64u(rec.hash));
+}
+
 // 비밀 문자열 비교: 양쪽을 SHA-256으로 길이를 맞춘 뒤 상수 시간 비교한다.
 export async function safeEqual(a, b) {
   return timingSafeEqualBytes(await sha256Bytes(a), await sha256Bytes(b));

@@ -68,7 +68,7 @@ export function createFileStore({ dir = 'data/store', ttlDays = 30, debounceMs =
   for (const m of ['createProfile', 'setExtracted', 'approveVersion', 'addSource', 'setInstitution', 'recordProfileCall', 'createSession', 'updateSession', 'createTurn', 'addRevision', 'pushEvent', 'putTransferJob', 'putIdem']) {
     wrapped[m] = (...a) => { const r = store[m](...a); markDirty(); return r; };
   }
-  for (const m of ['deleteAccount', 'purgeOwned']) {
+  for (const m of ['deleteAccount', 'purgeOwned', 'deleteUser', 'deleteAuthSession']) {
     wrapped[m] = (...a) => { const r = store[m](...a); dirty = true; flush(); return r; };
   }
   wrapped.ledgerState = () => { rolloverLedger(); return ledger; };

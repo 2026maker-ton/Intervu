@@ -34,13 +34,14 @@ function toRequest(req) {
 }
 
 export function createApp(overrides = {}) {
-  const env = { ...loadDotEnv(root), ...process.env, ...(overrides.env || {}) };
+  // overrides.env를 주면(테스트·E2E·리허설) 로컬 .env를 읽지 않는다: 개발자의 실키·라우팅 설정이 시험 결과를 바꾸지 않게 한다.
+  const env = overrides.env ? { ...process.env, ...overrides.env } : { ...loadDotEnv(root), ...process.env };
   const config = loadConfig(env);
   // 트렌드 스토어: 영속 파일(TRENDS_FILE) 기반. 저장 실패 시 메모리로만 동작.
   const trendsFilePath = overrides.trendsFile || (config.trendsFile ? path.resolve(root, config.trendsFile) : '');
   const trends = overrides.trends || createFileTrendStore({ filePath: trendsFilePath });
-  // STORE=file → 파일 영속(DATA_DIR, 단일 프로세스 가정). 기본은 memory.
-  const store = overrides.store || (env.STORE === 'file'
+  // STORE=file → 파일 영속(DATA_DIR, 단일 프로세스 가정). 서버 실행(startServer)은 기본 file, 테스트용 createApp은 기본 memory.
+  const store = overrides.store || ((env.STORE || overrides.defaultStore) === 'file'
     ? createFileStore({ dir: path.resolve(root, env.DATA_DIR || 'data/store'), ttlDays: config.limits.dataTtlDaysDefault })
     : undefined);
   const core = createCore({ env, store, ledger: overrides.ledger, trends, syntheticTraffic: overrides.syntheticTraffic === true, officialFetch: overrides.officialFetch || { resolveDns: async (h) => (await dnsLookup(h, { all: true })).map((r) => r.address) } });
@@ -91,13 +92,14 @@ export function createApp(overrides = {}) {
 }
 
 export function startServer() {
-  const app = createApp();
+  // 재시작(개발 --watch 포함)에도 계정·로그인·기록이 남도록 서버 실행은 파일 저장소가 기본이다. STORE=memory로 끌 수 있다.
+  const app = createApp({ defaultStore: 'file' });
   app.server.listen(app.config.port, () => {
     const p = app.providerInfo();
     console.log(`Intervu listening on http://localhost:${app.config.port}`);
     console.log(`Provider: ${p.selected} | Gemini key configured: ${p.configured} | paidAck: ${p.paidAck}`);
     const tokens = Object.keys(app.config.devTokens);
-    if (!tokens.length) console.warn('WARNING: DEV_TOKEN_A/DEV_TOKEN_B가 없어 로그인 가능한 사용자가 없습니다.');
+    if (!tokens.length) console.log('NOTE: DEV_TOKEN_* 없음 — 이메일 가입·로그인만 사용합니다.');
     if (tokens.some((t) => /^dev-user-[ab]-token$/.test(t))) console.warn('WARNING: 예시 토큰(dev-user-*-token)을 사용 중입니다. 외부에 공개하는 서버에서는 무작위 긴 토큰으로 바꾸세요.');
     if (!app.config.adminToken) console.warn('NOTE: ADMIN_TOKEN 미설정 — 관리자·지표·진단 기능이 꺼져 있습니다.');
   });

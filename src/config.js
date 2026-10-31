@@ -13,6 +13,7 @@ export function loadConfig(env = process.env) {
   const paidAck = bool(env.GEMINI_PAID_ACK);
   const allowUnpaid = bool(env.GEMINI_ALLOW_UNPAID);
   return {
+    durableStorage: env.STORE === 'file',
     port: Number(env.PORT) || 3000,
     // 내장 기본 토큰 없음: 환경변수로 명시한 토큰만 유효하다(미설정이면 인증 가능한 사용자가 없다).
     // 실제 로그인은 P3. 그 전까지 데모는 운영자가 나눠 준 접속 토큰을 쓴다.
@@ -31,9 +32,14 @@ export function loadConfig(env = process.env) {
       // 무료 전용: true면 유료 과금 모델로 절대 전환하지 않는다.
       // Google 실제 결제 상태는 제어하지 않으므로 AI Studio 결제 비활성 별도 확인 필요.
       freeOnly: String(env.GEMINI_FREE_ONLY ?? 'true').toLowerCase() !== 'false',
+      // Google Search grounding(school.search)은 유료 티어 전용 과금 기능이다. 운영자가 명시적으로 켜야 하고(무료 전용이면 항상 차단).
+      groundingAck: bool(env.GEMINI_GROUNDING_ACK),
+      // 검색 결과 보관 기간(사용자 프로필 안 이력 표시 전용, 일). 약관 확인 문서: docs/decisions/2026-10-31-grounding-retention.md
+      searchRetentionDays: num('SEARCH_RETENTION_DAYS', 150),
     },
     claude: {
       timeoutMs: num('CLAUDE_TIMEOUT_MS', 20000),
+      writerModel: env.CLAUDE_WRITER_MODEL || '', // 질문 문장 작성용 가벼운 모델(Haiku). 비우면 2단계 설계를 쓰지 않는다
       monthlyCapUsd: num('CLAUDE_MONTHLY_CAP_USD', 0), // 0 = 미설정. 공급자별 상한은 아직 미강제(전역 월 예산만 적용)
       apiVersion: env.CLAUDE_API_VERSION || '',
       price: { input: num('CLAUDE_PRICE_IN_PER_M_USD', 0), output: num('CLAUDE_PRICE_OUT_PER_M_USD', 0) },
@@ -58,6 +64,10 @@ export function loadConfig(env = process.env) {
       // 학생 MVP(09 §4·§5.1): 트렌드 조회 필요 판단·질문 설계. 기본 gemini(게이트·합성/동의 규칙은 공통), ROUTE_*로 mock 전환.
       'trends.decide': { provider: route('TRENDS_DECIDE', 'gemini'), alias: 'gemini-text', maxOutputTokens: 300 },
       'questions.design': { provider: route('QUESTIONS_DESIGN', 'gemini'), alias: 'gemini-text', maxOutputTokens: 1500 },
+      // 질문 문장 작성(Haiku): questions.design(구조, Sonnet)이 Claude일 때만 쓰인다.
+      'questions.write': { provider: route('QUESTIONS_WRITE', 'claude'), alias: 'claude-writer', maxOutputTokens: 1500 },
+      // 학교·전형 검색(grounding, GEMINI_GROUNDING_ACK 필요). 답변 완료는 브라우저가 종결어미로 판단한다(AI 호출 없음).
+      'school.search': { provider: route('SCHOOL_SEARCH', 'gemini'), alias: 'gemini-search', maxOutputTokens: 1200 },
       'speech.transcribe': { provider: route('SPEECH_TRANSCRIBE', 'groq'), alias: 'groq-whisper', maxOutputTokens: 1000 },
       'speech.synthesize': { provider: route('SPEECH_SYNTHESIZE', String(env.TTS_PROVIDER || 'mock').toLowerCase()), alias: 'tts', maxOutputTokens: 0 },
     },
@@ -128,6 +138,7 @@ export function loadConfig(env = process.env) {
     },
     // 공급자별 월 상한(04 §5). usd: <P>_MONTHLY_CAP_USD(비우면 달러 상한 없음), calls: <P>_MONTHLY_CALL_CAP(기본 500). 호출 래퍼가 인메모리로 집행한다.
     providerCaps: {
+      claude: { usd: null, calls: num('CLAUDE_MONTHLY_CALL_CAP', 500) }, // 월 호출 수 상한(인메모리). 단가(CLAUDE_PRICE_*)를 넣으면 원장이 비용도 센다
       deepseek: { usd: env.DEEPSEEK_MONTHLY_CAP_USD ? num('DEEPSEEK_MONTHLY_CAP_USD', 0) : null, calls: num('DEEPSEEK_MONTHLY_CALL_CAP', 500) },
       elevenlabs: { usd: env.ELEVENLABS_MONTHLY_CAP_USD ? num('ELEVENLABS_MONTHLY_CAP_USD', 0) : null, calls: num('ELEVENLABS_MONTHLY_CALL_CAP', 500) },
     },
@@ -144,7 +155,10 @@ export function loadConfig(env = process.env) {
       evalReserve: num('EVAL_RESERVE_USD', 0.02),
       finishReserve: num('FINISH_RESERVE_USD', 0.005),
       monthlyApiBudget: num('MONTHLY_API_BUDGET_USD', 30),
-      maxLlmCallsPerSession: 14,
+      // 일반 면접 5단계: 본질문 5 + 꼬리질문 답변 최대 3 → 꼬리질문 결정 8 + 평가 1. 여유 포함 기본 14.
+      maxLlmCallsPerSession: num('SESSION_MAX_LLM_CALLS', 14),
+      answerSeconds: num('ANSWER_SECONDS', 60), // 질문(꼬리질문 포함)별 답변 제한시간
+      answerGraceSeconds: 15, // 전사·네트워크 지연 여유
       maxDialogueCalls: 11,
       maxOutputDialogue: 500,
       maxOutputEval: 2500,
@@ -165,6 +179,7 @@ export function loadConfig(env = process.env) {
       fetch: { perMinute: num('OFFICIAL_FETCH_RATE_PER_MINUTE', 5), perDay: num('OFFICIAL_FETCH_RATE_PER_DAY', 30) },
       turns: { perMinute: num('TURN_RATE_PER_MINUTE', 60), perDay: num('TURN_RATE_PER_DAY', 2000) },
       tts: { perMinute: num('TTS_RATE_PER_MINUTE', 10), perDay: num('TTS_RATE_PER_DAY', 200) },
+      search: { perMinute: num('SEARCH_RATE_PER_MINUTE', 3), perDay: num('SEARCH_RATE_PER_DAY', 20) },
     },
     // 프로필 추출 남용 방지(사양 §15: 계정당 분당2회/일10회, 1회예약 $0.01).
     // 통합 테스트처럼 합성 트래픽이 많은 환경에서는 환경변수로 완화한다.

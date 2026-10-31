@@ -4,8 +4,11 @@ import { buildClaimsPrompt } from './prompts/claims.js';
 import { buildEvaluationMessages } from './prompts/evaluation.js';
 import { buildSchoolPrompt } from './prompts/school.js';
 import { buildQuestionsMessages, buildTrendDecideMessages } from './prompts/questions.js';
+import { buildStageMessages, buildTurnMessages, buildSchoolSearchMessages } from './prompts/interview.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 모델 JSON 파싱: 코드 펜스 제거. 실패하면 invalid로 알린다(호출 래퍼가 규칙 기반 폴백).
+const parseJson = (t) => { try { return JSON.parse(String(t).trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw Object.assign(new Error('gemini bad json'), { code: 502, invalid: true }); } };
 
 export function createMockAdapter() {
   return {
@@ -58,11 +61,13 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
   const base = String(baseUrl).replace(/\/+$/, '');
   // 호출 통계(운영 로그용, 본문 미포함)
   const stats = { calls: 0, failures: 0, rateLimits: 0, fallbacks: 0, totalMs: 0 };
-  async function generateContent(model, { system, user, maxOutputTokens, json = true }) {
+  async function generateContent(model, { system, user, maxOutputTokens, json = true, grounding = false }) {
     const url = `${base}/models/${encodeURIComponent(model)}:generateContent`;
     const body = {
       system_instruction: system ? { parts: [{ text: system }] } : undefined,
       contents: [{ role: 'user', parts: [{ text: user }] }],
+      // Google Search grounding(school.search 전용). 게이트·유료 확인은 호출자가 강제한다.
+      ...(grounding ? { tools: [{ google_search: {} }] } : {}),
       generationConfig: {
         maxOutputTokens,
         temperature: 0.2,
@@ -104,7 +109,7 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
       const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
       const usage = data?.usageMetadata || {};
       return {
-        text,
+        text, grounding: data?.candidates?.[0]?.groundingMetadata || null,
         usage: {
           input: usage.promptTokenCount || estimateTokens((system || '') + user),
           output: usage.candidatesTokenCount || estimateTokens(text),
@@ -188,6 +193,30 @@ export function createGeminiAdapter({ apiKey, textModel, fallbackModel, timeoutM
       try { parsed = JSON.parse(String(r.text).trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw Object.assign(new Error('gemini bad json'), { code: 502, invalid: true }); }
       if (!Array.isArray(parsed?.questions)) throw Object.assign(new Error('gemini bad schema'), { code: 502, invalid: true });
       return { questions: parsed.questions.slice(0, 10), model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
+    },
+    // 일반 면접 5단계 설계·답변 완료 판단·꼬리질문 결정(2026-10-31). 원시 JSON만 돌려주고 검증은 서버가 한다.
+    async designStages(input) {
+      const { system, user } = buildStageMessages(input);
+      const r = await withFallback((model) => generateContent(model, { system, user, maxOutputTokens: 1500 }));
+      const parsed = parseJson(r.text);
+      if (!Array.isArray(parsed?.stages)) throw Object.assign(new Error('gemini bad schema'), { code: 502, invalid: true });
+      return { stages: parsed.stages.slice(0, 8), model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
+    },
+    async decideTurn(input) {
+      const { system, user } = buildTurnMessages(input);
+      const r = await withFallback((model) => generateContent(model, { system, user, maxOutputTokens: 500 }));
+      const parsed = parseJson(r.text);
+      if (!['next', 'followup'].includes(parsed?.action)) throw Object.assign(new Error('gemini bad schema'), { code: 502, invalid: true });
+      return { ...parsed, model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
+    },
+    // 학교·전형 검색(Google Search grounding). 검색 결과와 근거 메타데이터를 그대로 돌려준다(검증·저장 정책은 서버).
+    async searchSchool(input) {
+      const { system, user } = buildSchoolSearchMessages(input);
+      // grounding 응답은 JSON 모드와 함께 쓰지 않는다(텍스트에서 JSON을 파싱). 대체 모델 자동 전환 없음(검색 과금 모델 고정).
+      const model = FREE_ONLY && !ALLOWED_FREE_MODELS.has(textModel) ? 'gemini-3.5-flash-lite' : textModel;
+      const r = await generateContent(model, { system, user, maxOutputTokens: 1200, json: false, grounding: true });
+      if (!String(r.text || '').trim()) throw Object.assign(new Error('gemini empty'), { code: 502, invalid: true });
+      return { text: String(r.text), grounding: r.grounding, model: r.modelVersion, usage: r.usage, latency_ms: r.latencyMs };
     },
     async decideTrend(input) {
       const { system, user } = buildTrendDecideMessages(input);

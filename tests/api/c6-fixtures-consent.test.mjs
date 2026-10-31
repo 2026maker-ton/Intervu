@@ -16,7 +16,7 @@ test('C6: profile without consent and without fixture -> 428 consent_required', 
 }));
 
 test('C6: consent is validated and stored with notice_version; profile then ok', () => withApp({}, async (c) => {
-  assert.equal((await c('/api/v1/consents', { method: 'POST', body: { age_19_confirmed: false, notice_version: 'v1' } })).status, 422);
+  assert.equal((await c('/api/v1/consents', { method: 'POST', body: { age_19_confirmed: false, notice_version: 'v1' } })).status, 403); // 만 18세 미만은 이용 불가(2026-10-31)
   assert.equal((await c('/api/v1/consents', { method: 'POST', body: { age_19_confirmed: true } })).status, 422);
   const ok = await c('/api/v1/consents', { method: 'POST', body: { age_19_confirmed: true, notice_version: 'v1' } });
   assert.equal(ok.status, 201);
@@ -68,7 +68,8 @@ test('C6: fixtures list/detail require auth and expose fictional content only', 
   assert.equal((await c('/api/v1/fixtures', { token: 'nope' })).status, 401);
   const l = await c('/api/v1/fixtures');
   assert.equal(l.status, 200);
-  assert.deepEqual(l.data.fixtures.map((f) => f.kind).sort(), ['highschool', 'university']); // company는 레거시: 목록에서 숨기고 id로만 조회
+  assert.equal(l.data.fixtures.length, 10); // 대입 샘플 10건만 노출. company·highschool·가상 대학은 레거시: id로만 조회
+  assert.ok(l.data.fixtures.every((f) => f.kind === 'university' && f.label));
   assert.equal((await c('/api/v1/fixtures/fx-company-1')).status, 200);
   assert.ok(!('application_text' in l.data.fixtures[0]));
   const d = await c(`/api/v1/fixtures/${fx.id}`);

@@ -70,7 +70,7 @@ export function createTransferHandlers(d) {
     store.updateSession(s, { state: 'ready' });
     const transferId = randomUUID();
     store.putTransferJob(transferId, {
-      owner_id: owner, evaluation_id: eid, competency: comp, rubric_version: rubricVersion,
+      transfer_id: transferId, owner_id: owner, evaluation_id: eid, competency: comp, rubric_version: rubricVersion,
       baseline_session_id: baselineSessionId, retry_session_id: s.id,
       baseline: { questionId: baselineTurnId ? undefined : 'baseline', questionText: baseline, excerpt: baselineExcerpt, rubricVersion, turnId: baselineTurnId, revision: baselineRevision, levels: levelsOfSession(owner, baselineSessionId, rubricVersion), evaluatorKind: evaluatorKindOf(baselineSessionId) },
       transfer_question: transfer, created_at: now(),
@@ -139,7 +139,7 @@ export function createTransferHandlers(d) {
   function getTransferJob(owner, id) {
     const job = store.getTransferJob(id);
     if (!job || job.owner_id !== owner) return err('not_found', '전이 비교를 찾을 수 없습니다.', 404);
-    return { status: 200, body: job };
+    return { status: 200, body: { ...job, transfer_id: id } };
   }
 
   return { createPractice, createTransferComparison, getTransferJob };

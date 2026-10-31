@@ -3,25 +3,49 @@
 // 기존 turn.text 제출 API를 그대로 사용해 면접을 진행한다.
 import { detectPii } from '../../domain/pii.js';
 import { readMultipartAudio } from '../body.js';
+import { SIGNUP_NOTICE_VERSION } from './auth.js';
 
 export function createSttHandlers(d) {
   const { config, store, err, groq, killedGroq, caller, requestContext, checkRate } = d;
+  // 음성 전송 고지가 포함된 동의만 인정한다: 구 STT 전용 동의 또는 가입 동의(만 18세 + Groq 전송 고지).
+  const STT_NOTICES = new Set(['stt-groq-2026-10', SIGNUP_NOTICE_VERSION]);
+  const realAudioContext = (owner, extra = {}) => {
+    const record = store.getConsent?.(owner);
+    const ctx = requestContext(owner, { ...extra, forceRealData: true });
+    // Generic profile consent is not enough for a real microphone recording sent to Groq.
+    ctx.consent = ctx.consent && STT_NOTICES.has(record?.notice_version);
+    return { ctx, record };
+  };
 
-  function sttStatus(owner) {
+  function sttStatus(owner, params = new URLSearchParams()) {
+    const pid=params.get('profile_id'),sid=params.get('session_id');
+    const session=sid?store.getSession(owner,sid):null;
+    const profile=pid?store.getProfile(owner,pid):session?store.getProfile(owner,store.getVersion(session.profile_version_id)?.profile_id):null;
+    if((pid&&sid)||(pid&&!profile)||(sid&&!session)||profile?.org_type==='highschool') return {configured:false,provider:'disabled',real_data_allowed:false,requires_adult_consent:false,message:'고입·미성년자 연습에서는 실제 음성 전사를 사용할 수 없습니다. 텍스트로 답해 주세요.'};
     if (!config.groq.apiKey) return { configured: false, provider: 'none', message: '음성 인식 키가 없습니다. 텍스트로 답해 주세요.' };
     if (killedGroq) return { configured: true, provider: 'disabled', message: '음성 인식이 비활성화되어 있습니다. 텍스트로 답해 주세요.' };
-    // 게이트가 닫혀 있으면(확인·동의 미충족) 사용 가능으로 보이지 않게 한다. 사유 코드만 노출한다.
-    // 합성 샘플 세션의 음성 시연이 가능하면 사용 가능으로 본다(sample_only). 실제 음성(실데이터)은 별도 게이트라 real_data_allowed로 알린다.
-    const realPlan = caller.plan('speech.transcribe', requestContext(owner));
-    const plan = realPlan.live ? realPlan : caller.plan('speech.transcribe', requestContext(owner, { synthetic: true }));
-    if (!plan.live) return { configured: true, provider: 'disabled', blocked_reason: plan.reason, message: '음성 인식을 사용할 수 없습니다. 텍스트로 답해 주세요.' };
-    return {
-      configured: true, provider: 'groq-whisper', model: groq.model,
+    // A microphone recording is real personal data even if the profile/session is a demo fixture.
+    const { ctx, record } = realAudioContext(owner);
+    const plan = caller.plan('speech.transcribe', ctx);
+    const base = {
+      configured: true, provider: plan.route.provider === 'groq' ? 'groq-whisper' : 'disabled',
+      model: plan.route.provider === 'groq' ? groq.model : undefined,
       maxAudioMB: Math.round(config.groq.maxAudioBytes / 1024 / 1024),
       maxRecordingSeconds: config.groq.maxRecordingSeconds,
-      real_data_allowed: realPlan.live === true,
-      sample_only: realPlan.live !== true,
-      message: realPlan.live ? 'Groq Whisper 한국어 전사를 사용할 수 있습니다.' : '합성 샘플 세션에서 샘플 답변을 소리 내어 읽는 음성 시연을 사용할 수 있습니다. 실제 음성은 운영자 허용(성인 동의·실데이터 허용)이 필요합니다.',
+      real_data_allowed: plan.live === true,
+      requires_adult_consent: !ctx.adult,
+      requires_stt_consent: !STT_NOTICES.has(record?.notice_version),
+      adult_confirmed: ctx.adult,
+    };
+    // Configured provider and permission to send this user's real audio are separate states.
+    if (!plan.live) return {
+      ...base, blocked_reason: plan.reason,
+      message: plan.reason === 'consent_missing'
+        ? '만 18세 이상 확인과 Groq 음성 전송 안내 동의가 필요합니다.'
+        : 'Groq 전사를 사용할 수 없습니다. 서버 운영 설정을 확인하거나 텍스트로 답해 주세요.',
+    };
+    return {
+      ...base, message: 'Groq Whisper 한국어 전사를 사용할 수 있습니다.',
     };
   }
 
@@ -50,7 +74,7 @@ export function createSttHandlers(d) {
     }
     // 게이트(LIVE_ACK·데이터 등급)·타임아웃·429를 호출 래퍼가 처리한다. 음성 크기·형식 오류(413/422)는 그대로 돌려준다.
     // 합성 샘플 세션(서버 fixture 판정)에서는 샘플 답변을 소리 내어 읽는 음성 시연을 허용한다. 그 외 음성은 실데이터 게이트(성인 동의+REAL_DATA_ACK)를 따른다.
-    const ctx = requestContext(owner, { forceMock: !!s.highschool_mock && !s.server_synthetic, synthetic: s.server_synthetic === true });
+    const { ctx } = realAudioContext(owner, { forceMock: !!s.highschool_mock || store.getProfile(owner, store.getVersion(s.profile_version_id)?.profile_id)?.org_type === 'highschool' });
     let res;
     try {
       res = await caller.call('speech.transcribe', {

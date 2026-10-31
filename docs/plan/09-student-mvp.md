@@ -22,7 +22,7 @@
 - 대입 경로도 `age_19_confirmed=true`가 아니면 실데이터 외부 전송 불가(기존 게이트 유지).
 - 동의 API 변경: `POST /api/v1/consents {age_19_confirmed:boolean, minor_notice_ack?:boolean, notice_version}`. `age_19_confirmed=false`이면 `minor_notice_ack=true` 필수(= "만 19세 미만은 외부 AI 없이 연습함을 이해"). 기록은 둘 다 저장. 게이트의 `age19`는 `age_19_confirmed`만 본다.
 - `highschool`은 **합성(fixture) 요청이 아닐 때만** Mock 강제(`providerConstraintForOrg`): 서버 fixture 데이터는 외부 호출 허용.
-- 음성(STT)은 실제 음성이라 위와 동일 게이트(미성년·무동의면 서버 전사 차단 → 브라우저 텍스트 입력 안내). 개발자 로컬 시험용으로는 `GROQ_LIVE_ACK`+`GROQ_REAL_DATA_ACK`+성인 동의 조합으로 열린다(운영자 선언).
+- 음성(STT)은 실제 음성이라 위와 동일 게이트(미성년·무동의면 서버 전사 차단 → 텍스트 입력 안내). Groq 전사에는 만 19세 확인과 별도 음성 전송 고지 동의가 필요하다(`notice_version=stt-groq-2026-10`); 개발자 로컬 설정은 `GROQ_LIVE_ACK`+`GROQ_REAL_DATA_ACK`로만 연다. Groq는 안정성·악용 조사 목적으로 입력·출력을 최대 30일 임시 보관할 수 있고 미국에서 처리될 수 있으므로, UI는 Zero Data Retention 설정 확인도 안내한다.
 - UI 문구의 "만 19세 이상 대상"은 "고입·대입 준비 학생 대상, 미성년자는 외부 AI로 전송되지 않는 모드로만 실데이터 사용"으로 바꾼다.
 
 ## 3. 학교별 맞춤 분석 (WP-S)
@@ -75,7 +75,7 @@
 
 - TTS: 브라우저 `SpeechSynthesis` 유지(서버 TTS·ElevenLabs는 보류, 기본 라우트 `browser`).
 - STT: 기존 Groq Whisper 어댑터·`POST /sessions/:id/transcriptions`·`MediaRecorder` UI·전사 확인/교정 흐름 재사용. 설정 화면 기본 답변 방식을 **`녹음 전사`(groq)** 로(`GET /stt/status`가 사용 가능일 때만; 아니면 텍스트 기본). 면접실에서 음성 기본 경로가 한 번에 보이게 한다(녹음 → 전사 → 확인·교정 → 제출).
-- 게이트: 기존 규칙(`GROQ_LIVE_ACK`, 실음성은 `GROQ_REAL_DATA_ACK`+성인 동의). 차단 시 이유를 한국어로 보여 주고 텍스트로 계속.
+- 게이트: `GROQ_LIVE_ACK`+`GROQ_REAL_DATA_ACK`+만 19세 확인+Groq 전송 안내 동의. 합성 프로필이나 서버 synthetic 테스트 설정은 마이크 녹음을 합성으로 취급하지 않는다. 차단 시 이유를 한국어로 보여 주고 텍스트로 계속.
 
 ## 7. 합성 샘플(fixtures)
 
@@ -93,3 +93,7 @@
 
 ## 9. 향후 계획(이번 범위 밖, 구현 금지)
 실제 웹 검색 기반 학교 자동 탐색, 보호자 동의 절차와 미성년자 실데이터 외부 AI 경로, 실제 월간 입시 이슈 수집·검수, Claude/DeepSeek 연동 재개, 사람 평가 후 평가기 승격, 재연습·고급 분석 확장.
+
+## UI 개편 구현 기록 (2026-10-30)
+
+사용자 승인 계획에 따라 P1·P4·P5의 UI를 전문 코칭 노트 형태로 개편했다. 기본 5분, 텍스트/허용된 녹음, 접힌 추가 설정, 자료 입력·데이터 관리·관리자 탭을 사용한다. 원문 인용·판단 보류·연령/소유권/삭제 보호는 유지한다. 학교 분석 병합에서 source_id/source_status를 보존하며 원문 일치를 공식 검증으로 취급하지 않는다. 마이크 녹음은 fixture 세션에서도 실데이터이며 고입 실음성은 외부로 전송하지 않는다. 비교 ID를 저장하여 서버 조회로 복원한다. 실모델·실기기·배포·학습 효과는 미검증이다. 과거 문서의 점진 개선/재설계 금지는 이번 사용자 승인 전면 개편에 한해 대체한다.

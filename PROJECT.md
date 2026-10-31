@@ -1,14 +1,16 @@
 # Intervu — 제품 전체 기획 및 구현 기준서
 
-> **Version:** 1.3.0 | **기준일:** 2026-10-30 | **상태:** 목표 제품 명세 + **학생 대상 데모 MVP 전환(고입·대입, `docs/plan/09`)** 반영 + 문서 정합(브랜치 `feat/student-mvp`, 기준 커밋 `49357bd`). §7.6에 구현된 것/향후 계획을 구분했다. 목표 설계는 구현 완료를 뜻하지 않는다.
+> **Version:** 1.4.0 | **기준일:** 2026-10-31 | **상태:** 목표 제품 명세 + **성인(만 18세 이상) 대입 전용 · 일반 면접 5단계 · 로그인** 전환(§7.7, `docs/plan/11-general-interview.md`, `docs/decisions/2026-10-31-*.md`). 목표 설계는 구현 완료를 뜻하지 않는다.
 >
-> **핵심 정의:** 지원서의 주장을 검증하고, 부족한 답변을 집중 훈련한 뒤, **처음 보는 다른 질문**에서 개선 여부를 확인하는 근거 기반 AI 면접 코치.
+> **핵심 정의:** 지원서의 주장을 검증하고, 대학·학과·전형에 맞춘 일반 면접에서 근거 기반 코칭을 주는 AI 면접 연습. **처음 보는 다른 질문**에서의 개선 확인(재연습·전이)은 **보류**(코드 유지, UI 숨김)다.
 >
-> **North Star:** Application claim probing → evidence-grounded coaching → new-question transfer check.
+> **North Star:** Application claim probing → evidence-grounded coaching (→ new-question transfer check: on hold since 2026-10-31).
 
 ## 0. 이 문서의 지위와 변경 원칙
 
-**2026-10-30 방향 전환(v1.3.0).** 현재 범위의 대상은 **고입·대입 면접을 준비하는 학생**이다. 기업·취업은 이번 범위 밖이며(서버는 `company`/`public` org_type을 **레거시로 계속 받아 회귀 테스트를 보존**하나 UI에는 노출하지 않는다), 이 문서 곳곳의 "기업" 서술은 레거시·이력이다. AI 공급자는 **Gemini 하나만 활성**이고 Claude·DeepSeek·ElevenLabs 어댑터는 코드에 남아 있으나 **보류(기본 꺼짐)** 이다. 핵심 차별점(지원서 주장 검증 → 근거 기반 코칭 → 새 질문 전이 확인)과 §5 보안·개인정보 불변 조건(특히 미성년자)은 **완화하지 않았다.** 구현된 것과 향후 계획의 구분은 §7.6.
+**2026-10-31 방향 전환(v1.4.0, 사용자 결정).** Gemini API 약관(18세 미만 대상·이용 가능성이 높은 앱 사용 금지)에 따라 **대상을 만 18세 이상 대입 지원자로 한정**했다. 고입 여정은 없앴고(서버는 고입 실입력 새 프로필을 422로 거절, 레거시 fixture·테스트 유지), 연령 확인은 가입 시 1회(`age_18_confirmed`)다. 면접은 **일반 면접 5단계 고정**이며 특수 면접(압박·블라인드·인성·기술·상황)은 계획만 둔다. 재연습·전이 비교·기록·관리자·파일 업로드·도움말·"자료 없이 일반 연습"은 UI에서 숨겼다(서버 API·테스트 유지, 데이터 삭제는 유지). 아래 v1.3.0의 고입·미성년자 서술은 이력이다. 상세는 §7.7.
+
+**2026-10-30 방향 전환(v1.3.0, 이력).** 현재 범위의 대상은 **고입·대입 면접을 준비하는 학생**이다. 기업·취업은 이번 범위 밖이며(서버는 `company`/`public` org_type을 **레거시로 계속 받아 회귀 테스트를 보존**하나 UI에는 노출하지 않는다), 이 문서 곳곳의 "기업" 서술은 레거시·이력이다. AI 공급자는 **Gemini 하나만 활성**이고 Claude·DeepSeek·ElevenLabs 어댑터는 코드에 남아 있으나 **보류(기본 꺼짐)** 이다. 핵심 차별점(지원서 주장 검증 → 근거 기반 코칭 → 새 질문 전이 확인)과 §5 보안·개인정보 불변 조건(특히 미성년자)은 **완화하지 않았다.** 구현된 것과 향후 계획의 구분은 §7.6.
 
 이 문서는 Intervu의 **최상위 제품 방향(Product Source of Truth)** 을 정의한다. 사용자 여정, 기능 우선순위, 제품 표현, 질문 생성, 평가, 데이터 처리, 완료 기준은 이 문서를 따른다.
 
@@ -51,7 +53,8 @@
 
 ### 1.3 대상과 범위
 
-- **고입(고등학교 입학, org_type `highschool`)·대입(대학 입학, `university`) 준비 학생**이 현재 대상이다. 학교·학과(계열)·전형을 고르고, 모집요강·인재상, 학생 본인의 자기소개서·학생부 요약을 입력한다. 기본 org_type은 `university`.
+- **2026-10-31 현재 대상: 만 18세 이상 대입 지원자(`university`)뿐이다.** 아래 고입 서술은 v1.3.0 이력이다(§0, §7.7).
+- (이력) **고입(고등학교 입학, org_type `highschool`)·대입(대학 입학, `university`) 준비 학생**이 대상이었다. 학교·학과(계열)·전형을 고르고, 모집요강·인재상, 학생 본인의 자기소개서·학생부 요약을 입력한다. 기본 org_type은 `university`.
 - **기업 취업(`company`/`public`)은 현재 범위 밖(레거시)** 이다. 서버는 기존 테스트·회귀 보존을 위해 계속 받지만 UI 진입점은 고입·대입뿐이다(`tools/check-project.mjs`가 UI의 company/public 여정을 금지 검사).
 - 토론 면접, PT, 패널, 상황 역할극 등 비핵심 유형은 **코드에 남아 있고 범위 밖**이며 기본 화면에서는 `고급(실험)`에 접혀 있다.
 - **미성년자 제약(변경 불가):** 고입 지원자는 미성년자다. **고입 경로에서 실제 학생 입력(지원서·답변·음성)은 외부 AI(Gemini·Groq)로 보내지 않고** 규칙 기반/Mock으로만 처리한다(`providerConstraintForOrg`: 서버가 fixture 일치로 합성 판정한 요청만 외부 호출 허용). 대입도 `age_19_confirmed=true`가 아니면 실데이터 외부 전송 불가. 단순 체크박스나 보호자 동의 가정으로 제공사 연령 제한을 우회하지 않는다. 보호자 동의 절차·미성년자 실데이터 외부 AI 경로는 **향후 계획**(구현 금지).
@@ -133,7 +136,7 @@
 
 ### 2.5 실시간 면접
 
-현재 음성 경로: 기본 답변 방식은 서버 전사가 사용 가능(`GET /stt/status`)할 때 **녹음 전사(Groq Whisper STT)**, 아니면 텍스트. 면접관 낭독은 **브라우저 `SpeechSynthesis`**(서버 TTS·ElevenLabs는 보류). 실음성은 실데이터이므로 §5 게이트(미성년·무동의면 서버 전사 차단 → 사유 표시 후 텍스트 계속)를 따른다.
+현재 음성 경로: 기본 답변 방식은 서버 전사가 사용 가능(`GET /stt/status`)할 때 **녹음 전사(Groq Whisper STT)**, 아니면 텍스트. 면접관 낭독은 **브라우저 `SpeechSynthesis`**(서버 TTS·ElevenLabs는 보류). 실음성은 실데이터이므로 §5 게이트(미성년·무동의면 서버 전사 차단 → 사유 표시 후 텍스트 계속)를 따른다. Groq 전사는 **만 19세 이상 확인과 Groq 음성 전송 고지에 대한 별도 동의**가 있어야 한다. Groq는 추론 데이터를 기본 보관하지 않는다고 안내하지만 안정성·악용 조사 목적 입력·출력은 최대 30일 임시 보관될 수 있고, 미국에서 처리될 수 있다. 설정 화면에서 이 범위와 Zero Data Retention(ZDR) 계정 설정 확인을 안내한다. 서비스 서버는 업로드 원음을 전사 직후 폐기하며, Groq 측 보관까지 통제한다고 주장하지 않는다([Groq 데이터 처리 안내](https://console.groq.com/docs/your-data)).
 
 사용자가 설정할 항목은 기본적으로 **시간(5/10/15분), 면접관 성향(친절/보통/압박), 답변 방식(텍스트/마이크)** 정도로 제한한다. 블라인드 기능은 안전하게 동작하는 경우에만 선택적으로 표시한다.
 
@@ -415,7 +418,7 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 | 면접 유형 | `[PARTIAL]` | general/technical/discussion/pt/situational/panel 서버 구현, `tests/api/interview-types.test.mjs` | 설정 화면은 기본 `일반·인성`, 나머지는 `고급(실험)` 접힘(WP-D5, DEBT-8 해소). 일반·압박(`challenging`)·블라인드는 구현. 유형별 설계는 §2.8 |
 | 실시간 면접 대화·세션 관리 | `[PARTIAL]` | REST 명령(`session.start/pause/resume/finish`, `turn.text`), 서버 시계 시간 상한, 낙관적 버전 잠금, `command_id` 재생, 세션별 쓰기 직렬화, `tests/api/sessions.test.mjs`·`a1-*.test.mjs`. 새로고침 후 면접실 복원(WP-D9·D5, E2E) | 실시간 스트리밍·WebSocket 없음(`/ws`는 티켓 스텁). 기본 memory 저장소는 재시작 시 세션 소실(`STORE=file`이면 유지) |
 | TTS | `[PARTIAL]` | 브라우저 `SpeechSynthesis`(`public/screens/room.js speak`): "질문 듣기"+정지 버튼, 자동 낭독은 설정 토글 시에만. `/providers/status`의 `speech.synthesize`가 live일 때만 `POST /sessions/:id/tts`를 시도하고 실패 시 브라우저 TTS로 조용히 대체(WP-D5; 서버 TTS는 WP-B6 이후 `POST /sessions/:id/tts`가 오디오 또는 204+`X-TTS-Fallback: browser`로 응답) | ElevenLabs `[PARTIAL]` 어댑터·프록시 구현(WP-B6, 스텁 테스트만, 요청 형태 `[UNVERIFIED]`, 실호출 미실행). 브라우저·OS별 한국어 음성 편차 미확인 |
-| STT(Groq Whisper) | `[UNVERIFIED]` | `createGroqWhisperAdapter`, `POST /sessions/:id/transcriptions`, 브라우저 `MediaRecorder` UI(`public/screens/room.js`), 키 없음/비오디오 경로 `tests/api/stt-flags.test.mjs`, 스텁 fetch 계약 시험 `tests/api/b5-stt.test.mjs`(WP-B5: multipart·허용 형식·크기 상한·429→텍스트 안내·타임아웃·빈 결과·`pii_warnings`·원음 비저장·키 비노출) | 실키 호출 미실행(`tools/stt-smoke.mjs`·`docs/stt-smoke.md`는 수동·미실행). 계약 시험은 Groq 실동작을 증명하지 않는다. 전사 확인·교정 UI와 음성 상태 머신(D5)은 존재하나 실기기 미확인. 한국어 오류율·지연 측정 없음. `GROQ_LIVE_ACK` 없으면 차단 |
+| STT(Groq Whisper) | `[UNVERIFIED]` | `createGroqWhisperAdapter`, `POST /sessions/:id/transcriptions`, 브라우저 `MediaRecorder` UI(`public/screens/room.js`), 성인·동의 게이트와 실제 음성의 synthetic 우회 차단, 스텁 fetch 계약 시험 `tests/api/b5-stt.test.mjs`(WP-B5: multipart·허용 형식·크기 상한·429→텍스트 안내·타임아웃·빈 결과·`pii_warnings`·원음 비저장·키 비노출) | 실키 호출 미실행(`tools/stt-smoke.mjs`·`docs/stt-smoke.md`는 수동·미실행). 계약 시험은 Groq 실동작을 증명하지 않는다. 한국어 오류율·지연 측정 없음. 실음성은 만 19세 이상 확인·전송 고지 동의·`GROQ_LIVE_ACK`·`GROQ_REAL_DATA_ACK`가 모두 필요하다. Groq 공식 안내상 추론 데이터는 기본 비보관이나 신뢰성·악용 조사 목적으로 최대 30일 임시 보관 가능, 처리 위치는 미국이며 ZDR은 운영자 계정 설정이다([데이터 처리 안내](https://console.groq.com/docs/your-data)). |
 | 답변 분석·평가 | `[DONE]`(규칙 기반) + `[UNVERIFIED]` Gemini 평가(스텁 시험만, §7.6) | `mock-eval*.js`, 인용·span 검증(`evaluation.js`), `tests/api/sessions.test.mjs`, `tests/domain/pii-eval-transfer-trends.test.mjs`, 골든 불변식 `tests/eval/golden.test.mjs`(WP-B7, 합성 30건) | 의미 기반 평가 아님. UI는 "규칙 기반 참고 관찰" 고지(E2E 확인). 보고서에 `evaluator:{kind:'rule_based',provider:'mock',…}`를 표기하고 `badge` 필드 제거(BUG-6 수정, WP-B1). 사람 평가자 비교는 미실행 |
 | 근거 인용·판단 보류 | `[DONE]` | `validateEvaluation`, `insufficient_evidence`, `tests/api/sessions.test.mjs`, `tests/eval/invariants.mjs` | 의미 타당성 검증 없음 |
 | 약점 집중 코칭·재연습 | `[PARTIAL]` | `POST /practice-attempts`, `generateTransferQuestion`, UI `public/screens/repractice.js`·`feedback.js`(WP-D6) | 새 질문은 루브릭 5종 전 차원(15개) × **고정 템플릿 3개**에서 선택(`transfer.js TRANSFER_BANK`). 알 수 없는 역량은 422(대체 없음). 90초·1문항 세션 |
@@ -485,6 +488,30 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 **향후 계획(구현 금지, `docs/plan/09` §9):** 실제 웹 검색 기반 학교 자동 탐색, 보호자 동의 절차와 미성년자 실데이터 외부 AI 경로, 실제 월간 입시 이슈 수집·검수, Claude/DeepSeek 연동 재개, 사람 평가 후 평가기 승격, 재연습·고급 분석 확장.
 
 **비결정 시험 주의:** 이번 문서 작업의 `npm test` 반복 실행에서 서로 다른 시험 1건(`E: non-verbatim evidence dropped...`, `A1: concurrent turn commands...`)이 부하에 따라 간헐 실패했다(§10). 원인 미조사 `[UNVERIFIED]`, 코드는 수정하지 않았다.
+
+### 7.7 성인 대입 · 일반 면접 5단계 전환 (2026-10-31, 브랜치 `feat/student-mvp`, 미커밋 작업 트리)
+
+Gemini·Groq·Grounding **실호출 결과는 이 표의 근거가 아니다**(스텁 시험·Mock E2E만). 개발자 로컬 `.env`로 브라우저 확인 중 Gemini 응답을 받은 적은 있으나 품질 평가는 하지 않았다 `[UNVERIFIED]`.
+
+| 항목 | 상태 | 코드·테스트 근거 | 남은 것 |
+|---|---|---|---|
+| 이메일 로그인(가입·로그인·로그아웃·me), PBKDF2-SHA256 100k, 토큰 SHA-256 저장(7일), 이메일+IP 시도 제한, 동일 오류 문구, 계정 삭제 시 자격증명·토큰 파기 | `[DONE]`(Node·인메모리/파일 Store) | `src/app/handlers/auth.js`, `src/app/crypto.js`, `tests/api/auth.test.mjs` | Workers 라우팅은 DEV 토큰만 `[TODO]`, 비밀번호 찾기 없음 |
+| 만 18세 이상만 가입, 가입 동의에 Groq 음성 전송 고지 포함, 게이트 `ctx.adult` | `[DONE]` | `consents.js`, `stt.js`, `gate.js`, `s1-school.test.mjs` | 연령은 자기 신고, 법률 검토 없음 |
+| 고입 실입력 422, UI 대입 여정 하나 | `[DONE]` | `profiles.js`, `check-project.mjs` | — |
+| 일반 면접 5단계 고정(도입→학업·전공→경험 검증→문제 해결·성찰→마무리), 특수 5종은 정의만·선택 불가(422) | `[DONE]`(규칙·스텁) | `src/domain/interview-format.js`, `s2-questions.test.mjs` | 특수 면접 구현은 향후 |
+| 본질문·근거·연결 문장 승인 시 동결(`v.plan.general`), 단계별 근거 규칙(역량→학업, 주장→경험, 한계 문장→성찰), 모델 단계 검증·위반 단계만 규칙 대체 | `[DONE]`(스텁) | `profiles.js designPlan`, `validateModelStages` | 질문 품질 사람 평가 없음 |
+| 렌치 커스텀(역량 ≤8·20자, 면접 형태는 일반만), 승인 후 변경은 재승인 | `[DONE]` | `PATCH /profiles/:id/customization`, E2E | — |
+| 학교·전형 검색 `school.search`(Grounding, `GEMINI_GROUNDING_ACK`+무료 전용 해제 필요), 결과 텍스트만 150일 보관·링크/추천 검색어 비저장·질문 근거 비투입 | `[PARTIAL]` | `searchSchool`, `docs/decisions/2026-10-31-grounding-retention.md`, 스텁 시험 | 실검색 `[UNVERIFIED]`, 개인정보 안내에 Google 30일 보관 반영 `[TODO]` |
+| 면접실: 질문만 표시(근거·진행률 없음), 자동 녹음(Web Audio VAD), 발화 후 3초 정적 → 구간 전사 → 종결어미(…다/…요/…죠/…까)로 끝났으면 완료(브라우저 규칙, AI 호출 없음), 질문별 60초 제한·마감 문장, "네 답변 잘 들었습니다." 후 꼬리질문 결정(도입·마무리 없음, 질문당 1개), 연결 문장 | `[PARTIAL]` | `public/screens/room.js`, `public/core/vad.js`, `public/core/sentence.js`, `commands.js generalTurn`, E2E(텍스트 모드) | **실제 마이크 VAD·전사·완료 판단은 실기기 미검증** `[UNVERIFIED]`, 임계값 조정 필요 |
+| 음성 지표(정적 수·최장 정적·발화 비율·음량 변동·피치 지터) 브라우저 계산, 숫자만 저장 | `[PARTIAL]` | `vad.js`, `sanitizeVoice` | 지표 타당성 검증 없음(참고용 라벨) |
+| 실시간 참고 점수(`turn_score`, 면접 중 비공개)·결과 화면(질문·답변 본문, 꼬리질문 구분, i 버튼 근거, SVG 차트: 점수·역량 적합성·차원·음성), 중복 섹션 제거 | `[DONE]`(Mock E2E) | `feedback.js`, `competencyFit`, E2E | 적합성은 키워드 일치 기반 참고 지표 |
+| 서버 실행 기본 저장소 = 파일(`data/store/state.json`): 개발 서버 재시작에도 계정·로그인·기록 유지(재시작 시 로그인 화면으로 튕기던 문제 수정), 만료 로그인은 사유 안내 | `[DONE]` | `src/node/server.js startServer`, `tests/api/auth.test.mjs` | 단일 프로세스 가정. 배포용 DB는 미정 |
+| **공급자 배치(2026-10-31, 갱신):** Claude Sonnet(`claude-sonnet-5-5`) = 지원서 주장 분석(`claims.extract`)·**질문 구조(단계별 근거·초점·방식)만 설계**(`questions.design`)·최종 평가(`evaluation.generate`). Claude Haiku(`claude-haiku-5-5`, `CLAUDE_WRITER_MODEL`) = 학교 자료 인재상·역량 추출(`school.analyze`, 웹 검색 아님: 입력한 글에서만 뽑음, 샘플 10건 실호출 확인)·구조와 근거 원문으로 **질문·연결 문장 작성**(`questions.write`). Gemini = 학교·전형 검색(`school.search`)·꼬리질문(`dialogue.next`). 서버 검증·폴백은 공급자와 무관하게 동일 | `[PARTIAL]` | `claude.js`, `prompts/skeleton.js`, `validateSkeleton`, `b3-claude-claims.test.mjs`(스텁), 서울대 샘플 2단계 설계 실호출 1회 성공 | 나머지 operation 실호출·질문 품질 `[UNVERIFIED]`, Claude 단가 미설정(월 호출 500회 상한만 집행) |
+| 앱 샘플 10건(실제 대학명 + 예시 설명, 가상 지원서) | `[DONE]` | `src/domain/sample-schools.js` | 예시 설명은 공식 요강 아님 |
+| 면접 형태 탐지 검증(변경 전 0/10) | 문서 | `docs/verification/2026-10-31-interview-format-check.md` | Grounding 결과 열 `[UNVERIFIED]` |
+
+**숨김(코드 유지):** 재연습·전이 비교, 기록 화면, 관리자, 파일 업로드, 도움말, 자료 없는 일반 연습, PT·토론·패널 등 레거시 유형. 레거시 API는 `interview_format` 없이 호출하면 그대로 동작한다(`tools/rehearsal.mjs`가 레거시 경로를 검증).
+**향후:** 특수 면접 5종, `{이름}` 치환(지원서 이름 → `{이름}` → AI → TTS 직전 복원), Workers 로그인, 재연습 재도입.
 
 ## 8. 매 실행 시 에이전트 강제 작업 규칙
 
@@ -713,7 +740,9 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 | 트렌드 대체 경로 | `[PARTIAL]` 공개본 없으면 `unavailable`, 공개본은 질문 보조 1개로만 반영 |
 | 재검증 루프 | `[PARTIAL]` 재연습 반복 가능, `STORE=file`이면 기록 유지(기본 memory는 소실) |
 
-## 17. 변경 요약 (v1.0.0 → v1.1.0 → v1.2.0 → v1.3.0)
+## 17. 변경 요약 (v1.0.0 → v1.1.0 → v1.2.0 → v1.3.0 → v1.4.0)
+
+**v1.4.0 / 성인 대입 · 일반 면접 5단계 · 로그인(2026-10-31).** 사용자 결정으로 대상을 만 18세 이상 대입으로 한정(Gemini 약관), 이메일 로그인, 일반 면접 5단계 동결 계획·자동 녹음·완료 판단·60초 제한·꼬리질문 결정·연결 문장, 렌치 커스텀, Grounding 학교 검색(약관 준수 보관), 결과 화면 개편(차트·i 버튼), 부가기능 UI 숨김, 실제 대학 샘플 10건. 차별점의 전이 확인은 보류. 상세 §7.7. 미커밋.
 
 **v1.3.0 / 학생 MVP 전환 문서 패스(2026-10-30).** 대상을 고입·대입 학생으로 바꾸고(기업·취업은 레거시, 서버 회귀 보존), Gemini 단일 LLM·Groq STT·브라우저 TTS 구성, 미성년자 규칙·동의 API 변경, 구현/향후 구분(§7.6), 새 테스트 수(§10)를 반영했다. 구현은 `feat/student-mvp` 브랜치: 사양 `29abf84`(docs/plan/09) · Gemini 주장 추출 `9a298b0` · **WP-E** `de2b053`(Gemini 평가·라벨·혼합 평가기 비교 보류) · **WP-U** `874316b`(학생 UI) · **WP-S1** `996b108`(동의 `minor_notice_ack`·학교 입력·탐색·`school.analyze`·고입 fixture) · **WP-S2** `8363ccd`(`trends.decide`·`questions.design`·Mock 트렌드·`school_context`) · `49357bd`(학교 분석 호출 `Idempotency-Key`). 모든 신규 AI 경로는 스텁 시험만이며 Gemini 실호출은 하지 않았다. 코드·테스트는 이 문서 패스에서 수정하지 않았다.
 
@@ -740,3 +769,9 @@ Mock 경로 한정 확인이면 "(Mock)", 스텁 `fetch`·가짜 키로만 시�
 ---
 
 **기술·제품 최종 판단 기준:** 사람인의 일반 모의면접 기능을 복제하는 데 우선순위를 두지 않는다. **지원서 주장 검증 → 부족한 역량의 근거 기반 코칭 → 처음 보는 질문에서의 재검증** 루프를 가장 먼저 완성한다.
+
+## UI 개편 구현 기록 (2026-10-30)
+
+사용자 승인 계획에 따라 P1·P4·P5의 UI를 전문 코칭 노트 형태로 개편했다. 기본 5분, 텍스트/허용된 녹음, 접힌 추가 설정, 자료 입력·데이터 관리·관리자 탭을 사용한다. 원문 인용·판단 보류·연령/소유권/삭제 보호는 유지한다. 학교 분석 병합에서 source_id/source_status를 보존하며 원문 일치를 공식 검증으로 취급하지 않는다. 마이크 녹음은 fixture 세션에서도 실데이터이며 고입 실음성은 외부로 전송하지 않는다. 비교 ID를 저장하여 서버 조회로 복원한다. 실모델·실기기·배포·학습 효과는 미검증이다. 과거 문서의 점진 개선/재설계 금지는 이번 사용자 승인 전면 개편에 한해 대체한다.
+
+검증 기록: check:project 4/4, npm test 294 pass / 0 fail, Chromium E2E 156 ok / 0 fail(비교 새로고침 복원 포함), API 리허설 38/38. 전부 Mock·스텁이며 실제 외부 AI 호출 없음. 1440/768/390px 자동 검사와 생성 화면 육안 검토를 수행했다. 실음성·실기기·Safari/Firefox·스크린리더·1280×720 수동 시연·5~7분 실시간 시연은 미실행. 과거 문서의 검증 수치와 시연 상태는 당시 기록이며 이번 결과로 소급 변경하지 않는다.

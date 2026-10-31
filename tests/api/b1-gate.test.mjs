@@ -20,7 +20,7 @@ async function realFlow({ g, startSession, turn }) {
 
 test('B1 gate unit: every condition closes the gate and names its reason', () => {
   const gate = { apiKey: 'k', baseUrl: 'https://x.test', model: 'm', liveAck: true, realDataAck: true, legacyRealData: false, syntheticOnly: false };
-  const real = { consent: true, age19: true };
+  const real = { consent: true, adult: true };
   const ev = (over = {}, ctx = real, killed = false) => evaluateGate({ provider: 'gemini', gate: { ...gate, ...over }, killed, ctx });
   assert.deepEqual(ev(), { live: true, reason: null });
   assert.equal(evaluateGate({ provider: 'mock', gate, killed: false, ctx: real }).live, false);
@@ -31,8 +31,8 @@ test('B1 gate unit: every condition closes the gate and names its reason', () =>
   assert.equal(ev({ liveAck: false }).reason, 'live_ack_missing');
   assert.equal(ev({ realDataAck: false }).reason, 'real_data_ack_missing');
   assert.equal(ev({ realDataAck: false, syntheticOnly: true }).reason, 'synthetic_only');
-  assert.equal(ev({}, { consent: false, age19: true }).reason, 'consent_missing');
-  assert.equal(ev({}, { consent: true, age19: false }).reason, 'consent_missing');
+  assert.equal(ev({}, { consent: false, adult: true }).reason, 'consent_missing');
+  assert.equal(ev({}, { consent: true, adult: false }).reason, 'consent_missing');
   assert.equal(ev({ realDataAck: false }, { synthetic: true }).live, true, 'server-judged synthetic needs only LIVE_ACK');
   assert.equal(ev({ liveAck: false }, { synthetic: true }).reason, 'live_ack_missing');
   assert.equal(ev({}, { ...real, forceMock: true }).reason, 'highschool_mock');
@@ -120,7 +120,7 @@ test('B1 /providers/status: auth required, operation map only, no keys or model 
     assert.equal((await g('/api/v1/providers/status', { token: null })).status, 401);
     const r = await g('/api/v1/providers/status');
     assert.equal(r.status, 200);
-    assert.deepEqual(Object.keys(r.data.operations).sort(), ['claims.extract', 'dialogue.next', 'evaluation.generate', 'questions.design', 'school.analyze', 'speech.synthesize', 'speech.transcribe', 'trends.decide']);
+    assert.deepEqual(Object.keys(r.data.operations).sort(), ['claims.extract', 'dialogue.next', 'evaluation.generate', 'questions.design', 'questions.write', 'school.analyze', 'school.search', 'speech.synthesize', 'speech.transcribe', 'trends.decide']);
     for (const o of Object.values(r.data.operations)) assert.deepEqual(Object.keys(o).filter((k) => !['provider', 'mode', 'blocked_reason'].includes(k)), []);
     assert.equal(r.data.operations['dialogue.next'].blocked_reason, 'consent_missing');
     assert.equal(r.data.operations['evaluation.generate'].provider, 'mock');
@@ -128,10 +128,11 @@ test('B1 /providers/status: auth required, operation map only, no keys or model 
     const text = JSON.stringify(r.data);
     for (const leak of [FAKE_KEY, 'gsk_fake', STUB_MODEL, 'whisper-large', 'stub.gemini.test', 'stub.groq.test']) assert.ok(!text.includes(leak), `status leaks ${leak}`);
   });
-  await withProviders({ env: { ...LIVE, GROQ_WHISPER_KEY: 'gsk_fake_groq_key', GROQ_LIVE_ACK: 'true' }, overrides: { syntheticTraffic: true } }, async ({ g }) => {
+  await withProviders({ env: { ...LIVE, GROQ_WHISPER_KEY: 'gsk_fake_groq_key', GROQ_LIVE_ACK: 'true', GROQ_REAL_DATA_ACK: 'true' }, overrides: { syntheticTraffic: true } }, async ({ g }) => {
     const r = await g('/api/v1/providers/status');
     assert.equal(r.data.operations['dialogue.next'].mode, 'live');
-    assert.equal(r.data.operations['speech.transcribe'].provider, 'groq');
+    assert.equal(r.data.operations['speech.transcribe'].provider, 'mock', 'server-level synthetic traffic never classifies a microphone recording as synthetic');
+    assert.equal(r.data.operations['speech.transcribe'].blocked_reason, 'consent_missing');
     assert.equal(r.data.summary, 'partial_live');
   });
 });
@@ -139,7 +140,7 @@ test('B1 /providers/status: auth required, operation map only, no keys or model 
 test('B1 STT gate: voice needs GROQ_LIVE_ACK and a data class; blocked state is visible in /stt/status', async () => {
   await withProviders({ env: { GROQ_WHISPER_KEY: 'gsk_fake_groq_key' } }, async ({ g }) => {
     const r = await g('/api/v1/stt/status');
-    assert.equal(r.data.provider, 'disabled');
+    assert.equal(r.data.provider, 'groq-whisper', 'provider configuration is shown separately from permission to transcribe');
     assert.equal(r.data.blocked_reason, 'live_ack_missing');
     assert.ok(!JSON.stringify(r.data).includes('gsk_fake'));
   });

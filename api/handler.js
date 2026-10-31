@@ -1,8 +1,8 @@
-// Vercel 서버리스 함수: /api/v1/* 전체를 처리한다. 저장소는 Upstash Redis(src/vercel/handler.js). 정적 화면은 public/이 서빙한다.
+// Vercel 서버리스 함수: vercel.json 리라이트가 /api/v1/* 전체를 이 파일로 보낸다(경로는 __p 쿼리로 받는다). 저장소는 Upstash Redis(src/vercel/handler.js). 정적 화면은 public/이 서빙한다.
 import dns from 'node:dns/promises';
-import { createVercelHandler } from '../../src/vercel/handler.js';
-import { redisFromEnv } from '../../src/vercel/redis.js';
-import { createFileTrendStore } from '../../src/node/trends-file.js';
+import { createVercelHandler } from '../src/vercel/handler.js';
+import { redisFromEnv } from '../src/vercel/redis.js';
+import { createFileTrendStore } from '../src/node/trends-file.js';
 
 const handle = createVercelHandler({
   env: process.env,
@@ -21,7 +21,10 @@ export default async function handler(req, res) {
     const headers = new Headers();
     for (const [k, v] of Object.entries(req.headers)) if (v != null) headers.set(k, Array.isArray(v) ? v.join(', ') : v);
     const hasBody = body && req.method !== 'GET' && req.method !== 'HEAD';
-    const url = `${proto}://${req.headers.host || 'localhost'}${req.url}`;
+    const u = new URL(req.url, `${proto}://${req.headers.host || 'localhost'}`);
+    const sub = u.searchParams.get('__p');
+    if (sub !== null) { u.pathname = `/api/v1/${sub}`; u.searchParams.delete('__p'); }
+    const url = u.href;
     const r = await handle(new Request(url, { method: req.method, headers, body: hasBody ? body : undefined }));
     res.statusCode = r.status;
     for (const [k, v] of r.headers) if (k !== 'set-cookie') res.setHeader(k, v);

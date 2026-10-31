@@ -4,7 +4,7 @@
 
 ## 구조
 - `public/` → 정적 화면(Vercel이 그대로 서빙, 빌드 없음)
-- `api/v1/[...path].js` → `/api/v1/*` 전체를 처리하는 서버리스 함수
+- `api/handler.js` → `/api/v1/*` 전체를 처리하는 서버리스 함수(`vercel.json` 리라이트가 경로를 `__p` 쿼리로 넘김)
 - `src/vercel/handler.js` → 요청마다 새 코어를 만들고, Upstash Redis에서 **그 사용자의 데이터만** 불러와 처리한 뒤 다시 저장
 - `vercel.json` → 출력 폴더, 함수 실행 시간(60초), 보안 헤더(CSP, 마이크 허용은 같은 출처만)
 

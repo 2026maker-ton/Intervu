@@ -135,3 +135,21 @@ test('gate on Vercel: locked requests never touch Redis; fail closed without SIT
   for (let i = 0; i < 6; i++) last = await mk({ VERCEL: '1', SITE_PASSWORD: 'pw-vercel', GATE_SECRET: 'g' })(req('/api/v1/gate', { method: 'POST', body: JSON.stringify({ password: 'bad' }), headers: { 'x-forwarded-for': '3.3.3.3' } }));
   assert.equal(last.status, 429);
 });
+
+test('ai switch on Vercel: state lives in Redis across cold starts, password required, rate limited via Redis', async () => {
+  const up = fakeUpstash();
+  const redis = createRedis({ url: 'https://redis.test', token: 'tok', fetchFn: up.fetchFn });
+  const mk = () => createVercelHandler({ env: { ...ENV, AI_SWITCH_PASSWORD: 'sw-vercel' }, redis });
+  const call = (method, body, ip = '4.4.4.4') => mk()(new Request('http://x/api/v1/ai-switch', { method, headers: { 'x-forwarded-for': ip, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }));
+  assert.deepEqual(await (await call('GET')).json(), { on: true, configured: true });
+  assert.equal((await call('POST', { on: false, password: 'bad' })).status, 401);
+  assert.equal(up.kv.has('flag:ai_off'), false);
+  assert.equal((await call('POST', { on: false, password: 'sw-vercel' })).status, 200);
+  assert.equal(up.kv.get('flag:ai_off'), '1');
+  assert.equal((await (await call('GET')).json()).on, false, 'a fresh handler sees the stored state');
+  assert.equal((await call('POST', { on: true, password: 'sw-vercel' })).status, 200);
+  assert.equal(up.kv.has('flag:ai_off'), false);
+  let last;
+  for (let i = 0; i < 6; i++) last = await call('POST', { on: false, password: 'bad' }, '5.5.5.5');
+  assert.equal(last.status, 429);
+});

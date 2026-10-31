@@ -77,7 +77,7 @@ async function finishAll(sid, version, texts) {
 // 4) 고등학교: Mock 강제 + 보고서 면책
 {
   const p = await call('/api/v1/profiles', { method: 'POST', body: { org_type: 'highschool', target_name: 'E2E고', role: '일반전형', source_text: '지원동기와 진로계획, 봉사 경험을 말해주세요.' } });
-  ok('highschool mock forced', p.status === 201 && p.data.provider === 'mock');
+  ok('highschool new input rejected (adult-only since v1.4.0)', p.status === 422);
 }
 
 // 5) 상충·오래된 자료 표시

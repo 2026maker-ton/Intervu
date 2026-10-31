@@ -200,6 +200,8 @@ export function loadConfig(env = process.env) {
     // ADMIN_TOKEN 미설정이면 관리 기능은 꺼진다(공개본 조회는 영향 없음).
     adminToken: String(env.ADMIN_TOKEN || ''),
     // 사이트 입장 비밀번호(데모 잠금, src/app/gate.js). 비우면 잠금 없음. GATE_SECRET은 쿠키 서명용 임의 문자열(없으면 비밀번호만으로 서명).
+    // AI 기능 스위치(화면 상단): 켜고 끄려면 이 비밀번호가 필요하다. 비우면 스위치를 쓸 수 없다(503).
+    aiSwitchPassword: String(env.AI_SWITCH_PASSWORD || ''),
     sitePassword: String(env.SITE_PASSWORD || ''), gateSecret: String(env.GATE_SECRET || ''),
     // 합성 샘플 API(WP-C6). 기본 켬, DEMO_FIXTURES=off로 끔.
     demoFixtures: String(env.DEMO_FIXTURES ?? 'on').toLowerCase() !== 'off',

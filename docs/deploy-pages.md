@@ -1,5 +1,7 @@
 # Pages 배포 (WP-A4)
 
+> **2026-10-31:** 현재 배포 경로는 Vercel([deploy-vercel.md](deploy-vercel.md))이다. Pages는 정적 UI만 올리고, 로그인·입장 비밀번호가 있는 API는 별도 서버가 필요하다.
+
 정적 UI(`public/`)를 GitHub Pages로, API는 별도 서버(Node 또는 이후 Workers)로 둔다. 이 저장소는 배포를 실행하지 않는다. 개발자가 아래를 직접 설정한다.
 
 ## 설정

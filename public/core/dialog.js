@@ -1,7 +1,7 @@
 import { $ } from './format.js';
 
 // ---- 대화상자 (prompt/confirm 대체) ----
-export function dialog({ title, message = '', label = '', value = '', multiline = false, okText = '확인', danger = false, choices = null }) {
+export function dialog({ title, message = '', label = '', value = '', multiline = false, okText = '확인', danger = false, choices = null, secret = false }) {
   return new Promise((resolve) => {
     const dlg = $('#confirmDialog');
     if (!dlg) return resolve(null);
@@ -19,6 +19,8 @@ export function dialog({ title, message = '', label = '', value = '', multiline 
     input.hidden = multiline || !!choices;
     area.hidden = !multiline || !!choices;
     if (multiline) area.value = value; else input.value = value;
+    input.type = secret ? 'password' : 'text';
+    input.autocomplete = secret ? 'off' : 'on';
     const ok = $('#confirmOk');
     const cancel = $('#confirmCancel');
     ok.textContent = okText;

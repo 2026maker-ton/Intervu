@@ -5,7 +5,7 @@ import { PT_TASKS, SITUATION_SCENARIOS, PANEL_PRESETS } from '../../domain/scena
 import { DISCUSSION_TOPICS } from '../../domain/discussion.js';
 
 export function createOpsHandlers(d) {
-  const { config, store, ledger, trends, err, now, provider, providerInfo, gemini, groq, killed, adminEnabled, checkAdmin, parseTrendId, registry, caller, requestContext } = d;
+  const { config, store, ledger, trends, err, now, provider, providerInfo, gemini, groq, isKilled, adminEnabled, checkAdmin, parseTrendId, registry, caller, requestContext } = d;
 
   // 공개 상태 확인은 최소 정보만: 설정·모델·예산 정보는 인증된 사용자에게만 준다.
   const health = (authed) => ({ status: 200, body: { ok: true, provider: authed ? providerInfo() : { selected: provider.name }, time: now(), ...(authed ? {data_policy:{durable:config.durableStorage === true,retention_days:config.limits.dataTtlDaysDefault,backup_retention_days:null}} : {}) } });
@@ -44,7 +44,7 @@ export function createOpsHandlers(d) {
   async function geminiModels(req, requestId) {
     const gate = await checkAdmin(req);
     if (gate) return gate;
-    if (!gemini || killed) return { status: 200, body: { available: false, reason: killed ? 'kill_switch' : 'no_key', models: [], configured_model: null } };
+    if (!gemini || isKilled('gemini')) return { status: 200, body: { available: false, reason: isKilled('gemini') ? 'kill_switch' : 'no_key', models: [], configured_model: null } };
     try {
       const models = await gemini.listModels();
       return {

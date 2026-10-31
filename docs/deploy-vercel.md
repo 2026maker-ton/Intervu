@@ -24,7 +24,7 @@
 1. Vercel에서 이 저장소를 프로젝트로 가져옵니다(Framework: Other, 빌드 명령 없음 — `vercel.json`이 정합니다).
 2. Storage 탭에서 만든 Upstash Redis(`intervuDB`)를 이 프로젝트에 **연결**합니다. 연결하면 `KV_REST_API_URL`·`KV_REST_API_TOKEN`(또는 `UPSTASH_REDIS_REST_URL`·`UPSTASH_REDIS_REST_TOKEN`)이 자동 등록됩니다.
 3. 환경변수(Production)에 `.env`의 값을 등록합니다. **넣지 말 것:** `PORT`, `DEV_TOKEN_A/B`, `STORE`, `DATA_DIR`, `TRENDS_FILE`.
-   **반드시 넣을 것:** `SITE_PASSWORD`(사이트 입장 비밀번호)와 `GATE_SECRET`(입장 쿠키 서명용 임의 문자열, 32자 이상). `SITE_PASSWORD`가 없으면 Vercel에서는 `/api`가 503(`gate_unconfigured`)으로 닫힙니다. 비밀번호나 `GATE_SECRET`을 바꾸면 이미 입장한 브라우저도 다시 입력해야 합니다.
+   **반드시 넣을 것:** `SITE_PASSWORD`(사이트 입장 비밀번호), `GATE_SECRET`(입장 쿠키 서명용 임의 문자열, 32자 이상), `AI_SWITCH_PASSWORD`(화면 상단 AI 스위치 비밀번호; 없으면 스위치 사용 불가). AI 스위치 상태는 Redis(`flag:ai_off`)에 저장되어 모든 사용자에게 적용된다. `SITE_PASSWORD`가 없으면 Vercel에서는 `/api`가 503(`gate_unconfigured`)으로 닫힙니다. 비밀번호나 `GATE_SECRET`을 바꾸면 이미 입장한 브라우저도 다시 입력해야 합니다.
 4. 배포 후 확인: 가입 → 샘플로 면접 한 바퀴 → 새로고침해도 로그인 유지 → 계정 삭제.
 
 ## 입장 비밀번호

@@ -153,7 +153,7 @@ async function main() {
   const app = createApp({
     env: {
       GEMINI_API_KEY: '', GROQ_WHISPER_KEY: '', GROQ_API_KEY: '', DEV_TOKEN_A: '', DEV_TOKEN_B: '',
-      ADMIN_TOKEN, TRENDS_FILE, PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100',
+      ADMIN_TOKEN, TRENDS_FILE, AI_SWITCH_PASSWORD: 'e2e-switch', PROFILE_RATE_PER_MINUTE: '100', PROFILE_RATE_PER_DAY: '100',
     },
   });
   await new Promise((r) => app.server.listen(0, '127.0.0.1', r));
@@ -214,12 +214,32 @@ async function main() {
     check(screens.join(',') === 'login,dashboard,application,evidence,setup,room,feedback', '화면 7개(부가기능 없음)', screens.join(','));
     check(await page.locator('[data-journey]').count() === 1, '대입 여정 하나');
     check(!(await page.locator('text=자료 없이').count()), '자료 없이 일반 연습 없음');
+    // AI 스위치: 비밀번호가 맞아야 바뀐다
+    check(await page.locator('#aiSwitch').getAttribute('aria-checked') === 'true', 'AI 스위치 기본 켜짐');
+    await page.click('#aiSwitch');
+    check(await page.locator('#confirmInput').getAttribute('type') === 'password', '스위치 비밀번호는 가려서 입력');
+    await page.fill('#confirmInput', 'wrong');
+    await page.click('#confirmOk');
+    await page.waitForTimeout(800);
+    check(await page.locator('#aiSwitch').getAttribute('aria-checked') === 'true', '틀린 비밀번호면 스위치가 바뀌지 않음');
+    await page.click('#aiSwitch');
+    await page.fill('#confirmInput', 'e2e-switch');
+    await page.click('#confirmOk');
+    await page.waitForFunction(() => document.querySelector('#aiSwitch').getAttribute('aria-checked') === 'false');
+    check(true, '맞는 비밀번호로 AI 끔');
+    await page.click('#aiSwitch');
+    await page.fill('#confirmInput', 'e2e-switch');
+    await page.click('#confirmOk');
+    await page.waitForFunction(() => document.querySelector('#aiSwitch').getAttribute('aria-checked') === 'true');
+    check(true, '맞는 비밀번호로 AI 켬');
     await page.click('#journeyUniversity');
 
     console.log('\n[3] 지원 정보');
     await page.waitForURL(/#\/application/);
     await page.waitForFunction(() => document.querySelectorAll('#fixtureSelect option').length >= 11);
     check(await page.locator('#fixtureSelect option').count() === 11, '샘플 10건');
+    check(await page.locator('[name=experiences]').count() === 0 && !(await page.locator('text=경험 메모').count()), '경험 메모 입력 없음');
+    check(await page.locator('#screen-application .back-btn').count() === 1 && await page.locator('#applicationForm .sticky-actions .ghost').count() === 0, '지원 정보: 위쪽 뒤로가기, 아래에는 다음 버튼만');
     check(!(await page.locator('#docFile').count()), '파일 업로드 숨김');
     await page.selectOption('#fixtureSelect', 'smp-snu-bio');
     await page.click('#loadFixtureBtn');
@@ -230,18 +250,25 @@ async function main() {
 
     console.log('\n[4] 근거 확인');
     await page.waitForURL(/#\/evidence/);
-    await page.waitForFunction(() => document.querySelectorAll('#ev-plan .plan-list li').length === 5, null, { timeout: 15000 });
-    check(true, '질문 계획 5단계');
-    check(await page.locator('#evDetail').isHidden(), '기본 화면: 역량·면접 형태·학교·전형만(세부는 접힘)');
+    await page.waitForFunction(() => { const t = document.querySelector('#ev-comp')?.innerText || ''; return t.length > 10 && !t.includes('검색 중'); }, null, { timeout: 15000 });
+    check(await page.locator('#evDetail, #detailToggle').count() === 0, '근거 확인에는 세부 조정(지원서 근거·질문 목록)이 없다(결과 뒤로 이동)');
+    check(await page.locator('#screen-evidence .back-btn').count() === 1 && await page.locator('#evidenceCard > .actions .ghost').count() === 0, '뒤로가기는 위쪽 버튼 하나, 아래에는 다음(승인) 버튼만');
     check((await page.locator('#ev-search').innerText()).includes('서울대학교'), '학교·전형 정보 표시');
-    await page.click('#detailToggle');
-    check(await page.locator('#evDetail').isVisible() && await page.locator('#detailToggle').getAttribute('aria-expanded') === 'true', '렌치로 지원서 근거·질문 목록 펼침');
     check(await page.locator('#editCompBtn[aria-label="직접 수정"]').count() === 1 && await page.locator('#editFormatBtn').count() === 1, '렌치 버튼 2개');
+    // 뒤로 갔다가 수정 없이 다시 다음: 이미 분석한 결과를 그대로 쓴다(새 프로필·분석 요청 없음)
+    let created = 0;
+    const onReq = (r) => { if (r.method() === 'POST' && new RegExp('/api/v1/profiles(/[^/]+/school-analysis)?$').test(r.url())) created++; };
+    page.on('request', onReq);
+    await page.click('#screen-evidence .back-btn');
+    await page.waitForURL(/#\/application/);
+    await page.click('#analyzeBtn');
+    await page.waitForURL(/#\/evidence/);
+    page.off('request', onReq);
+    check(created === 0, '수정 없이 뒤로 갔다 오면 다시 분석하지 않음', String(created));
     await page.click('#editCompBtn');
     await page.fill('#confirmText', '과학적 추론\n탐구 논리성');
     await page.click('#confirmOk');
     await page.waitForFunction(() => document.querySelector('#ev-comp').innerText.includes('과학적 추론'));
-    check((await page.locator('#ev-plan .plan-list li').nth(1).innerText()).includes('과학적 추론'), '직접 입력 역량이 학업 단계 질문에 반영');
     await page.click('#editFormatBtn');
     const disabled = await page.locator('#confirmChoice option[disabled]').count();
     check(disabled === 5, '특수 면접 5종 선택 불가', String(disabled));
@@ -287,6 +314,9 @@ async function main() {
     await page.waitForSelector('.qa');
     check(await page.locator('.report-charts svg').count() >= 2, '차트 SVG(점수·차원)');
     check(await page.locator('.report-charts .hbar').count() >= 1, '역량 적합성 막대');
+    await page.waitForFunction(() => !document.querySelector('#reportDetail')?.hidden, null, { timeout: 8000 });
+    check(await page.locator('#reportDetail .claims li').count() >= 1 && await page.locator('#reportDetail .plan-list li').count() === 5, '세부 정보(지원서 근거·질문 5개)는 결과 맨 뒤');
+    check(await page.evaluate(() => { const d = document.querySelector('#reportDetail'); const last = document.querySelector('#feedbackBody').lastElementChild; return d === last; }), '세부 정보가 결과 화면의 마지막 요소');
     check(await page.locator('.qa:not(.followup)').count() === 5, '본질문 5개');
     const info = page.locator('.qa .icon-btn.info').first();
     await info.click();
@@ -306,7 +336,7 @@ async function main() {
   } finally {
     check(!pageErrors.length, '페이지 오류 없음', pageErrors.join(' | '));
     check(!consoleErrors.filter((m) => !/Failed to load resource/.test(m)).length, '콘솔 오류 없음', consoleErrors.join(' | '));
-    const unexpected = badResponses.filter((r) => !/\/auth\/signup/.test(r));
+    const unexpected = badResponses.filter((r) => !/\/auth\/signup|^401 POST .*\/ai-switch/.test(r)); // 가입 중복 확인·틀린 스위치 비밀번호는 의도된 거절
     check(!unexpected.length, '예상하지 않은 4xx/5xx 없음', unexpected.join(' | '));
     await browser.close();
     app.server.close();

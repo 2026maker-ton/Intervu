@@ -11,7 +11,7 @@
 import { createCore } from '../app/core.js';
 import { createStore } from '../store/memory.js';
 import { loadConfig } from '../config.js';
-import { sha256Hex, randomUUID } from '../app/crypto.js';
+import { sha256Hex, randomUUID, safeEqual } from '../app/crypto.js';
 import { createGate } from '../app/gate.js';
 
 const SKIP_MAPS = new Set(['users', 'authSessions']);
@@ -75,6 +75,22 @@ export function createVercelHandler({ env = process.env, redis, trends, official
     if (gate.enabled && p !== '/api/v1/gate' && !(await gate.verify(request))) return apiErr(401, 'gate_required', '입장 비밀번호가 필요합니다.');
     if (!redis) return apiErr(503, 'store_unconfigured', '저장소(Upstash Redis)가 연결되지 않았습니다. 환경변수를 확인하세요.');
 
+    // AI 스위치: 상태는 Redis(flag:ai_off)에 둔다. 켜고 끄려면 스위치 비밀번호가 필요하고 시도는 IP당 분당 5·일 30회(Redis)로 센다.
+    const aiOff = (await redis.cmd(['GET', 'flag:ai_off']).catch(() => null)) === '1';
+    if (p === '/api/v1/ai-switch') {
+      if (method === 'GET') return Response.json({ on: !aiOff, configured: !!config.aiSwitchPassword });
+      if (method !== 'POST') return apiErr(405, 'method_not_allowed', '지원하지 않는 요청입니다.');
+      if (!config.aiSwitchPassword) return apiErr(503, 'switch_disabled', 'AI 스위치 비밀번호가 설정되지 않았습니다.');
+      const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local';
+      const out = await redis.pipeline([['INCR', `rl:sw:m:${ip}`], ['EXPIRE', `rl:sw:m:${ip}`, 60, 'NX'], ['INCR', `rl:sw:d:${ip}`], ['EXPIRE', `rl:sw:d:${ip}`, 86400, 'NX']]);
+      if (Number(out[0]) > 5 || Number(out[2]) > 30) return apiErr(429, 'rate_limited', '시도가 너무 잦습니다. 잠시 후 다시 시도하세요.', true);
+      const b = await request.json().catch(() => ({}));
+      if (typeof b?.on !== 'boolean') return apiErr(422, 'validation_error', 'on 값이 필요합니다.');
+      if (!(await safeEqual(String(b?.password ?? '').slice(0, 200), config.aiSwitchPassword))) { await sleep(300); return apiErr(401, 'switch_denied', '비밀번호가 올바르지 않습니다.'); }
+      await redis.cmd(b.on ? ['DEL', 'flag:ai_off'] : ['SET', 'flag:ai_off', '1']);
+      return Response.json({ on: b.on });
+    }
+
     const store = createStore({ ttlDays: config.limits.dataTtlDaysDefault });
     const loaded = { users: new Map(), sess: new Set(), ownerRaw: null, ledger: null };
     const isAuthEntry = method === 'POST' && (p === '/api/v1/auth/signup' || p === '/api/v1/auth/login');
@@ -120,6 +136,7 @@ export function createVercelHandler({ env = process.env, redis, trends, official
       }
 
       const core = createCore({ env, store, trends, officialFetch });
+      core.aiSwitch.set(aiOff);
       const response = await core.fetch(request, env, {});
       const ownerNow = owner || [...store._maps.users.keys()].find((id) => !loaded.users.has(id)) || null;
 

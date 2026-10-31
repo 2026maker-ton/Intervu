@@ -39,7 +39,6 @@ $('#loadFixtureBtn')?.addEventListener('click', async () => {
     form.track.value = f.track || '';
     form.source_text.value = f.posting_text;
     form.application_text.value = f.application_text;
-    form.experiences.value = (f.experiences || []).join('\n');
     setFixture(f);
   } catch (e) {
     setError('#applicationError', e.message);
@@ -55,17 +54,20 @@ $('#applicationForm')?.addEventListener('submit', async (e) => {
     org_type: 'university',
     school_name: val('school_name').trim(), department: val('department').trim(), track: val('track').trim() || undefined,
     source_text: val('source_text').trim(), application_text: val('application_text').trim(),
-    experiences: val('experiences').split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 8),
   };
   if (!payload.school_name || !payload.department) return setError('#applicationError', '대학교와 학과를 입력해 주세요.');
   // 합성 판정은 서버가 정하며, 본문이 샘플과 정확히 같을 때만 fixture_id를 보낸다.
   if (fixture && payload.source_text === fixture.posting_text && payload.application_text === fixture.application_text) payload.fixture_id = fixture.id;
+  // 뒤로 갔다 와서 입력을 바꾸지 않았으면 이미 분석한 결과를 그대로 쓴다(다시 만들지·분석하지 않는다).
+  const key = JSON.stringify(payload);
+  if (state.profile?.id && state.appKey === key) { go('evidence'); return; }
   btn.disabled = true;
   try {
     const created = await api('/profiles', { method: 'POST', idempotent: true, body: payload });
     state.profile = created;
     state.versionId = created.version_id;
     state.approved = false;
+    state.appKey = key;
     const detail = await api(`/profiles/${created.id}`);
     state.profile = { ...created, ...detail };
     state.sources = detail.sources || [];

@@ -1,5 +1,7 @@
 # Workers 배포 (WP-A3, DG-1 A안) — 런타임 미검증
 
+> **2026-10-31:** 현재 배포 경로는 Vercel([deploy-vercel.md](deploy-vercel.md))이다. Workers 어댑터는 이메일 로그인·입장 비밀번호가 연결되지 않았고(아래 `DEV_TOKEN_*` 방식은 이전 기준) 런타임 미검증이다.
+
 코드(`src/worker/*`, `wrangler.toml`)는 Node에서 `worker.fetch(new Request(...), env)` 직접 호출로만 시험했다. Workers 런타임·wrangler는 실행하지 않았다. 아래 `[UNVERIFIED]`는 공식 문서를 확인하지 않은 가정이다.
 
 ## 개발자 절차

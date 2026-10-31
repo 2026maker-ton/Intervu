@@ -43,14 +43,17 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   const eg = config.providerGate.elevenlabs;
   const elevenlabs = eg.apiKey && eg.baseUrl && eg.model && config.elevenlabs.voiceId ? createElevenlabsAdapter({ apiKey: eg.apiKey, baseUrl: eg.baseUrl, model: eg.model, voiceId: config.elevenlabs.voiceId, timeoutMs: config.elevenlabs.timeoutMs, maxAudioBytes: config.elevenlabs.maxAudioBytes }) : null;
   const killList = String(config.killSwitch || '').split(/[,\s]+/);
-  const killed = killList.includes('gemini');
-  const killedGroq = killList.includes('groq');
+  // AI 스위치(런타임): 꺼지면 모든 공급자를 킬 스위치와 같게 막고 규칙 기반 기본 동작만 남긴다. Node는 메모리, Vercel은 요청마다 Redis 값을 넣는다.
+  let aiOff = false;
+  const killSet = new Set(killList);
+  const isKilled = (p) => aiOff || killSet.has(p);
+  const aiSwitch = { off: () => aiOff, set: (v) => { aiOff = !!v; }, enabled: !!config.aiSwitchPassword, verify: (pw) => safeEqual(String(pw ?? '').slice(0, 200), config.aiSwitchPassword) };
   // 공급자 라우팅·게이트·호출 래퍼(WP-B1, 04 §1~3). 외부 전송 허용 여부는 서버 상태(ctx)로만 정한다.
   // 요청 본문의 synthetic/free_test 값은 어떤 경로에서도 전송 근거가 아니다.
   const registry = createRegistry(config);
   const caller = createCaller({
     registry, gates: config.providerGate, ledger, priceOf: (model, usage) => priceOf(model, usage),
-    killed: new Set(killList), adapters: { mock, gemini, groq, claude, deepseek, elevenlabs }, caps: config.providerCaps,
+    killed: { has: isKilled }, adapters: { mock, gemini, groq, claude, deepseek, elevenlabs }, caps: config.providerCaps,
     timeouts: { gemini: config.gemini.timeoutMs, groq: config.groq.timeoutMs, claude: config.claude.timeoutMs, deepseek: config.deepseek.timeoutMs, elevenlabs: config.elevenlabs.timeoutMs },
   });
   // 요청 컨텍스트: synthetic은 서버가 코드로 켠 인스턴스이거나 서버 판정 훅(extra.synthetic, WP-C6 fixture 해시)일 때만 true.
@@ -103,11 +106,12 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     trends: trends?.status ? trends.status() : null,
     textModel: gemini?.model || config.gemini.textModel,
     fallbackModel: config.gemini.fallbackModel,
-    killSwitch: [killed ? 'gemini' : null, killedGroq ? 'groq' : null].filter(Boolean).join(',') || 'none',
-    groq: groq && !killedGroq
+    killSwitch: [isKilled('gemini') ? 'gemini' : null, isKilled('groq') ? 'groq' : null].filter(Boolean).join(',') || 'none',
+    aiOff,
+    groq: groq && !isKilled('groq')
       ? { configured: true, model: groq.model, maxAudioBytes: config.groq.maxAudioBytes, maxRecordingSeconds: config.groq.maxRecordingSeconds }
       : { configured: !!config.groq.apiKey, model: config.groq.model, disabled: true },
-    note: killed
+    note: isKilled('gemini')
       ? 'AI 외부 호출이 비활성화되어 Mock으로 동작합니다.'
       : provider.name === 'gemini'
         ? (config.gemini.freeOnly !== false
@@ -123,7 +127,7 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     if (c.minute > lim.perMinute || c.day > lim.perDay) return err('quota_exceeded', '요청이 너무 잦습니다. 잠시 후 다시 시도하세요.', 429, { retryable: true, details: { bucket, minute: c.minute, day: c.day, limit_minute: lim.perMinute, limit_day: lim.perDay } });
     return null;
   };
-  const d = { config, store, ledger, trends, err, now, priceOf, provider, providerInfo, syntheticTraffic, gemini, groq, elevenlabs, killed, killedGroq, adminEnabled, checkAdmin, mock, registry, caller, requestContext, checkRate, officialFetch };
+  const d = { config, store, ledger, trends, err, now, priceOf, provider, providerInfo, syntheticTraffic, gemini, groq, elevenlabs, isKilled, adminEnabled, checkAdmin, mock, registry, caller, requestContext, checkRate, officialFetch };
   const sessions = createSessionHandlers(d);
   d.publicSession = sessions.publicSession;
   const admin = createAdminHandlers(d);
@@ -145,11 +149,11 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
   };
   const requestLog = [];
   const gate = createGate({ password: config.sitePassword, secret: config.gateSecret });
-  const fetch = createFetchHandler({ store, auth, bearer, handlers, requestLog, gate });
+  const fetch = createFetchHandler({ store, auth, bearer, handlers, requestLog, gate, aiSwitch });
   // gate: 어댑터(Vercel)가 잠금 사용 여부를 알아야 해서 노출한다.
 
   return {
-    fetch, gate, config, store, ledger, providerInfo, providerName, handlers,
+    fetch, gate, aiSwitch, config, store, ledger, providerInfo, providerName, handlers,
     // 실제로 사용된 공급자 통계(운영 진단)
     providerStats() { return gemini?.stats || null; },
   };

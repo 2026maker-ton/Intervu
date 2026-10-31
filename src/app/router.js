@@ -12,7 +12,7 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
 const json = (status, body, extra = {}) => new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...extra } });
 
-export function createFetchHandler({ store, auth, bearer = () => null, handlers: h, requestLog = [], gate = null }) {
+export function createFetchHandler({ store, auth, bearer = () => null, handlers: h, requestLog = [], gate = null, aiSwitch = null }) {
   const mutex = createKeyedMutex();
 
   async function fetch(request, _env, _ctx) {
@@ -39,6 +39,22 @@ export function createFetchHandler({ store, auth, bearer = () => null, handlers:
           const { json: b } = await readJsonBody(request);
           const cookie = await gate.attempt(b?.password, { secure });
           return cookie ? json(200, { ok: true }, { 'Set-Cookie': cookie }) : json(401, err('gate_denied', '비밀번호가 올바르지 않습니다.', 401).error);
+        }
+        return json(405, err('method_not_allowed', '지원하지 않는 요청입니다.', 405).error);
+      }
+      // AI 기능 스위치: 입장 잠금 뒤에서만 열리고, 켜고 끄려면 스위치 비밀번호가 필요하다(시도는 IP당 분당 5·일 30회).
+      if (aiSwitch && p === '/api/v1/ai-switch' && !(gate?.enabled && !(await gate.verify(request)))) {
+        if (method === 'GET') return json(200, { on: !aiSwitch.off(), configured: aiSwitch.enabled });
+        if (method === 'POST') {
+          if (!aiSwitch.enabled) return json(503, err('switch_disabled', 'AI 스위치 비밀번호가 설정되지 않았습니다.', 503).error);
+          const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local';
+          const c = store.recordRate(`${ip}`, 'ai-switch');
+          if (c.minute > 5 || c.day > 30) return json(429, err('rate_limited', '시도가 너무 잦습니다. 잠시 후 다시 시도하세요.', 429).error);
+          const { json: b } = await readJsonBody(request);
+          if (typeof b?.on !== 'boolean') return json(422, err('validation_error', 'on 값이 필요합니다.', 422).error);
+          if (!(await aiSwitch.verify(b?.password))) { await new Promise((r) => setTimeout(r, 300)); return json(401, err('switch_denied', '비밀번호가 올바르지 않습니다.', 401).error); }
+          aiSwitch.set(!b.on);
+          return json(200, { on: b.on });
         }
         return json(405, err('method_not_allowed', '지원하지 않는 요청입니다.', 405).error);
       }

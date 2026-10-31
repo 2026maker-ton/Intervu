@@ -52,18 +52,6 @@ function searchBody(inst) {
     <p class="fine" id="searchNote" role="status">${esc(ctx.searchNote || '')}</p>`;
 }
 
-function claimsBody(serverClaims, ex) {
-  const list = Array.isArray(serverClaims) ? serverClaims.filter((c) => !c.kind || c.kind === 'applicant_claim') : (ex.applicant_claims || []);
-  if (!list.length) return '<p class="missing">경험·성과 문장을 찾지 못했습니다.</p>';
-  return `<ul class="claims">${list.map((c) => `<li class="claim-item${c.excluded ? ' excluded' : ''}">${EvidenceQuote({ quote: c.quote, start: c.start_cp, end: c.end_cp })}${c.gaps?.length ? `<span class="meta">빠진 정보: ${c.gaps.map((g) => `<span class="tag">${esc(GAP[g] || g)}</span>`).join(' ')}</span>` : ''}${c.id != null && Array.isArray(serverClaims) ? `<label class="claim-toggle"><input type="checkbox" data-claim-exclude="${esc(String(c.id))}"${c.excluded ? ' checked' : ''} /> 제외</label>` : ''}</li>`).join('')}</ul>`;
-}
-
-function planBody(plan) {
-  const st = plan?.stages || [];
-  if (!st.length) return '<p class="missing">질문 계획을 만들지 못했습니다.</p>';
-  return `<ol class="plan-list">${st.map((s) => `<li><span class="stage-chip">${esc(STAGE_LABEL[s.stage] || s.stage)}</span><span class="val">${esc(s.text)}</span>${s.evidence?.length ? `<span class="meta">근거: ${s.evidence.map((e) => esc(e.kind === 'application' ? `지원서 “${String(e.quote).slice(0, 30)}…”` : e.label)).join(', ')}</span>` : ''}</li>`).join('')}</ol>`;
-}
-
 function paint() {
   const { detail, claims, plan } = ctx;
   if (!detail) return;
@@ -75,11 +63,6 @@ function paint() {
       ${section('format', '면접 형태', formatBody(inst), wrench('editFormatBtn'))}
     </div>
     ${section('search', '학교·전형', `<p class="val">${esc([detail.school_name || detail.target_name, detail.department || detail.role, detail.track].filter(Boolean).join(' · '))}</p>${searchBody(inst)}`)}
-    <div class="detail-row"><button class="ghost small detail-toggle" type="button" id="detailToggle" aria-expanded="${ctx.showDetail}" aria-controls="evDetail">${WRENCH} 세부 조정 · 지원서 근거와 질문 목록</button></div>
-    <div id="evDetail"${ctx.showDetail ? '' : ' hidden'}>
-      ${section('claims', '지원서에서 확인할 내용', claimsBody(claims, ex))}
-      ${section('plan', '질문 계획', planBody(plan))}
-    </div>
     ${ctx.needsReapproval ? '<p class="missing" role="status">내용이 바뀌어 다시 승인해야 합니다.</p>' : ''}`;
   const frame = $('#evidenceBody .search-suggestions');
   if (frame) frame.srcdoc = ctx.lastSearch.suggestions_html; // sandbox(스크립트 차단) 안에서만 렌더
@@ -152,25 +135,6 @@ $('#evidenceBody')?.addEventListener('click', (e) => {
   else if (e.target.closest('#reanalyzeBtn') && !ctx.busy) reanalyze();
   else if (e.target.closest('#editFormatBtn')) editFormat();
   else if (e.target.closest('#schoolSearchBtn') && !ctx.searching) runSearch();
-  else if (e.target.closest('#detailToggle')) {
-    ctx.showDetail = !ctx.showDetail; // 기본은 역량·면접 형태·학교·전형만. 렌치로 지원서 근거·질문 목록을 펼친다.
-    $('#evDetail').hidden = !ctx.showDetail;
-    $('#detailToggle').setAttribute('aria-expanded', String(ctx.showDetail));
-  }
-});
-
-$('#evidenceBody')?.addEventListener('change', async (e) => {
-  const cb = e.target.closest?.('[data-claim-exclude]');
-  if (!cb) return;
-  cb.disabled = true;
-  try {
-    const res = await api(`/profiles/${state.profile.id}/claims/${encodeURIComponent(cb.dataset.claimExclude)}`, { method: 'PATCH', idempotent: true, body: { excluded: cb.checked } });
-    if (res?.needs_reapproval) ctx.needsReapproval = true;
-    await refresh(state.profile.id);
-  } catch (err) {
-    cb.checked = !cb.checked;
-    setError('#evidenceError', err.message);
-  } finally { cb.disabled = false; }
 });
 
 $('#approveBtn')?.addEventListener('click', async () => {
@@ -192,4 +156,3 @@ $('#approveBtn')?.addEventListener('click', async () => {
   }
 });
 
-$('#evidenceBackBtn')?.addEventListener('click', () => go('application'));

@@ -6,6 +6,7 @@ import { toast } from '../core/toast.js';
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { go } from '../core/router.js';
+import { EvidenceQuote } from '../ui/index.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export async function loadReport() {
@@ -114,6 +115,28 @@ function transcriptHtml(tr) {
   </article>`).join('');
 }
 
+// 세부 정보(결과 맨 뒤, 읽기 전용): 면접 질문의 바탕이 된 지원서 근거와 확정된 질문 목록.
+const GAP = { role: '본인 역할', result: '관찰된 결과', reason: '판단 기준', number: '수치·기록' };
+function claimsHtml(list) {
+  const rows = (list || []).filter((c) => !c.kind || c.kind === 'applicant_claim');
+  if (!rows.length) return '<p class="meta">경험·성과 문장을 찾지 못했습니다.</p>';
+  return `<ul class="claims">${rows.map((c) => `<li class="claim-item${c.excluded ? ' excluded' : ''}">${EvidenceQuote({ quote: c.quote, start: c.start_cp, end: c.end_cp })}${c.gaps?.length ? `<span class="meta">빠진 정보: ${c.gaps.map((g) => `<span class="tag">${esc(GAP[g] || g)}</span>`).join(' ')}</span>` : ''}</li>`).join('')}</ul>`;
+}
+function planHtml(plan) {
+  const st = plan?.stages || [];
+  if (!st.length) return '<p class="meta">질문 계획을 불러오지 못했습니다.</p>';
+  return `<ol class="plan-list">${st.map((s) => `<li><span class="stage-chip">${esc(STAGE_LABEL[s.stage] || s.stage)}</span><span class="val">${esc(s.text)}</span>${s.evidence?.length ? `<span class="meta">근거: ${s.evidence.map((e) => esc(e.kind === 'application' ? `지원서 “${String(e.quote).slice(0, 30)}…”` : e.label)).join(', ')}</span>` : ''}</li>`).join('')}</ol>`;
+}
+async function loadDetail() {
+  const id = state.profile?.id;
+  const host = $('#reportDetail');
+  if (!id || !host) return;
+  const [cl, plan] = await Promise.all([api(`/profiles/${id}/claims`).catch(() => null), api(`/profiles/${id}/plan`).catch(() => null)]);
+  if (!cl && !plan) { host.hidden = true; return; }
+  host.hidden = false;
+  host.querySelector('.detail-body').innerHTML = `<h3>지원서에서 확인한 내용</h3>${claimsHtml(cl?.claims)}<h3>면접 질문 목록</h3>${planHtml(plan)}`;
+}
+
 export function renderReport(r) {
   const body = $('#feedbackBody');
   if (!body) return;
@@ -126,7 +149,9 @@ export function renderReport(r) {
     <section class="report-charts">${scoreChart(tr)}${fitChart(r.competency_fit)}${radar(r.dimensions)}${voiceChart(tr)}</section>
     <section class="report-main" aria-labelledby="qaTitle"><h2 id="qaTitle">질문과 답변</h2>${tr.length ? transcriptHtml(tr) : '<p class="missing">기록된 답변이 없습니다.</p>'}</section>
     ${actions.length ? `<section class="card report-actions"><h2>다음 연습</h2><ol>${actions.map((a) => `<li><strong>${esc(dimLabel(a.dimension_id))}</strong> ${esc(a.action)}</li>`).join('')}</ol></section>` : ''}
-    <div class="actions"><button class="primary" type="button" id="reportHomeBtn">처음으로</button></div>`;
+    <div class="actions"><button class="primary" type="button" id="reportHomeBtn">처음으로</button></div>
+    <details class="card report-detail" id="reportDetail" hidden><summary>세부 정보 · 지원서 근거와 질문 목록</summary><div class="detail-body"></div></details>`;
+  loadDetail();
   $('#reportHomeBtn').addEventListener('click', () => go('dashboard'));
   $$('#feedbackBody .icon-btn.info').forEach((b) => b.addEventListener('click', () => {
     const panel = document.getElementById(b.getAttribute('aria-controls'));

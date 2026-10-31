@@ -648,3 +648,22 @@ details {margin-bottom:12px;} .preferences {border-top:1px solid var(--line);}
 .voice-tl .seg-track { fill: var(--line); }
 .voice-tl .seg.speech, .sw.seg-speech { fill: var(--chart-1); background: var(--chart-1); }
 .voice-tl .seg.pause, .sw.seg-pause { fill: var(--chart-2); background: var(--chart-2); }
+/* 화면 위쪽 뒤로가기 */
+.screen-head:has(.back-btn) { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.screen-head .back-btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px 6px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--accent); font: inherit; font-size: .88rem; font-weight: 700; cursor: pointer; box-shadow: 0 1px 2px #172c4510; transition: background .15s, border-color .15s, transform .15s; }
+.screen-head .back-btn:hover { background: var(--tint); border-color: var(--accent); transform: translateX(-2px); }
+.screen-head .back-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.screen-head .back-btn svg { flex: none; }
+.screen-head h1 { margin: 0; }
+.report-detail { margin-top: 16px; }
+.report-detail summary { cursor: pointer; font-weight: 750; }
+.report-detail h3 { margin: 14px 0 6px; font-size: .95rem; }
+
+/* AI 기능 스위치 */
+.ai-switch { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink, inherit); font: inherit; font-size: .8rem; font-weight: 800; cursor: pointer; }
+.ai-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ai-switch-track { position: relative; width: 34px; height: 20px; border-radius: 999px; background: #b8c2cf; transition: background .15s; }
+.ai-switch-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0003; transition: transform .15s; }
+.ai-switch[aria-checked="true"] .ai-switch-track { background: var(--green); }
+.ai-switch[aria-checked="true"] .ai-switch-knob { transform: translateX(14px); }
+.ai-switch[aria-checked="false"] .ai-switch-label { color: var(--red); }

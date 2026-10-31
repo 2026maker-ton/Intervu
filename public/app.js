@@ -4,6 +4,7 @@
 import { renderScreen, currentTarget } from './core/router.js';
 import { setUnauthorizedHandler, setGateHandler } from './core/api.js';
 import { ensureGate, showGate } from './screens/gate.js';
+import { initAiSwitch } from './screens/aiswitch.js';
 import './screens/application.js';
 import './screens/evidence.js';
 import './screens/setup.js';
@@ -16,6 +17,7 @@ setGateHandler(showGate);
 
 (async function boot() {
   await ensureGate(); // 입장 비밀번호가 필요하면 통과할 때까지 앱을 열지 않는다
+  initAiSwitch();
   if (!location.hash) location.hash = '#/dashboard';
   const target = currentTarget();
   if (!(await loadMe())) { renderScreen('login'); return; }

@@ -6,7 +6,7 @@ import { readMultipartAudio } from '../body.js';
 import { SIGNUP_NOTICE_VERSION } from './auth.js';
 
 export function createSttHandlers(d) {
-  const { config, store, err, groq, killedGroq, caller, requestContext, checkRate } = d;
+  const { config, store, err, groq, isKilled, caller, requestContext, checkRate } = d;
   // 음성 전송 고지가 포함된 동의만 인정한다: 구 STT 전용 동의 또는 가입 동의(만 18세 + Groq 전송 고지).
   const STT_NOTICES = new Set(['stt-groq-2026-10', SIGNUP_NOTICE_VERSION]);
   const realAudioContext = (owner, extra = {}) => {
@@ -23,7 +23,7 @@ export function createSttHandlers(d) {
     const profile=pid?store.getProfile(owner,pid):session?store.getProfile(owner,store.getVersion(session.profile_version_id)?.profile_id):null;
     if((pid&&sid)||(pid&&!profile)||(sid&&!session)||profile?.org_type==='highschool') return {configured:false,provider:'disabled',real_data_allowed:false,requires_adult_consent:false,message:'고입·미성년자 연습에서는 실제 음성 전사를 사용할 수 없습니다. 텍스트로 답해 주세요.'};
     if (!config.groq.apiKey) return { configured: false, provider: 'none', message: '음성 인식 키가 없습니다. 텍스트로 답해 주세요.' };
-    if (killedGroq) return { configured: true, provider: 'disabled', message: '음성 인식이 비활성화되어 있습니다. 텍스트로 답해 주세요.' };
+    if (isKilled('groq')) return { configured: true, provider: 'disabled', message: '음성 인식이 비활성화되어 있습니다. 텍스트로 답해 주세요.' };
     // A microphone recording is real personal data even if the profile/session is a demo fixture.
     const { ctx, record } = realAudioContext(owner);
     const plan = caller.plan('speech.transcribe', ctx);
@@ -56,7 +56,7 @@ export function createSttHandlers(d) {
     const s = store.getSession(owner, id);
     if (!s) return err('not_found', '세션을 찾을 수 없습니다.', 404);
     if (s.state === 'deleting' || s.state === 'deleted') return err('not_found', '세션을 찾을 수 없습니다.', 404);
-    if (!groq || killedGroq || !config.groq.apiKey) {
+    if (!groq || isKilled('groq') || !config.groq.apiKey) {
       return err('stt_unavailable', '음성 인식을 사용할 수 없습니다. 텍스트로 답해 주세요.', 503, { retryable: false });
     }
     const limited = checkRate(owner, 'stt');

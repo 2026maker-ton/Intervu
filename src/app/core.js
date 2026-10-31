@@ -12,6 +12,7 @@ import { createCaller } from '../providers/call.js';
 import { err, now } from './util.js';
 import { safeEqual, sha256Hex } from './crypto.js';
 import { createAuthHandlers } from './handlers/auth.js';
+import { createGate } from './gate.js';
 import { createProfileHandlers } from './handlers/profiles.js';
 import { createConsentHandlers } from './handlers/consents.js';
 import { createSessionHandlers } from './handlers/sessions.js';
@@ -143,10 +144,12 @@ export function createCore({ env = {}, store: storeIn, ledger: ledgerIn, trends,
     auth: createAuthHandlers(d),
   };
   const requestLog = [];
-  const fetch = createFetchHandler({ store, auth, bearer, handlers, requestLog });
+  const gate = createGate({ password: config.sitePassword, secret: config.gateSecret });
+  const fetch = createFetchHandler({ store, auth, bearer, handlers, requestLog, gate });
+  // gate: 어댑터(Vercel)가 잠금 사용 여부를 알아야 해서 노출한다.
 
   return {
-    fetch, config, store, ledger, providerInfo, providerName, handlers,
+    fetch, gate, config, store, ledger, providerInfo, providerName, handlers,
     // 실제로 사용된 공급자 통계(운영 진단)
     providerStats() { return gemini?.stats || null; },
   };

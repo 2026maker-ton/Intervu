@@ -637,3 +637,6 @@ details {margin-bottom:12px;} .preferences {border-top:1px solid var(--line);}
 .ev-table tbody th { font-weight: 700; width: 28%; }
 .ev-table q { color: var(--ink-2); }
 #ev-comp { grid-column: 1 / -1; }
+.gate { min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--paper); }
+.gate-card { width: min(100%, 380px); }
+.gate-card h1 { margin-top: 0; }

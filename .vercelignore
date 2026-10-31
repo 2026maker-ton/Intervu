@@ -1,0 +1,7 @@
+data
+docs
+tests
+tools
+.claude
+*.cmd
+wrangler.toml

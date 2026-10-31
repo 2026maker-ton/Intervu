@@ -10,6 +10,16 @@
 <body>
 <a class="skip" href="#main">본문으로 이동</a>
 
+<!-- 입장 비밀번호: 서버가 /api를 잠그고, 통과하면 앱을 보여 준다 -->
+<section id="gateScreen" class="gate" aria-labelledby="gateTitle" hidden>
+  <form class="card form-card gate-card" id="gateForm" novalidate>
+    <h1 id="gateTitle">Intervu</h1>
+    <label class="field"><span>입장 비밀번호</span><input id="gatePassword" type="password" autocomplete="off" maxlength="200" required /></label>
+    <div class="actions"><button class="primary" type="submit" id="gateBtn">입장</button></div>
+    <p class="fine" id="gateError" role="alert"></p>
+  </form>
+</section>
+
 <header class="topbar">
   <div class="brand" role="link" tabindex="0" data-go="dashboard" aria-label="Intervu 메인으로 이동" style="cursor:pointer">
     <span class="mark" aria-hidden="true">

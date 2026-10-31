@@ -2,7 +2,8 @@
 // 의존성 없음. 서버 API(/api/v1)만 사용하며 AI 키는 브라우저에 존재하지 않는다.
 
 import { renderScreen, currentTarget } from './core/router.js';
-import { setUnauthorizedHandler } from './core/api.js';
+import { setUnauthorizedHandler, setGateHandler } from './core/api.js';
+import { ensureGate, showGate } from './screens/gate.js';
 import './screens/application.js';
 import './screens/evidence.js';
 import './screens/setup.js';
@@ -11,8 +12,10 @@ import { loadMe, signedOut } from './screens/login.js';
 import { loadProvider, restoreFromStorage } from './screens/dashboard.js';
 
 setUnauthorizedHandler(signedOut);
+setGateHandler(showGate);
 
 (async function boot() {
+  await ensureGate(); // 입장 비밀번호가 필요하면 통과할 때까지 앱을 열지 않는다
   if (!location.hash) location.hash = '#/dashboard';
   const target = currentTarget();
   if (!(await loadMe())) { renderScreen('login'); return; }

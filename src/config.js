@@ -195,6 +195,8 @@ export function loadConfig(env = process.env) {
     // 관리자 인증 (PROJECT §2.3/§3): /admin/*·/metrics·/diagnostics 는 x-admin-token 헤더가 ADMIN_TOKEN과 일치할 때만 허용.
     // ADMIN_TOKEN 미설정이면 관리 기능은 꺼진다(공개본 조회는 영향 없음).
     adminToken: String(env.ADMIN_TOKEN || ''),
+    // 사이트 입장 비밀번호(데모 잠금, src/app/gate.js). 비우면 잠금 없음. GATE_SECRET은 쿠키 서명용 임의 문자열(없으면 비밀번호만으로 서명).
+    sitePassword: String(env.SITE_PASSWORD || ''), gateSecret: String(env.GATE_SECRET || ''),
     // 합성 샘플 API(WP-C6). 기본 켬, DEMO_FIXTURES=off로 끔.
     demoFixtures: String(env.DEMO_FIXTURES ?? 'on').toLowerCase() !== 'off',
     trendMockMonth: String(env.TREND_MOCK_MONTH || ''), // 학생 MVP Mock 트렌드 조회 월(비우면 현재 월). 시험·데모 시계 고정용

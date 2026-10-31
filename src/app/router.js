@@ -12,7 +12,7 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
 const json = (status, body, extra = {}) => new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...extra } });
 
-export function createFetchHandler({ store, auth, bearer = () => null, handlers: h, requestLog = [] }) {
+export function createFetchHandler({ store, auth, bearer = () => null, handlers: h, requestLog = [], gate = null }) {
   const mutex = createKeyedMutex();
 
   async function fetch(request, _env, _ctx) {
@@ -27,6 +27,22 @@ export function createFetchHandler({ store, auth, bearer = () => null, handlers:
     const notFound = () => json(404, { error: { code: 'not_found', message: '경로를 찾을 수 없습니다.', retryable: false, request_id: requestId, details: null } });
 
     try {
+      // 사이트 입장 비밀번호: /api 전체를 잠근다(gate 경로만 예외). 잠금이 꺼져 있으면(SITE_PASSWORD 없음) 통과.
+      if (gate && p === '/api/v1/gate') {
+        const secure = url.protocol === 'https:' || request.headers.get('x-forwarded-proto') === 'https';
+        if (method === 'GET') return json(200, { required: gate.enabled, open: await gate.verify(request) });
+        if (method === 'DELETE') return json(200, { ok: true }, { 'Set-Cookie': gate.clear(secure) });
+        if (method === 'POST') {
+          const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local';
+          const c = store.recordRate(`${ip}`, 'gate');
+          if (c.minute > 5 || c.day > 30) return json(429, err('rate_limited', '시도가 너무 잦습니다. 잠시 후 다시 시도하세요.', 429).error);
+          const { json: b } = await readJsonBody(request);
+          const cookie = await gate.attempt(b?.password, { secure });
+          return cookie ? json(200, { ok: true }, { 'Set-Cookie': cookie }) : json(401, err('gate_denied', '비밀번호가 올바르지 않습니다.', 401).error);
+        }
+        return json(405, err('method_not_allowed', '지원하지 않는 요청입니다.', 405).error);
+      }
+      if (gate?.enabled && p.startsWith('/api/') && !(await gate.verify(request))) return json(401, err('gate_required', '입장 비밀번호가 필요합니다.', 401).error);
       if (p === '/api/v1/health') return send(h.ops.health(!!(await auth(request))));
       if (p === '/api/v1/interview-types' && method === 'GET') return send(h.ops.interviewTypes());
       // 정적 UI는 어댑터 책임(Pages/Node). 라우터는 API만 다룬다.
